@@ -1,16 +1,17 @@
-# Offline Soluce V10 — Installation / utilisation
+# Offline Soluce V11 — Installation / utilisation
 
 ## Ce que fait cette version
 
-La V10 abandonne l’idée absurde de dépendre des raccourcis Steam pour deviner tes jeux rétro.
+La V10 a abandonné l’idée de dépendre des raccourcis Steam pour deviner tes jeux rétro. La V11 ajoute un **mode lecteur plein écran** (route Steam Deck dédiée) et un retry HTTP 429 sur le téléchargement.
 
-Elle fonctionne maintenant comme ça :
+Elle fonctionne comme ça :
 
 1. elle détecte des **sources de scan**
    - `Emulation/roms` sur l’interne
    - `Emulation/roms` sur SD / stockage externe
    - `Games` sur l’interne
    - `Games` sur SD / stockage externe
+   - `steamapps` (bibliothèque Steam) sur l’interne et SD
 2. tu **actives / désactives** les sources voulues
 3. tu lances un **scan local**
 4. tu obtiens une **bibliothèque unifiée**
@@ -59,6 +60,9 @@ Elle fonctionne maintenant comme ça :
 - ajuste la taille du texte
 - pose un marque-page
 - reprends plus tard hors ligne
+- bouton `🖥️ Ouvrir en plein écran` → bascule sur une page Steam Deck dédiée avec sommaire à gauche et reader large
+  - depuis la vue SOURCES, le bouton `🖥️ Reprendre en plein écran` fait pareil sur le dernier guide ouvert
+  - `← Retour` dans le plein écran te ramène à la vue précédente, la progression est sauvegardée à la sortie
 
 ---
 
@@ -75,7 +79,7 @@ py .\package_dist.py
 ZIP attendu :
 
 ```text
-release\decky-offline-soluce-v0.10.0.zip
+release\decky-offline-soluce-v0.11.0.zip
 ```
 
 ---
@@ -98,5 +102,5 @@ py -m http.server 8000
 Puis dans Decky, installer avec une URL du type :
 
 ```text
-http://IP_DE_TON_PC:8000/decky-offline-soluce-v0.10.0.zip
+http://IP_DE_TON_PC:8000/decky-offline-soluce-v0.11.0.zip
 ```

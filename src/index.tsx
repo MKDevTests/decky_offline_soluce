@@ -2,11 +2,29 @@ import {
   ButtonItem,
   PanelSection,
   PanelSectionRow,
+  DialogButton,
+  Focusable,
+  Router,
   definePlugin,
 } from "@decky/ui";
-import { callable } from "@decky/api";
+import { callable, routerHook } from "@decky/api";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FaBookOpen } from "react-icons/fa";
+
+// Module-level handoff for the full-screen reader.
+// QAM sets the target guide id, then navigates to the route; FullScreenReader
+// reads (and clears) it on mount. Avoids URL params + global state libs.
+let pendingFullScreenGuideId: string | null = null;
+function requestFullScreenGuide(guideId: string): void {
+  pendingFullScreenGuideId = guideId;
+}
+function consumeFullScreenGuideId(): string | null {
+  const id = pendingFullScreenGuideId;
+  pendingFullScreenGuideId = null;
+  return id;
+}
+
+const FULL_SCREEN_ROUTE = "/decky-offline-soluce/reader";
 
 // ========== Types ==========
 
@@ -688,6 +706,272 @@ function GuideReader(props: GuideReaderProps) {
             );
           })
         )}
+      </div>
+    </div>
+  );
+}
+
+
+// ========== Full-screen reader component ==========
+
+/**
+ * Stand-alone full-page reading surface, mounted via routerHook on the
+ * `/decky-offline-soluce/reader` route. Owns its own state — when the user
+ * navigates back, progress is persisted and the QAM Content view will pick up
+ * the latest record on its next refresh.
+ */
+function FullScreenReader() {
+  const guideIdRef = useRef<string | null>(consumeFullScreenGuideId());
+  const [guide, setGuide] = useState<GuideDetail | null>(null);
+  const [preferences, setPreferences] = useState<ReaderPreferences | null>(null);
+  const [sectionIndex, setSectionIndex] = useState<number>(-1);
+  const [fontScale, setFontScale] = useState<number>(1.0);
+  const [searchPattern, setSearchPattern] = useState<string>("");
+  const [showSearch, setShowSearch] = useState<boolean>(false);
+  const [showToc, setShowToc] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string>("");
+  const lastScrollFractionRef = useRef<number>(0);
+  const restoreFractionRef = useRef<number | null>(null);
+  const initialScrollRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    const id = guideIdRef.current;
+    if (!id) {
+      setLoadError("Aucun guide à ouvrir — relance depuis le menu Decky.");
+      return;
+    }
+    (async () => {
+      try {
+        const [prefs, detail] = await Promise.all([getReaderPreferences(), getGuide(id)]);
+        setPreferences(prefs);
+        setGuide(detail);
+        const startIdx = detail.progress.last_section_index >= 0
+          ? detail.progress.last_section_index
+          : (detail.sections.length > 0 ? 0 : -1);
+        setSectionIndex(startIdx);
+        setFontScale(detail.progress.font_scale && detail.progress.font_scale > 0 ? detail.progress.font_scale : 1.0);
+        restoreFractionRef.current = detail.progress.last_scroll_fraction || 0;
+      } catch (e: any) {
+        setLoadError(String(e?.message || e || "Erreur de chargement"));
+      }
+    })();
+  }, []);
+
+  // Debounced persist on section / font / scroll changes
+  useEffect(() => {
+    if (!guide) return;
+    const t = setTimeout(() => {
+      saveProgress(guide.id, sectionIndex, fontScale, lastScrollFractionRef.current).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectionIndex, fontScale, guide?.id]);
+
+  // Final persist on unmount
+  useEffect(() => () => {
+    if (guide) {
+      saveProgress(guide.id, sectionIndex, fontScale, lastScrollFractionRef.current).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guide?.id]);
+
+  // Reset restore fraction when section changes after initial load
+  useEffect(() => {
+    if (initialScrollRef.current) {
+      initialScrollRef.current = false;
+      return;
+    }
+    restoreFractionRef.current = 0;
+  }, [sectionIndex]);
+
+  const theme = preferences ? themeStyle(preferences.theme) : { background: "#111", textColor: "#eee", borderColor: "rgba(255,255,255,0.1)", headingColor: "#ffd966", preBg: "rgba(0,0,0,0.3)", preText: "#ddd" };
+  const layoutStyle: React.CSSProperties = {
+    width: "100vw",
+    height: "100vh",
+    display: "flex",
+    flexDirection: "column",
+    background: theme.background,
+    color: theme.textColor,
+    fontFamily: preferences ? fontFamily(preferences.font_family) : undefined,
+  };
+  const headerStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "10px 16px",
+    borderBottom: `1px solid ${theme.borderColor}`,
+    background: "rgba(0,0,0,0.35)",
+    flexShrink: 0,
+  };
+  const sidebarStyle: React.CSSProperties = {
+    width: "300px",
+    overflowY: "auto",
+    overflowX: "hidden",
+    borderRight: `1px solid ${theme.borderColor}`,
+    background: "rgba(0,0,0,0.18)",
+    flexShrink: 0,
+  };
+  const mainAreaStyle: React.CSSProperties = {
+    flex: 1,
+    display: "flex",
+    overflow: "hidden",
+  };
+  const readerPaneStyle: React.CSSProperties = {
+    flex: 1,
+    padding: "12px 16px",
+    overflow: "hidden",
+    display: "flex",
+    flexDirection: "column",
+  };
+  const footerStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "10px 16px",
+    borderTop: `1px solid ${theme.borderColor}`,
+    background: "rgba(0,0,0,0.35)",
+    flexShrink: 0,
+  };
+
+  if (loadError) {
+    return (
+      <div style={layoutStyle}>
+        <div style={headerStyle}>
+          <DialogButton onClick={() => Router.NavigateBack()}>← Retour</DialogButton>
+          <div style={{ flex: 1, fontWeight: 700 }}>Lecteur plein écran</div>
+        </div>
+        <div style={{ padding: "24px", fontSize: "0.95rem" }}>{loadError}</div>
+      </div>
+    );
+  }
+
+  if (!guide || !preferences) {
+    return (
+      <div style={layoutStyle}>
+        <div style={headerStyle}>
+          <DialogButton onClick={() => Router.NavigateBack()}>← Retour</DialogButton>
+          <div style={{ flex: 1, fontWeight: 700 }}>Chargement…</div>
+        </div>
+      </div>
+    );
+  }
+
+  const sectionCount = guide.sections.length;
+  const currentSection = sectionIndex >= 0 ? guide.sections[sectionIndex] : null;
+  const sectionLabel = currentSection ? currentSection.title : "—";
+
+  return (
+    <div style={layoutStyle}>
+      <div style={headerStyle}>
+        <DialogButton onClick={() => Router.NavigateBack()}>← Retour</DialogButton>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: "0.95rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {guide.game.game_title || guide.title}
+          </div>
+          <div style={{ fontSize: "0.78rem", opacity: 0.75, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {sectionCount > 0 && sectionIndex >= 0
+              ? `Section ${sectionIndex + 1}/${sectionCount} · ${sectionLabel}`
+              : "Aucune section"}
+          </div>
+        </div>
+        <DialogButton onClick={() => setShowToc((v) => !v)}>{showToc ? "Masquer sommaire" : "📚 Sommaire"}</DialogButton>
+        <DialogButton onClick={() => setFontScale((v) => Math.max(0.85, +(v - 0.1).toFixed(2)))}>A−</DialogButton>
+        <DialogButton onClick={() => setFontScale((v) => Math.min(2.0, +(v + 0.1).toFixed(2)))}>A+</DialogButton>
+        <DialogButton onClick={() => setShowSearch((v) => !v)}>{showSearch ? "Fermer 🔍" : "🔍"}</DialogButton>
+      </div>
+
+      {showSearch ? (
+        <div style={{ padding: "8px 16px", background: "rgba(0,0,0,0.25)", flexShrink: 0 }}>
+          <input
+            type="text"
+            value={searchPattern}
+            onChange={(e: any) => setSearchPattern(e.target.value)}
+            placeholder="Surligner dans la section…"
+            style={{
+              width: "100%",
+              padding: "8px 10px",
+              borderRadius: "6px",
+              border: `1px solid ${theme.borderColor}`,
+              background: "rgba(0,0,0,0.4)",
+              color: theme.textColor,
+              fontSize: "0.9rem",
+            }}
+          />
+        </div>
+      ) : null}
+
+      <div style={mainAreaStyle}>
+        {showToc ? (
+          <Focusable style={sidebarStyle}>
+            {guide.sections.map((sec, idx) => {
+              const isCurrent = idx === sectionIndex;
+              const indent = Math.max(0, (sec.heading_level || 0) - 1) * 12;
+              return (
+                <Focusable
+                  key={idx}
+                  onActivate={() => setSectionIndex(idx)}
+                  style={{
+                    padding: "8px 10px",
+                    paddingLeft: `${10 + indent}px`,
+                    borderLeft: isCurrent ? "3px solid #ffd966" : "3px solid transparent",
+                    background: isCurrent ? "rgba(255, 217, 102, 0.18)" : "transparent",
+                    cursor: "pointer",
+                    fontSize: "0.85rem",
+                    fontWeight: isCurrent ? 700 : 400,
+                    color: theme.textColor,
+                  }}
+                >
+                  {preferences.numbered_sections ? `[${idx + 1}] ` : ""}{sec.title || "(sans titre)"}
+                </Focusable>
+              );
+            })}
+          </Focusable>
+        ) : null}
+
+        <div style={readerPaneStyle}>
+          <GuideReader
+            guide={guide}
+            sectionIndex={sectionIndex}
+            fontScale={fontScale}
+            preferences={preferences}
+            searchPattern={searchPattern}
+            scrollRestoreFraction={restoreFractionRef.current}
+            onScrollChange={(f) => {
+              lastScrollFractionRef.current = f;
+              if (restoreFractionRef.current !== null) restoreFractionRef.current = null;
+            }}
+            maxHeight={showSearch ? "calc(100vh - 200px)" : "calc(100vh - 150px)"}
+          />
+        </div>
+      </div>
+
+      <div style={footerStyle}>
+        <DialogButton
+          disabled={sectionIndex <= 0}
+          onClick={() => setSectionIndex((v) => Math.max(0, v - 1))}
+        >
+          ◀ Section précédente
+        </DialogButton>
+        <div style={{ flex: 1, textAlign: "center", fontSize: "0.78rem", opacity: 0.7 }}>
+          {sectionCount > 0 && sectionIndex >= 0 ? `${sectionIndex + 1} / ${sectionCount}` : ""}
+        </div>
+        <DialogButton
+          onClick={() => {
+            if (!guide) return;
+            void setBookmark(guide.id, sectionIndex, lastScrollFractionRef.current)
+              .then((g) => setGuide(g))
+              .catch(() => {});
+          }}
+        >
+          🔖 Marque-page
+        </DialogButton>
+        <div style={{ flex: 1 }} />
+        <DialogButton
+          disabled={sectionCount === 0 || sectionIndex >= sectionCount - 1}
+          onClick={() => setSectionIndex((v) => Math.min(sectionCount - 1, v + 1))}
+        >
+          Section suivante ▶
+        </DialogButton>
       </div>
     </div>
   );
@@ -1549,6 +1833,15 @@ function Content() {
               ⏱ Reprendre où j'étais
             </ButtonItem>
           </PanelSectionRow>
+          <PanelSectionRow>
+            <ButtonItem layout="below" disabled={isBusy} onClick={() => {
+              requestFullScreenGuide(lastOpenedGuide.id);
+              Router.CloseSideMenus();
+              Router.Navigate(FULL_SCREEN_ROUTE);
+            }}>
+              🖥️ Reprendre en plein écran
+            </ButtonItem>
+          </PanelSectionRow>
         </PanelSection>
       ) : null}
 
@@ -2079,6 +2372,16 @@ function Content() {
             </ButtonItem>
           </PanelSectionRow>
           <PanelSectionRow>
+            <ButtonItem layout="below" disabled={isBusy || !selectedGuideSummary} onClick={() => {
+              if (!selectedGuideSummary) return;
+              requestFullScreenGuide(selectedGuideSummary.id);
+              Router.CloseSideMenus();
+              Router.Navigate(FULL_SCREEN_ROUTE);
+            }}>
+              🖥️ Ouvrir en plein écran
+            </ButtonItem>
+          </PanelSectionRow>
+          <PanelSectionRow>
             <ButtonItem layout="below" disabled={isBusy || !selectedGuideSummary} onClick={() => void handleDeleteSelectedGuide()}>
               Supprimer ce guide
             </ButtonItem>
@@ -2472,9 +2775,13 @@ function Content() {
 }
 
 export default definePlugin(() => {
+  routerHook.addRoute(FULL_SCREEN_ROUTE, FullScreenReader, { exact: true });
   return {
     title: <div className="title">Offline Soluce</div>,
     content: <Content />,
     icon: <FaBookOpen />,
+    onDismount() {
+      routerHook.removeRoute(FULL_SCREEN_ROUTE);
+    },
   };
 });

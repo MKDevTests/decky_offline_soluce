@@ -3550,44 +3550,52 @@ class Plugin:
 
         last_error: Exception | None = None
         for idx, attempt in enumerate(attempts):
-            try:
-                if idx > 0:
-                    time.sleep(1.0)
-                request = urllib.request.Request(
-                    attempt["url"],
-                    headers=attempt["headers"],
-                    method="GET",
-                )
-                with urllib.request.urlopen(request, timeout=25, context=context) as response:
-                    data = response.read(MAX_DOWNLOAD_BYTES + 1)
-                    if len(data) > MAX_DOWNLOAD_BYTES:
-                        raise ValueError("Page trop lourde pour cette version")
-                    charset = self._detect_charset(data, response.headers.get_content_charset())
-                    try:
-                        text = data.decode(charset, errors="replace")
-                    except LookupError:
-                        charset = "utf-8"
-                        text = data.decode("utf-8", errors="replace")
-                    self._debug_log(f"  download [{attempt['name']}] {len(text)} chars charset={charset} from {attempt['url'][:80]}")
-                    # If it's Wayback, verify it's a real archive (not an empty placeholder)
-                    if attempt["name"] == "wayback":
-                        if "Wayback Machine has not archived" in text or "Sorry, we don't have that URL" in text:
-                            self._debug_log(f"  download [wayback] no archive available")
-                            last_error = ValueError("Aucune archive Wayback disponible")
-                            continue
-                    return text, charset
-            except urllib.error.HTTPError as exc:
-                self._debug_log(f"  download [{attempt['name']}] HTTP {exc.code}")
-                last_error = ValueError(f"HTTP {exc.code}")
-                continue
-            except urllib.error.URLError as exc:
-                self._debug_log(f"  download [{attempt['name']}] URL error: {exc.reason}")
-                last_error = ValueError(f"Échec réseau : {exc.reason}")
-                continue
-            except Exception as exc:
-                self._debug_log(f"  download [{attempt['name']}] {type(exc).__name__}: {exc}")
-                last_error = exc
-                continue
+            retried_429 = False
+            while True:
+                try:
+                    if idx > 0 and not retried_429:
+                        time.sleep(1.0)
+                    request = urllib.request.Request(
+                        attempt["url"],
+                        headers=attempt["headers"],
+                        method="GET",
+                    )
+                    with urllib.request.urlopen(request, timeout=25, context=context) as response:
+                        data = response.read(MAX_DOWNLOAD_BYTES + 1)
+                        if len(data) > MAX_DOWNLOAD_BYTES:
+                            raise ValueError("Page trop lourde pour cette version")
+                        charset = self._detect_charset(data, response.headers.get_content_charset())
+                        try:
+                            text = data.decode(charset, errors="replace")
+                        except LookupError:
+                            charset = "utf-8"
+                            text = data.decode("utf-8", errors="replace")
+                        self._debug_log(f"  download [{attempt['name']}] {len(text)} chars charset={charset} from {attempt['url'][:80]}")
+                        # If it's Wayback, verify it's a real archive (not an empty placeholder)
+                        if attempt["name"] == "wayback":
+                            if "Wayback Machine has not archived" in text or "Sorry, we don't have that URL" in text:
+                                self._debug_log(f"  download [wayback] no archive available")
+                                last_error = ValueError("Aucune archive Wayback disponible")
+                                break
+                        return text, charset
+                except urllib.error.HTTPError as exc:
+                    # Rate limit: one polite retry after a 30s wait on the SAME attempt.
+                    if exc.code == 429 and not retried_429:
+                        self._debug_log(f"  download [{attempt['name']}] HTTP 429, attente 30s avant retry")
+                        time.sleep(30.0)
+                        retried_429 = True
+                        continue
+                    self._debug_log(f"  download [{attempt['name']}] HTTP {exc.code}")
+                    last_error = ValueError(f"HTTP {exc.code}")
+                    break
+                except urllib.error.URLError as exc:
+                    self._debug_log(f"  download [{attempt['name']}] URL error: {exc.reason}")
+                    last_error = ValueError(f"Échec réseau : {exc.reason}")
+                    break
+                except Exception as exc:
+                    self._debug_log(f"  download [{attempt['name']}] {type(exc).__name__}: {exc}")
+                    last_error = exc
+                    break
 
         if last_error:
             raise ValueError(f"Téléchargement impossible après toutes les tentatives : {last_error}")

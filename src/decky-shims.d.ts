@@ -2,11 +2,26 @@ declare module '@decky/ui' {
   export const ButtonItem: any;
   export const PanelSection: any;
   export const PanelSectionRow: any;
+  export const DialogButton: any;
+  export const DialogButtonPrimary: any;
+  export const DialogButtonSecondary: any;
+  export const Focusable: any;
+  export const Field: any;
   export function definePlugin(factory: any): any;
+  export const Router: {
+    Navigate(path: string): void;
+    NavigateBack(): void;
+    CloseSideMenus(): void;
+    NavigateToExternalWeb?(url: string): void;
+  };
 }
 
 declare module '@decky/api' {
   export function callable<TArgs extends any[], TResult>(name: string): (...args: TArgs) => Promise<TResult>;
+  export const routerHook: {
+    addRoute(path: string, component: any, props?: any): void;
+    removeRoute(path: string): void;
+  };
 }
 
 declare module 'react-icons/fa' {
