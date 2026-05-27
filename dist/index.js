@@ -114,6 +114,7 @@ const deleteNamedBookmark = callable("delete_named_bookmark");
 const setSectionNote = callable("set_section_note");
 const clearSectionNote = callable("clear_section_note");
 const reconstructSections = callable("reconstruct_sections");
+const reloadGuideContent = callable("reload_guide_content");
 const findInGuide = callable("find_in_guide");
 const exportGuide = callable("export_guide");
 const exportAllGuides = callable("export_all_guides");
@@ -257,6 +258,7 @@ function formatDetectionMethod(value) {
     switch (value) {
         case "headings": return "Titres HTML";
         case "toc_codes": return "TOC [CODE]";
+        case "numbered_toc": return "TOC numérotée";
         case "banners": return "Banners ASCII";
         case "heuristic": return "Heuristique";
         case "none": return "Aucune section";
@@ -1366,6 +1368,27 @@ function Content() {
             setIsBusy(false);
         }
     };
+    const handleReloadGuideContent = async () => {
+        if (!selectedGuide)
+            return;
+        setIsBusy(true);
+        setError("");
+        setDebugOutput("Re-téléchargement en cours…");
+        try {
+            const updated = await reloadGuideContent(selectedGuide.id);
+            setSelectedGuide(updated);
+            setGuides((c) => c.map((i) => (i.id === updated.id ? updated : i)));
+            setSelectedSectionIndex(updated.progress.last_section_index ?? -1);
+            setDebugOutput(`Re-téléchargement OK : ${updated.page_count} page(s), ${updated.section_count} section(s) — méthode ${updated.detection_method || "?"}`);
+        }
+        catch (e) {
+            setError(e instanceof Error ? e.message : "Re-téléchargement impossible (ancien contenu conservé)");
+            setDebugOutput("");
+        }
+        finally {
+            setIsBusy(false);
+        }
+    };
     const goToMatch = (idx) => {
         if (!selectedGuide || findMatches.length === 0)
             return;
@@ -1578,6 +1601,71 @@ function Content() {
             setIsBusy(false);
         }
     };
+    const handleReloadAllGuides = async () => {
+        if (!guides.length) {
+            setError("Aucun guide à re-télécharger.");
+            return;
+        }
+        setIsBusy(true);
+        setError("");
+        const total = guides.length;
+        let ok = 0;
+        let failed = 0;
+        const errors = [];
+        // Snapshot the list (loadAll() at the end will refresh state, but we iterate over a stable copy)
+        const snapshot = guides.slice();
+        for (let i = 0; i < snapshot.length; i++) {
+            const g = snapshot[i];
+            setDebugOutput(`Re-téléchargement ${i + 1}/${total}: ${g.title} (${g.site}) …`);
+            try {
+                await reloadGuideContent(g.id);
+                ok++;
+            }
+            catch (e) {
+                failed++;
+                errors.push(`• ${g.title}: ${e?.message || String(e)}`);
+            }
+        }
+        try {
+            await loadAll();
+        }
+        catch { }
+        const summary = `Terminé : ${ok} OK / ${failed} échec(s) sur ${total} guide(s).`;
+        setDebugOutput(failed > 0 ? `${summary}\n\nÉchecs :\n${errors.join("\n")}` : summary);
+        setIsBusy(false);
+    };
+    const handleReconstructAllSections = async () => {
+        if (!guides.length) {
+            setError("Aucun guide à reconstruire.");
+            return;
+        }
+        setIsBusy(true);
+        setError("");
+        const total = guides.length;
+        let ok = 0;
+        let failed = 0;
+        const errors = [];
+        const snapshot = guides.slice();
+        for (let i = 0; i < snapshot.length; i++) {
+            const g = snapshot[i];
+            setDebugOutput(`Reconstruction sommaire ${i + 1}/${total}: ${g.title} …`);
+            try {
+                await reconstructSections(g.id);
+                ok++;
+            }
+            catch (e) {
+                failed++;
+                errors.push(`• ${g.title}: ${e?.message || String(e)}`);
+            }
+        }
+        try {
+            await loadAll();
+        }
+        catch { }
+        const summary = `Reconstruction terminée : ${ok} OK / ${failed} échec(s) sur ${total} guide(s). Aucun re-téléchargement réseau, juste re-segmentation locale.`;
+        setDebugOutput(failed > 0 ? `${summary}\n\nÉchecs :\n${errors.join("\n")}` : summary);
+        setIsBusy(false);
+    };
     const handleListExports = async () => {
         setIsBusy(true);
         setError("");
@@ -1625,7 +1713,7 @@ function Content() {
                                 requestFullScreenGuide(lastOpenedGuide.id);
                                 DFL.Router.CloseSideMenus();
                                 DFL.Router.Navigate(FULL_SCREEN_ROUTE);
-                            }, children: "\uD83D\uDDA5\uFE0F Reprendre en plein \u00E9cran" }) })] })) : null, SP_JSX.jsxs(DFL.PanelSection, { title: "R\u00E9sum\u00E9 scan", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Sources activ\u00E9es :" }), " ", libraryStatus.enabled_source_count] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Jeux index\u00E9s :" }), " ", libraryStatus.item_count] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Occurrences trouv\u00E9es :" }), " ", libraryStatus.instance_count] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Dernier scan :" }), " ", libraryStatus.scanned_at ? formatDate(libraryStatus.scanned_at) : "Jamais"] })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleRescan(), children: isBusy ? "Scan en cours..." : "Rescanner les dossiers activés" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void loadSourcesAndLibrary(), children: "Red\u00E9tecter les dossiers" }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: selectedSource ? `Source ${sourceIndex + 1}/${sources.length}` : "Sources détectées", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: boxStyle, children: selectedSource ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx("div", { style: { fontWeight: 700, marginBottom: "6px" }, children: selectedSource.label }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("span", { style: pillStyle, children: selectedSource.kind === "roms" ? "ROMs" : selectedSource.kind === "games" ? "Games" : "Steam" }), SP_JSX.jsx("span", { style: pillStyle, children: selectedSource.storage }), SP_JSX.jsx("span", { style: pillStyle, children: selectedSource.enabled ? "Activée" : "Désactivée" }), SP_JSX.jsx("span", { style: pillStyle, children: selectedSource.exists ? "Présente" : "Absente" })] }), fieldLine("Chemin", selectedSource.path)] })) : (SP_JSX.jsx("div", { style: { fontSize: "0.82rem", opacity: 0.86 }, children: "Aucune source d\u00E9tect\u00E9e. V\u00E9rifie tes dossiers Emulation/roms et Games." })) }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || sources.length <= 1, onClick: () => setSourceIndex((v) => cycleIndex(v, sources.length, -1)), children: "Source pr\u00E9c\u00E9dente" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || sources.length <= 1, onClick: () => setSourceIndex((v) => cycleIndex(v, sources.length, 1)), children: "Source suivante" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedSource, onClick: () => void handleToggleCurrentSource(), children: selectedSource?.enabled ? "Désactiver cette source" : "Activer cette source" }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Sauvegarde / restauration", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleExportAll(), children: "Exporter tous les guides (bundle JSON)" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleListExports(), children: "Lister les exports disponibles" }) }), showExports && exportFiles.length ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { style: { fontWeight: 700, marginBottom: "4px" }, children: ["Export ", exportIndex + 1, "/", exportFiles.length] }), SP_JSX.jsx("div", { style: { fontSize: "0.85rem" }, children: exportFiles[exportIndex]?.name }), SP_JSX.jsxs("div", { style: { fontSize: "0.72rem", opacity: 0.75 }, children: [formatDate(exportFiles[exportIndex]?.modified_at || ""), " \u00B7 ", bytesToKo(exportFiles[exportIndex]?.size_bytes || 0)] })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || exportFiles.length <= 1, onClick: () => setExportIndex((v) => cycleIndex(v, exportFiles.length, -1)), children: "Export pr\u00E9c\u00E9dent" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || exportFiles.length <= 1, onClick: () => setExportIndex((v) => cycleIndex(v, exportFiles.length, 1)), children: "Export suivant" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !exportFiles[exportIndex], onClick: () => void handleImportSelectedExport(), children: "Importer cet export" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setShowExports(false), children: "Masquer la liste" }) })] })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Diagnostic", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleDebug(), children: isBusy ? "Diagnostic en cours..." : "Lancer le diagnostic" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleTestNetwork(), children: isBusy ? "Test réseau en cours..." : "Tester la connexion aux moteurs" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleTestSearch(), children: isBusy ? "Test recherche en cours..." : "Tester le parsing des résultats" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleClearDebug(), children: "Effacer le fichier debug" }) }), debugOutput ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: {
+                            }, children: "\uD83D\uDDA5\uFE0F Reprendre en plein \u00E9cran" }) })] })) : null, SP_JSX.jsxs(DFL.PanelSection, { title: "R\u00E9sum\u00E9 scan", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Sources activ\u00E9es :" }), " ", libraryStatus.enabled_source_count] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Jeux index\u00E9s :" }), " ", libraryStatus.item_count] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Occurrences trouv\u00E9es :" }), " ", libraryStatus.instance_count] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Dernier scan :" }), " ", libraryStatus.scanned_at ? formatDate(libraryStatus.scanned_at) : "Jamais"] })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleRescan(), children: isBusy ? "Scan en cours..." : "Rescanner les dossiers activés" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void loadSourcesAndLibrary(), children: "Red\u00E9tecter les dossiers" }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: selectedSource ? `Source ${sourceIndex + 1}/${sources.length}` : "Sources détectées", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: boxStyle, children: selectedSource ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx("div", { style: { fontWeight: 700, marginBottom: "6px" }, children: selectedSource.label }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("span", { style: pillStyle, children: selectedSource.kind === "roms" ? "ROMs" : selectedSource.kind === "games" ? "Games" : "Steam" }), SP_JSX.jsx("span", { style: pillStyle, children: selectedSource.storage }), SP_JSX.jsx("span", { style: pillStyle, children: selectedSource.enabled ? "Activée" : "Désactivée" }), SP_JSX.jsx("span", { style: pillStyle, children: selectedSource.exists ? "Présente" : "Absente" })] }), fieldLine("Chemin", selectedSource.path)] })) : (SP_JSX.jsx("div", { style: { fontSize: "0.82rem", opacity: 0.86 }, children: "Aucune source d\u00E9tect\u00E9e. V\u00E9rifie tes dossiers Emulation/roms et Games." })) }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || sources.length <= 1, onClick: () => setSourceIndex((v) => cycleIndex(v, sources.length, -1)), children: "Source pr\u00E9c\u00E9dente" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || sources.length <= 1, onClick: () => setSourceIndex((v) => cycleIndex(v, sources.length, 1)), children: "Source suivante" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedSource, onClick: () => void handleToggleCurrentSource(), children: selectedSource?.enabled ? "Désactiver cette source" : "Activer cette source" }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Maintenance", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleReloadAllGuides(), children: ["\uD83D\uDD04 Re-t\u00E9l\u00E9charger TOUS les guides (", guides.length, ")"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.7, padding: "4px 6px" }, children: "Refait passer chaque guide par le crawler \u00E0 jour (multi-page, nouvelles strat\u00E9gies de d\u00E9coupage). R\u00E9seau + lent. Garde tes marque-pages/notes/progression." }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleReconstructAllSections(), children: ["\uD83D\uDD27 Reconstruire le sommaire de TOUS (", guides.length, ")"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.7, padding: "4px 6px" }, children: "Re-segmente tous les guides avec la derni\u00E8re logique (split-large-sections, banners, TOC). Pas de r\u00E9seau, rapide. Utile apr\u00E8s un update plugin sans changement de contenu." }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Sauvegarde / restauration", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleExportAll(), children: "Exporter tous les guides (bundle JSON)" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleListExports(), children: "Lister les exports disponibles" }) }), showExports && exportFiles.length ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { style: { fontWeight: 700, marginBottom: "4px" }, children: ["Export ", exportIndex + 1, "/", exportFiles.length] }), SP_JSX.jsx("div", { style: { fontSize: "0.85rem" }, children: exportFiles[exportIndex]?.name }), SP_JSX.jsxs("div", { style: { fontSize: "0.72rem", opacity: 0.75 }, children: [formatDate(exportFiles[exportIndex]?.modified_at || ""), " \u00B7 ", bytesToKo(exportFiles[exportIndex]?.size_bytes || 0)] })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || exportFiles.length <= 1, onClick: () => setExportIndex((v) => cycleIndex(v, exportFiles.length, -1)), children: "Export pr\u00E9c\u00E9dent" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || exportFiles.length <= 1, onClick: () => setExportIndex((v) => cycleIndex(v, exportFiles.length, 1)), children: "Export suivant" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !exportFiles[exportIndex], onClick: () => void handleImportSelectedExport(), children: "Importer cet export" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setShowExports(false), children: "Masquer la liste" }) })] })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Diagnostic", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleDebug(), children: isBusy ? "Diagnostic en cours..." : "Lancer le diagnostic" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleTestNetwork(), children: isBusy ? "Test réseau en cours..." : "Tester la connexion aux moteurs" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleTestSearch(), children: isBusy ? "Test recherche en cours..." : "Tester le parsing des résultats" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleClearDebug(), children: "Effacer le fichier debug" }) }), debugOutput ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: {
                                 whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: 0,
                                 padding: "10px 12px", borderRadius: "8px",
                                 border: "1px solid rgba(255,255,255,0.12)", background: "rgba(0,0,0,0.22)",
@@ -1720,7 +1808,7 @@ function Content() {
                                                             const bm = selectedGuide.progress.named_bookmarks[bookmarkIndex];
                                                             if (bm)
                                                                 void handleDeleteNamedBookmark(bm.bookmark_id);
-                                                        }, children: "Supprimer ce marque-page" }) })] })) : null, SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || selectedSectionIndex < 0, onClick: () => void handleToggleDone(), children: currentSectionNote?.done ? "✅ Marquer NON faite" : "Marquer cette section comme faite" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || selectedSectionIndex < 0, onClick: () => void handleToggleFlag(), children: currentSectionNote?.flagged ? "⚐ Retirer le drapeau" : "⚐ Marquer à revoir" }) }), currentSectionNote ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleClearSectionNote(), children: "Retirer les marqueurs de cette section" }) })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Outils", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setFontScale((v) => Math.max(0.85, Math.round((v - 0.05) * 100) / 100)), children: ["A- R\u00E9duire le texte (", fontScale.toFixed(2), "x)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setFontScale((v) => Math.min(2.0, Math.round((v + 0.05) * 100) / 100)), children: ["A+ Agrandir le texte (", fontScale.toFixed(2), "x)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedGuide.url, onClick: () => void handleOpenExternal(), children: "\uD83C\uDF10 Ouvrir la source dans le navigateur" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleExportCurrent(), children: "\uD83D\uDCBE Exporter ce guide en JSON" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleReconstructSections(), children: ["\uD83D\uDD27 Reconstruire le sommaire (", selectedGuide.sections.length, " sections)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleClearProgress(), children: "Effacer la reprise (garde marque-pages et notes)" }) }), selectedGuide.source_pages.length > 1 ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { style: { fontWeight: 700, marginBottom: "6px" }, children: ["Pages source (", selectedGuide.source_pages.length, ")"] }), selectedGuide.source_pages.slice(0, 6).map((page) => (SP_JSX.jsxs("div", { style: { fontSize: "0.78rem", opacity: 0.84, marginBottom: "4px" }, children: ["\u2022 ", page.title] }, `${page.url}-${page.title}`))), selectedGuide.source_pages.length > 6 ? (SP_JSX.jsxs("div", { style: { fontSize: "0.78rem", opacity: 0.74 }, children: ["\u2026 ", selectedGuide.source_pages.length - 6, " pages de plus"] })) : null] }) })) : null] })] })) : null] })) : null] }));
+                                                        }, children: "Supprimer ce marque-page" }) })] })) : null, SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || selectedSectionIndex < 0, onClick: () => void handleToggleDone(), children: currentSectionNote?.done ? "✅ Marquer NON faite" : "Marquer cette section comme faite" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || selectedSectionIndex < 0, onClick: () => void handleToggleFlag(), children: currentSectionNote?.flagged ? "⚐ Retirer le drapeau" : "⚐ Marquer à revoir" }) }), currentSectionNote ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleClearSectionNote(), children: "Retirer les marqueurs de cette section" }) })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Outils", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setFontScale((v) => Math.max(0.85, Math.round((v - 0.05) * 100) / 100)), children: ["A- R\u00E9duire le texte (", fontScale.toFixed(2), "x)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setFontScale((v) => Math.min(2.0, Math.round((v + 0.05) * 100) / 100)), children: ["A+ Agrandir le texte (", fontScale.toFixed(2), "x)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedGuide.url, onClick: () => void handleOpenExternal(), children: "\uD83C\uDF10 Ouvrir la source dans le navigateur" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleExportCurrent(), children: "\uD83D\uDCBE Exporter ce guide en JSON" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleReconstructSections(), children: ["\uD83D\uDD27 Reconstruire le sommaire (", selectedGuide.sections.length, " sections)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedGuide.url, onClick: () => void handleReloadGuideContent(), children: "\uD83D\uDD04 Re-t\u00E9l\u00E9charger le contenu (multi-page si dispo)" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleClearProgress(), children: "Effacer la reprise (garde marque-pages et notes)" }) }), selectedGuide.source_pages.length > 1 ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { style: { fontWeight: 700, marginBottom: "6px" }, children: ["Pages source (", selectedGuide.source_pages.length, ")"] }), selectedGuide.source_pages.slice(0, 6).map((page) => (SP_JSX.jsxs("div", { style: { fontSize: "0.78rem", opacity: 0.84, marginBottom: "4px" }, children: ["\u2022 ", page.title] }, `${page.url}-${page.title}`))), selectedGuide.source_pages.length > 6 ? (SP_JSX.jsxs("div", { style: { fontSize: "0.78rem", opacity: 0.74 }, children: ["\u2026 ", selectedGuide.source_pages.length - 6, " pages de plus"] })) : null] }) })) : null] })] })) : null] })) : null] }));
     };
     return (SP_JSX.jsxs("div", { style: { width: "100%", boxSizing: "border-box", paddingBottom: "12px" }, children: [renderModeHeader(), error ? (SP_JSX.jsx(DFL.PanelSection, { title: "\u00C9tat", children: SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { ...boxStyle, borderColor: "rgba(255,100,100,0.35)" }, children: error }) }) })) : null, activeView === "sources" ? renderSourcesView() : null, activeView === "library" ? renderLibraryView() : null, activeView === "search" ? renderSearchView() : null, activeView === "guides" ? renderGuidesView() : null] }));
 }

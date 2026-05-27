@@ -80,10 +80,14 @@ USER_AGENT = (
 MAX_DOWNLOAD_BYTES = 3_500_000
 MAX_CONTENT_CHARS = 700_000
 MAX_SECTION_COUNT = 120
-MAX_FETCHED_PAGES = 12
+# Multi-page guides on RPGSoluce, Neoseeker etc. can easily span 30+ chapters.
+# Cap is loose; the real stop signal is the BFS queue draining or content size limit.
+MAX_FETCHED_PAGES = 60
 # Minimum "content" (non-blank, non-decorative) lines a section must contain to
 # survive post-filter. Anything shorter gets merged with the following section.
-MIN_SECTION_CONTENT_LINES = 4
+# Bumped from 4 → 15 in v0.19 to cut down on micro-sections (5-10 line stubs that
+# bloat the TOC sidebar). Real chapters have at least 15 content lines.
+MIN_SECTION_CONTENT_LINES = 15
 # Hard minimum span in raw lines between two consecutive section starts.
 MIN_SECTION_SPAN_LINES = 6
 ALLOWED_SCHEMES = {"http", "https"}
@@ -1620,6 +1624,72 @@ class Plugin:
         record.progress.section_notes = remapped_notes
 
         self._write_record(record)
+        return self._record_to_payload(record)
+
+    async def reload_guide_content(self, guide_id: str) -> dict[str, Any]:
+        """Re-fetch the guide from its source URL, refreshing content + sections.
+
+        Preserves: guide id, game info, progress, bookmarks, notes.
+        Replaces:   content, sections, source_pages, snippet, sizes, extractor, saved_at.
+
+        Useful after upgrading the crawler (e.g. multi-page support added in
+        v0.13) so existing guides can pick up the new logic without losing the
+        user's reading state. Throws if the refetch fails — the existing record
+        is left untouched in that case.
+        """
+        if not _HAS_URLLIB:
+            raise ValueError("Le re-téléchargement nécessite le module réseau")
+        record = self._load_record_or_raise(guide_id)
+        if not record.url:
+            raise ValueError("Pas d'URL source enregistrée pour ce guide")
+
+        self._switch_debug_file("reload_guide.log")
+        self._debug_log(f"reload_guide_content: id={guide_id} url={record.url}")
+
+        try:
+            collected = self._collect_guide(record.url)
+        except Exception as exc:
+            self._debug_log(f"  refetch FAILED: {exc}")
+            self._switch_debug_file("main.log")
+            raise
+
+        new_content = collected["content"]
+        if len(new_content) < 200:
+            self._switch_debug_file("main.log")
+            raise ValueError("Extraction trop pauvre : pas assez de contenu, ancienne version conservée")
+        if len(new_content) > MAX_CONTENT_CHARS:
+            new_content = new_content[:MAX_CONTENT_CHARS] + "\n\n[... contenu tronqué ...]"
+
+        new_sections, new_method = self._build_sections_with_method(new_content)
+
+        # Replace content + derived fields, keep id/progress/game/title
+        record.content = new_content
+        record.sections = new_sections
+        record.detection_method = new_method
+        record.source_pages = list(collected["source_pages"])
+        record.word_count = len(new_content.split())
+        record.size_bytes = len(new_content.encode("utf-8"))
+        record.snippet = self._make_snippet(new_content)
+        record.source_charset = str(collected["source_charset"])
+        record.extractor = str(collected["extractor"])
+        record.saved_at = datetime.now(timezone.utc).isoformat()
+
+        # Clamp progress indices to the new section range so they don't dangle
+        max_section_index = len(new_sections) - 1
+        if max_section_index >= 0:
+            record.progress.last_section_index = max(-1, min(record.progress.last_section_index, max_section_index))
+            record.progress.bookmark_section_index = max(-1, min(record.progress.bookmark_section_index, max_section_index))
+            for bm in record.progress.named_bookmarks:
+                bm.section_index = max(-1, min(bm.section_index, max_section_index))
+            record.progress.section_notes = [n for n in record.progress.section_notes if 0 <= n.section_index <= max_section_index]
+        else:
+            record.progress.last_section_index = -1
+            record.progress.bookmark_section_index = -1
+            record.progress.section_notes = []
+
+        self._write_record(record)
+        self._debug_log(f"  reload SUCCESS: id={guide_id} pages={len(record.source_pages)} sections={len(new_sections)} method={new_method}")
+        self._switch_debug_file("main.log")
         return self._record_to_payload(record)
 
     # -------- Full-text search inside a guide --------
@@ -3384,24 +3454,53 @@ class Plugin:
         return score
 
     def _collect_guide(self, start_url: str) -> dict[str, Any]:
+        """Fetch a guide and all related pages.
+
+        BFS queue strategy:
+          - Start from `start_url`.
+          - For each page, extract content and discover MORE URLs to fetch:
+              1. Sibling pages under the same site-specific prefix (e.g. RPGSoluce
+                 game tree /soluces/<platform>/<game>/...). Captures the "nav bar"
+                 children automatically.
+              2. Next-page link (existing _find_next_page_url heuristic).
+                 Handles Neoseeker pagination, GameFAQs multi-part FAQs, etc.
+          - Queue dedups via `visited` and `queue` membership.
+          - Stops on: MAX_FETCHED_PAGES, queue empty, MAX_CONTENT_CHARS reached.
+
+        Each contributed page prefixes its block with the page's display title +
+        a `=====` divider, so the downstream section detector naturally identifies
+        them as "banners" — one section per page.
+        """
         self._debug_log(f"  _collect_guide: start_url={start_url}")
         visited: set[str] = set()
+        queued: set[str] = {start_url}
+        queue: list[str] = [start_url]
         source_pages: list[GuideSourcePage] = []
         combined_parts: list[str] = []
         seen_signatures: set[str] = set()
         first_title = ""
         extractor_name = "generic"
         charsets: list[str] = []
-        current_url = start_url
 
-        for page_index in range(MAX_FETCHED_PAGES):
+        # base_prefix is computed once from start_url; sibling discovery filters
+        # to URLs under this prefix on the same host.
+        base_prefix = self._compute_base_prefix(start_url)
+        self._debug_log(f"  base_prefix={base_prefix or '(none)'}")
+
+        total_content_chars = 0
+        while queue and len(visited) < MAX_FETCHED_PAGES:
+            current_url = queue.pop(0)
             if current_url in visited:
-                break
+                continue
             visited.add(current_url)
 
-            self._debug_log(f"  downloading page {page_index}: {current_url}")
-            html_text, charset = self._download(current_url)
-            self._debug_log(f"  downloaded: {len(html_text)} chars, charset={charset}")
+            self._debug_log(f"  fetching page {len(visited)}/{MAX_FETCHED_PAGES}: {current_url}")
+            try:
+                html_text, charset = self._download(current_url)
+            except Exception as exc:
+                # Tolerate per-page failures — keep crawling siblings, don't blow up the whole import.
+                self._debug_log(f"  download failed: {type(exc).__name__}: {exc}")
+                continue
             if charset not in charsets:
                 charsets.append(charset)
 
@@ -3412,18 +3511,20 @@ class Plugin:
             extractor, page_content = self._extract_text(current_url, html_text)
             self._debug_log(f"  extracted: extractor={extractor} content_len={len(page_content)}")
             page_content = self._remove_leading_duplicate_title(page_content, first_title or current_title)
-            extractor_name = extractor_name or extractor
             if extractor_name == "generic" and extractor != "generic":
                 extractor_name = extractor
 
             signature = self._content_signature(page_content)
             if signature in seen_signatures:
-                break
+                self._debug_log(f"  duplicate content signature, skipping page block")
+                # Still discover related URLs from this page even if content was dup
+                self._enqueue_related(current_url, html_text, base_prefix, extractor, queue, queued, visited)
+                continue
             seen_signatures.add(signature)
 
             if page_content.strip():
                 display_title = self._derive_page_display_title(
-                    page_index=page_index,
+                    page_index=len(source_pages),
                     page_title=current_title,
                     root_title=first_title,
                     page_content=page_content,
@@ -3436,11 +3537,13 @@ class Plugin:
                     divider = "=" * min(max(len(display_title), 8), 80)
                     page_block_content = self._remove_leading_duplicate_title(page_content, display_title)
                     combined_parts.append(f"{display_title}\n{divider}\n{page_block_content.strip()}")
+                total_content_chars += len(page_content)
+                if total_content_chars >= MAX_CONTENT_CHARS:
+                    self._debug_log(f"  reached MAX_CONTENT_CHARS, stopping crawl")
+                    break
 
-            next_url = self._find_next_page_url(current_url=current_url, html_text=html_text, extractor=extractor)
-            if not next_url:
-                break
-            current_url = next_url
+            # Discover more URLs to fetch (siblings under prefix + next-link chain)
+            self._enqueue_related(current_url, html_text, base_prefix, extractor, queue, queued, visited)
 
         content = "\n\n".join(part for part in combined_parts if part).strip()
         self._debug_log(f"  _collect_guide done: {len(source_pages)} pages, {len(content)} chars content")
@@ -3454,6 +3557,96 @@ class Plugin:
             "source_charset": charsets[0] if len(charsets) == 1 else "mixed",
             "source_pages": source_pages or [GuideSourcePage(title=first_title or "Page 1", url=start_url)],
         }
+
+    def _enqueue_related(
+        self,
+        current_url: str,
+        html_text: str,
+        base_prefix: str,
+        extractor: str,
+        queue: list[str],
+        queued: set[str],
+        visited: set[str],
+    ) -> None:
+        """Find sibling URLs + next-page URL, append them to queue (deduped)."""
+        new_urls: list[str] = []
+        if base_prefix:
+            new_urls.extend(self._discover_related_urls(current_url, html_text, base_prefix))
+        next_url = self._find_next_page_url(current_url=current_url, html_text=html_text, extractor=extractor)
+        if next_url:
+            new_urls.append(next_url)
+        for u in new_urls:
+            if u in visited or u in queued:
+                continue
+            queued.add(u)
+            queue.append(u)
+
+    def _compute_base_prefix(self, start_url: str) -> str:
+        """Determine the URL path prefix used to discover sibling guide pages.
+
+        Strategy per-site:
+          - RPGSoluce: /soluces/<platform>/<game> — captures the whole game tree
+            including /cheminement/, /etoiles/, /quetes/, /objets/, etc.
+          - Others: empty (no prefix-based discovery — falls back to next-link chain).
+
+        Returning "" disables prefix discovery for this crawl.
+        """
+        parsed = urlparse(start_url)
+        host = (parsed.hostname or "").lower()
+        path = parsed.path
+
+        if "rpgsoluce.com" in host:
+            parts = path.strip("/").split("/")
+            # Expected: soluces / <platform> / <game> [/ <subpage> ...]
+            if len(parts) >= 3 and parts[0] == "soluces":
+                return "/" + "/".join(parts[:3])
+        # No prefix-based discovery for other sites yet.
+        return ""
+
+    def _discover_related_urls(self, current_url: str, html_text: str, base_prefix: str) -> list[str]:
+        """Return internal URLs whose path starts with base_prefix.
+
+        Used to follow site nav bars / per-section landing pages without relying
+        on the conservative next-link scoring. Strict same-host + same-prefix
+        check keeps us inside the current guide tree.
+        """
+        if not base_prefix:
+            return []
+        if _HAS_HTML_PARSER:
+            parser = _LinkParser()
+            try:
+                parser.feed(html_text)
+                parser.close()
+            except Exception:
+                return []
+            links = parser.links
+        else:
+            links = _regex_extract_links(html_text)
+
+        current = urlparse(current_url)
+        out: list[str] = []
+        seen_here: set[str] = set()
+        for link in links:
+            href = (link.get("href") or "").strip()
+            if not href or href.startswith("#") or href.lower().startswith("javascript:"):
+                continue
+            absolute = urljoin(current_url, href)
+            parsed = urlparse(absolute)
+            if parsed.scheme not in ALLOWED_SCHEMES:
+                continue
+            if parsed.hostname != current.hostname:
+                continue
+            # Normalise to drop fragment+query for the prefix check
+            path_only = parsed.path.rstrip("/")
+            if not path_only.startswith(base_prefix):
+                continue
+            # Build a canonical URL (no fragment) for dedup
+            canonical = parsed._replace(fragment="").geturl()
+            if canonical in seen_here:
+                continue
+            seen_here.add(canonical)
+            out.append(canonical)
+        return out
 
     def _validate_url(self, value: str) -> str:
         if not _HAS_URLLIB:
@@ -3672,6 +3865,10 @@ class Plugin:
 
     def _extract_gamefaqs_text(self, html_text: str) -> str:
         full_text = self._html_to_text(html_text)
+        # Strip Wayback Machine wrapper chrome FIRST (the GameFAQs fallback often
+        # routes through web.archive.org which prefixes ~150 lines of capture
+        # metadata, navigation, and timestamps before the actual page content).
+        full_text = self._strip_wayback_chrome(full_text)
         full_text = self._crop_between_text_markers(
             full_text,
             start_markers=[
@@ -3864,6 +4061,29 @@ class Plugin:
             if match:
                 return match.group(1)
         return None
+
+    def _strip_wayback_chrome(self, text: str) -> str:
+        """Strip Wayback Machine capture chrome that wraps the actual page.
+
+        When a fetch falls back to web.archive.org, the extracted text starts
+        with ~50-150 lines of: capture count, date range, month abbreviations,
+        "COLLECTED BY", "TIMESTAMPS", a line like
+        `The Wayback Machine - https://web.archive.org/.../original-url`,
+        and then potentially more nav cruft before the real page.
+
+        Heuristic: locate the `The Wayback Machine - http` line and keep only
+        what's AFTER it. If not found, return text unchanged.
+        """
+        marker_re = re.compile(r"^\s*The Wayback Machine\s*-\s*https?://", re.IGNORECASE | re.MULTILINE)
+        m = marker_re.search(text)
+        if not m:
+            return text
+        # Cut everything up to and including that line
+        # Find end-of-line after match start
+        nl_pos = text.find("\n", m.end())
+        if nl_pos < 0:
+            return text  # marker is on the last line, nothing useful after
+        return text[nl_pos + 1:].lstrip()
 
     def _crop_between_text_markers(self, text: str, start_markers: list[str], end_markers: list[str]) -> str:
         start_index = 0
@@ -4261,6 +4481,7 @@ class Plugin:
             )
             sections = self._merge_small_sections(sections, lines)
             if len(sections) >= 2:
+                sections = self._split_large_sections(sections, lines)
                 return sections[:MAX_SECTION_COUNT], "headings"
 
         # --- PASS 2: GameFAQs-style TOC with [CODE] anchors ---
@@ -4268,20 +4489,179 @@ class Plugin:
         if len(toc_sections) >= 2:
             toc_sections = self._merge_small_sections(toc_sections, lines)
             if len(toc_sections) >= 2:
+                toc_sections = self._split_large_sections(toc_sections, lines)
                 return toc_sections[:MAX_SECTION_COUNT], "toc_codes"
+
+        # --- PASS 2b: numbered/lettered TOC without [CODE] markers ---
+        # Older GameFAQs FAQs (pre-2005-ish, dan_crenshaw era) use a TOC like
+        # "4a. Hugo Chapter 1" / "4b. Chris Chapter 1" with no bracketed code.
+        numbered_toc_sections = self._sections_from_numbered_toc(lines)
+        if len(numbered_toc_sections) >= 2:
+            numbered_toc_sections = self._merge_small_sections(numbered_toc_sections, lines)
+            if len(numbered_toc_sections) >= 2:
+                numbered_toc_sections = self._split_large_sections(numbered_toc_sections, lines)
+                return numbered_toc_sections[:MAX_SECTION_COUNT], "numbered_toc"
 
         # --- PASS 3: ASCII banners ---
         banner_sections = self._sections_from_ascii_banners(lines)
         if len(banner_sections) >= 2:
             banner_sections = self._merge_small_sections(banner_sections, lines)
             if len(banner_sections) >= 2:
+                banner_sections = self._split_large_sections(banner_sections, lines)
                 return banner_sections[:MAX_SECTION_COUNT], "banners"
 
         # --- PASS 4: heuristic fallback (stricter than before) ---
         heuristic_sections = self._sections_from_heuristic(lines)
         if heuristic_sections:
             heuristic_sections = self._merge_small_sections(heuristic_sections, lines)
+            heuristic_sections = self._split_large_sections(heuristic_sections, lines)
         return heuristic_sections[:MAX_SECTION_COUNT], ("heuristic" if heuristic_sections else "none")
+
+    SPLIT_LARGE_THRESHOLD = 350       # lines — sections beyond this get sub-segmented if possible
+    SPLIT_MIN_SUB_LINES = 30          # don't create sub-sections shorter than this — avoids over-splitting
+    # Tightened in v0.20: force-paginate ANY oversized section that semantic split can't break down.
+    # Previously 800 left a "no-man's land" (sections 350-800 with no inner banners stayed huge).
+    FORCED_PAGINATION_THRESHOLD = 350
+    FORCED_PAGINATION_CHUNK = 250     # forced page size in lines (UX sweet spot for Steam Deck reader)
+
+    SPLIT_MAX_PASSES = 5  # safety cap against infinite recursion when split can't shrink further
+
+    def _split_large_sections(
+        self,
+        sections: list[GuideSection],
+        lines: list[str],
+        depth: int = 0,
+    ) -> list[GuideSection]:
+        """Iterative wrapper around _split_large_sections_once: re-applies the
+        same algorithm until no section exceeds the threshold, capped at
+        SPLIT_MAX_PASSES depth so a malformed input can never infinite-loop.
+
+        Necessary because Tier 1 semantic split can produce 2+ subs where ONE of
+        them is still huge (e.g. 1700-line "Hugo Chapter 1" gets cut at line 100
+        and 1700, leaving a 1600-line sub). Iteration handles those nested cases.
+        """
+        if depth >= self.SPLIT_MAX_PASSES:
+            return sections
+        pass_result = self._split_large_sections_once(sections, lines)
+        # Did anything actually change? If not, abort to avoid infinite loops.
+        if len(pass_result) == len(sections):
+            return pass_result
+        # Still any oversized section? If so, recurse.
+        if any((s.line_end - s.line_start) > self.SPLIT_LARGE_THRESHOLD for s in pass_result):
+            return self._split_large_sections(pass_result, lines, depth=depth + 1)
+        return pass_result
+
+    def _split_large_sections_once(
+        self,
+        sections: list[GuideSection],
+        lines: list[str],
+    ) -> list[GuideSection]:
+        """One pass of the split algorithm (see _split_large_sections for the
+        iterative wrapper).
+
+        Two-tier strategy per oversized section:
+          1. SEMANTIC split: try banners then heuristic INSIDE the range. If found
+             (≥ 2 sub-candidates each ≥ SPLIT_MIN_SUB_LINES), use them — titles
+             prefixed with parent ("Part I — Chapter 1").
+          2. FORCED pagination: if semantic split failed AND the section is >=
+             FORCED_PAGINATION_THRESHOLD (800 lines), chunk into FORCED_PAGINATION_CHUNK
+             (250-line) pages titled "<parent>" / "<parent> (suite 2)" / etc.
+             Guarantees readability even for pure-prose chapter walkthroughs.
+
+        Never blows up the original section: if both passes fail, the original is kept.
+        """
+        if not sections or not lines:
+            return sections
+        result: list[GuideSection] = []
+        for sec in sections:
+            span = sec.line_end - sec.line_start
+            if span <= self.SPLIT_LARGE_THRESHOLD:
+                result.append(sec)
+                continue
+
+            translated: list[GuideSection] = []
+            method_used = ""
+
+            # --- Tier 1: semantic sub-segmentation ---
+            body_start = sec.line_start + 1
+            body_end = sec.line_end
+            sub_lines = lines[body_start:body_end + 1]
+            if sub_lines:
+                sub_candidates = self._sections_from_ascii_banners(sub_lines)
+                method_used = "banners"
+                if len(sub_candidates) < 2:
+                    sub_candidates = self._sections_from_heuristic(sub_lines)
+                    method_used = "heuristic"
+                sub_candidates = [s for s in sub_candidates if (s.line_end - s.line_start) >= self.SPLIT_MIN_SUB_LINES]
+
+                if len(sub_candidates) >= 2:
+                    for i, sub in enumerate(sub_candidates):
+                        global_start = body_start + sub.line_start
+                        global_end = (body_start + sub_candidates[i + 1].line_start - 1) if i + 1 < len(sub_candidates) else body_end
+                        if global_end < global_start:
+                            continue
+                        sub_title = sub.title.strip() or f"Partie {i + 1}"
+                        if sec.title and sec.title.strip() and sec.title.strip().casefold() != sub_title.casefold():
+                            prefix = sec.title.strip()
+                            if len(prefix) > 40:
+                                prefix = prefix[:37] + "…"
+                            full_title = f"{prefix} — {sub_title}"
+                        else:
+                            full_title = sub_title
+                        if len(full_title) > 110:
+                            full_title = full_title[:107] + "…"
+                        translated.append(GuideSection(
+                            title=full_title,
+                            line_start=global_start,
+                            line_end=global_end,
+                            heading_level=min(sec.heading_level + 1, 6) if sec.heading_level else 3,
+                            is_preformatted=sec.is_preformatted,
+                        ))
+
+            # --- Tier 2: forced pagination fallback for huge sections with no semantic break ---
+            if len(translated) < 2 and span >= self.FORCED_PAGINATION_THRESHOLD:
+                translated = []
+                chunk = self.FORCED_PAGINATION_CHUNK
+                page_num = 0
+                base_title = (sec.title or "Section").strip()
+                if len(base_title) > 70:
+                    base_title = base_title[:67] + "…"
+                for chunk_start_local in range(0, span + 1, chunk):
+                    global_start = sec.line_start + chunk_start_local
+                    global_end = min(global_start + chunk - 1, sec.line_end)
+                    if global_end <= global_start:
+                        continue
+                    page_num += 1
+                    title = base_title if page_num == 1 else f"{base_title} (suite {page_num})"
+                    translated.append(GuideSection(
+                        title=title,
+                        line_start=global_start,
+                        line_end=global_end,
+                        heading_level=min(sec.heading_level + 1, 6) if sec.heading_level else 3,
+                        is_preformatted=sec.is_preformatted,
+                    ))
+                method_used = "forced-pages"
+
+            if len(translated) < 2:
+                result.append(sec)
+                continue
+
+            # Optional preface (parent header lines before first sub) — only for SEMANTIC splits.
+            # Forced pages already start at sec.line_start so no preface is needed.
+            if method_used != "forced-pages":
+                first_sub_start = translated[0].line_start
+                if first_sub_start > sec.line_start + 1:
+                    result.append(GuideSection(
+                        title=sec.title,
+                        line_start=sec.line_start,
+                        line_end=first_sub_start - 1,
+                        heading_level=sec.heading_level,
+                        is_preformatted=sec.is_preformatted,
+                    ))
+            self._debug_log(f"  split-large: '{sec.title[:40]}' ({span} lines) → {len(translated)} via {method_used}")
+            result.extend(translated)
+
+        return result
 
     def _sections_from_starts(
         self,
@@ -4317,8 +4697,9 @@ class Plugin:
             ...
 
         Each code appears again in the body as the heading anchor. We locate
-        the TOC block, extract ordered (title, code) pairs, then search the
-        body below for each code to find section starts.
+        the TOC block (via explicit header OR by spotting a dense-code zone),
+        extract ordered (title, code) pairs, then search the body below for
+        each code to find section starts.
         """
         # Locate a "Table of Contents" header line
         toc_start = -1
@@ -4335,6 +4716,15 @@ class Plugin:
                     break
             if toc_start >= 0:
                 break
+
+        # Fallback: no explicit header found — try detecting a dense-code zone.
+        # GameFAQs FAQs without "SOMMAIRE" header still have a clearly bunched
+        # TOC area where many lines carry a [CODE]. We anchor on that.
+        if toc_start < 0:
+            dense_zone_start = self._find_toc_dense_zone(lines)
+            if dense_zone_start >= 0:
+                toc_start = max(0, dense_zone_start - 1)
+
         if toc_start < 0:
             return []
 
@@ -4412,6 +4802,155 @@ class Plugin:
             return []
         return self._sections_from_starts(deduped, lines)
 
+    def _sections_from_numbered_toc(self, lines: list[str]) -> list[GuideSection]:
+        """Detect TOCs that use numbered/lettered IDs without [CODE] markers.
+
+        Common in older GameFAQs FAQs (dan_crenshaw style):
+            1. Introduction
+            2. Top 10 e-Mail Questions
+            2a. What do I get for loading Suikoden II data?
+            2b. Should I play Suikoden I and II first?
+            ...
+            4. Walkthrough
+            4a. Introduction
+            4b. Hugo Chapter 1
+            4c. Chris Chapter 1
+
+        Strategy:
+          1. Scan first ~600 lines for "<num><letter?>. <text>" entries.
+          2. Group into runs (gap <= 8 lines) — the largest run with >= 6 entries
+             is the TOC.
+          3. For each (id, title), find the next body line starting with "<id>. ..."
+             which is the section header.
+          4. Use found positions as section starts.
+
+        The body line for "4b. Hugo Chapter 1" might appear as the title alone
+        ("4b. Hugo Chapter 1") or inside a banner ("---\n4b. Hugo Chapter 1\n---")
+        — we just match the line starting with the id, either way works.
+        """
+        entry_re = re.compile(r"^\s*(\d{1,3}[a-z]?)\.\s+(.{3,120})\s*$")
+
+        # Step 1: candidate entries
+        candidates: list[tuple[int, str, str]] = []
+        max_check = min(len(lines), 600)
+        for i in range(max_check):
+            m = entry_re.match(lines[i])
+            if not m:
+                continue
+            id_ = m.group(1).lower()
+            title = m.group(2).strip().rstrip(".")
+            # Skip very short titles or lines that look like prose/data (no alpha)
+            if len(title) < 3 or sum(c.isalpha() for c in title) < 3:
+                continue
+            candidates.append((i, id_, title))
+
+        if len(candidates) < 6:
+            return []
+
+        # Step 2: group into runs (gaps <= 8 lines)
+        runs: list[list[tuple[int, str, str]]] = []
+        current: list[tuple[int, str, str]] = [candidates[0]]
+        for cand in candidates[1:]:
+            if cand[0] - current[-1][0] <= 8:
+                current.append(cand)
+            else:
+                runs.append(current)
+                current = [cand]
+        runs.append(current)
+
+        # Pick the largest run with >= 6 entries — that's the TOC
+        runs.sort(key=lambda r: len(r), reverse=True)
+        toc_run: list[tuple[int, str, str]] | None = None
+        for run in runs:
+            if len(run) >= 6:
+                toc_run = run
+                break
+        if not toc_run:
+            return []
+
+        # Step 3: body starts after the TOC zone
+        toc_end_line = toc_run[-1][0]
+        body_start = toc_end_line + 1
+        if body_start >= len(lines) - 5:
+            return []  # nothing meaningful in body
+
+        # Step 4: for each TOC entry, find its body anchor
+        starts: list[tuple[int, str, int]] = []
+        used_positions: set[int] = set()
+        for _, id_, title in toc_run:
+            anchor_re = re.compile(r"^\s*" + re.escape(id_) + r"\.\s+.+$", re.IGNORECASE)
+            best_pos = -1
+            for body_idx in range(body_start, len(lines)):
+                if body_idx in used_positions:
+                    continue
+                if anchor_re.match(lines[body_idx]):
+                    best_pos = body_idx
+                    break
+            if best_pos >= 0:
+                used_positions.add(best_pos)
+                # Heading level: parents are level 2, children (with letter) level 3
+                level = 3 if re.fullmatch(r"\d+[a-z]", id_) else 2
+                starts.append((best_pos, title, level))
+
+        if len(starts) < 2:
+            return []
+
+        # Dedup positions too close together
+        starts.sort(key=lambda item: item[0])
+        deduped: list[tuple[int, str, int]] = []
+        for item in starts:
+            if not deduped or item[0] - deduped[-1][0] >= MIN_SECTION_SPAN_LINES:
+                deduped.append(item)
+
+        if len(deduped) < 2:
+            return []
+        return self._sections_from_starts(deduped, lines)
+
+    def _find_toc_dense_zone(self, lines: list[str]) -> int:
+        """Find a TOC by detecting a run of code-bearing lines without a header.
+
+        Heuristic: in the first 500 lines of the document, scan for [CODE]
+        occurrences. Group them into "runs" where consecutive codes are at
+        most 6 lines apart. The largest run, if it contains >= 4 distinct codes,
+        is the TOC. Returns the line index of the first code in that run,
+        or -1 if no dense zone is found.
+
+        Why: many GameFAQs FAQs jump straight into a numbered TOC like
+            1. Introduction-----------------[000]
+            2. Walkthrough------------------[001]
+        with no preceding "TABLE OF CONTENTS" header. The existing header-based
+        detection would miss them. Body anchors for those same codes are
+        spaced FAR apart (hundreds of lines), so they don't form dense zones —
+        only the TOC area does.
+        """
+        code_re = re.compile(r"\[([A-Z0-9][A-Z0-9\-_]{1,8})\]")
+        max_check = min(len(lines), 500)
+        code_line_indexes: list[int] = [i for i in range(max_check) if code_re.search(lines[i])]
+        if len(code_line_indexes) < 4:
+            return -1
+
+        # Group into runs based on inter-line gap
+        runs: list[list[int]] = []
+        current: list[int] = [code_line_indexes[0]]
+        for idx in code_line_indexes[1:]:
+            if idx - current[-1] <= 6:
+                current.append(idx)
+            else:
+                runs.append(current)
+                current = [idx]
+        runs.append(current)
+
+        # Largest run with enough distinct codes wins
+        runs.sort(key=lambda r: len(r), reverse=True)
+        for run in runs:
+            distinct_codes: set[str] = set()
+            for line_idx in run:
+                for m in code_re.finditer(lines[line_idx]):
+                    distinct_codes.add(m.group(1))
+            if len(distinct_codes) >= 4:
+                return run[0]
+        return -1
+
     def _sections_from_ascii_banners(self, lines: list[str]) -> list[GuideSection]:
         """Detect banner-style headings common in plain-text FAQs:
 
@@ -4475,6 +5014,25 @@ class Plugin:
         for item in starts:
             if not deduped or item[0] - deduped[-1][0] >= MIN_SECTION_SPAN_LINES:
                 deduped.append(item)
+        if len(deduped) < 2:
+            return []
+
+        # Anti-spam: filter out titles that repeat too often. In GameFAQs FAQs,
+        # per-character/per-move banners like "Attack:", "Defend:", "Deathblow:"
+        # appear dozens of times — they're labels inside a battle entry, not real
+        # top-level sections. Keep banners whose title is unique enough.
+        title_counts: dict[str, int] = {}
+        for _, title, _ in deduped:
+            key = title.strip().casefold()
+            title_counts[key] = title_counts.get(key, 0) + 1
+        SPAM_THRESHOLD = 3  # title appears > this many times => treat as label noise, not section
+        spam_keys = {k for k, c in title_counts.items() if c > SPAM_THRESHOLD}
+        if spam_keys:
+            filtered = [item for item in deduped if item[1].strip().casefold() not in spam_keys]
+            # Only apply the filter if it doesn't gut the result entirely
+            if len(filtered) >= 2:
+                deduped = filtered
+
         if len(deduped) < 2:
             return []
         return self._sections_from_starts(deduped, lines)

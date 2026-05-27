@@ -216,6 +216,7 @@ const deleteNamedBookmark = callable<[guideId: string, bookmarkId: string], Guid
 const setSectionNote = callable<[guideId: string, sectionIndex: number, done: boolean, flagged: boolean, note: string], GuideDetail>("set_section_note");
 const clearSectionNote = callable<[guideId: string, sectionIndex: number], GuideDetail>("clear_section_note");
 const reconstructSections = callable<[guideId: string], GuideDetail>("reconstruct_sections");
+const reloadGuideContent = callable<[guideId: string], GuideDetail>("reload_guide_content");
 const findInGuide = callable<[guideId: string, pattern: string], FindResult>("find_in_guide");
 const exportGuide = callable<[guideId: string], { path: string; size_bytes: number; guide_id: string }>("export_guide");
 const exportAllGuides = callable<[], { path: string; size_bytes: number; guide_count: number }>("export_all_guides");
@@ -386,6 +387,7 @@ function formatDetectionMethod(value: string): string {
   switch (value) {
     case "headings": return "Titres HTML";
     case "toc_codes": return "TOC [CODE]";
+    case "numbered_toc": return "TOC numérotée";
     case "banners": return "Banners ASCII";
     case "heuristic": return "Heuristique";
     case "none": return "Aucune section";
@@ -1617,6 +1619,24 @@ function Content() {
     }
   };
 
+  const handleReloadGuideContent = async () => {
+    if (!selectedGuide) return;
+    setIsBusy(true); setError("");
+    setDebugOutput("Re-téléchargement en cours…");
+    try {
+      const updated = await reloadGuideContent(selectedGuide.id);
+      setSelectedGuide(updated);
+      setGuides((c) => c.map((i) => (i.id === updated.id ? updated : i)));
+      setSelectedSectionIndex(updated.progress.last_section_index ?? -1);
+      setDebugOutput(`Re-téléchargement OK : ${updated.page_count} page(s), ${updated.section_count} section(s) — méthode ${updated.detection_method || "?"}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Re-téléchargement impossible (ancien contenu conservé)");
+      setDebugOutput("");
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
   const goToMatch = (idx: number) => {
     if (!selectedGuide || findMatches.length === 0) return;
     const wrapped = ((idx % findMatches.length) + findMatches.length) % findMatches.length;
@@ -1824,6 +1844,65 @@ function Content() {
     }
   };
 
+  const handleReloadAllGuides = async () => {
+    if (!guides.length) {
+      setError("Aucun guide à re-télécharger.");
+      return;
+    }
+    setIsBusy(true);
+    setError("");
+    const total = guides.length;
+    let ok = 0;
+    let failed = 0;
+    const errors: string[] = [];
+    // Snapshot the list (loadAll() at the end will refresh state, but we iterate over a stable copy)
+    const snapshot = guides.slice();
+    for (let i = 0; i < snapshot.length; i++) {
+      const g = snapshot[i];
+      setDebugOutput(`Re-téléchargement ${i + 1}/${total}: ${g.title} (${g.site}) …`);
+      try {
+        await reloadGuideContent(g.id);
+        ok++;
+      } catch (e: any) {
+        failed++;
+        errors.push(`• ${g.title}: ${e?.message || String(e)}`);
+      }
+    }
+    try { await loadAll(); } catch {}
+    const summary = `Terminé : ${ok} OK / ${failed} échec(s) sur ${total} guide(s).`;
+    setDebugOutput(failed > 0 ? `${summary}\n\nÉchecs :\n${errors.join("\n")}` : summary);
+    setIsBusy(false);
+  };
+
+  const handleReconstructAllSections = async () => {
+    if (!guides.length) {
+      setError("Aucun guide à reconstruire.");
+      return;
+    }
+    setIsBusy(true);
+    setError("");
+    const total = guides.length;
+    let ok = 0;
+    let failed = 0;
+    const errors: string[] = [];
+    const snapshot = guides.slice();
+    for (let i = 0; i < snapshot.length; i++) {
+      const g = snapshot[i];
+      setDebugOutput(`Reconstruction sommaire ${i + 1}/${total}: ${g.title} …`);
+      try {
+        await reconstructSections(g.id);
+        ok++;
+      } catch (e: any) {
+        failed++;
+        errors.push(`• ${g.title}: ${e?.message || String(e)}`);
+      }
+    }
+    try { await loadAll(); } catch {}
+    const summary = `Reconstruction terminée : ${ok} OK / ${failed} échec(s) sur ${total} guide(s). Aucun re-téléchargement réseau, juste re-segmentation locale.`;
+    setDebugOutput(failed > 0 ? `${summary}\n\nÉchecs :\n${errors.join("\n")}` : summary);
+    setIsBusy(false);
+  };
+
   const handleListExports = async () => {
     setIsBusy(true); setError("");
     try {
@@ -1971,6 +2050,29 @@ function Content() {
           <ButtonItem layout="below" disabled={isBusy || !selectedSource} onClick={() => void handleToggleCurrentSource()}>
             {selectedSource?.enabled ? "Désactiver cette source" : "Activer cette source"}
           </ButtonItem>
+        </PanelSectionRow>
+      </PanelSection>
+
+      <PanelSection title="Maintenance">
+        <PanelSectionRow>
+          <ButtonItem layout="below" disabled={isBusy || !guides.length} onClick={() => void handleReloadAllGuides()}>
+            🔄 Re-télécharger TOUS les guides ({guides.length})
+          </ButtonItem>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <div style={{ fontSize: "0.72rem", opacity: 0.7, padding: "4px 6px" }}>
+            Refait passer chaque guide par le crawler à jour (multi-page, nouvelles stratégies de découpage). Réseau + lent. Garde tes marque-pages/notes/progression.
+          </div>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem layout="below" disabled={isBusy || !guides.length} onClick={() => void handleReconstructAllSections()}>
+            🔧 Reconstruire le sommaire de TOUS ({guides.length})
+          </ButtonItem>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <div style={{ fontSize: "0.72rem", opacity: 0.7, padding: "4px 6px" }}>
+            Re-segmente tous les guides avec la dernière logique (split-large-sections, banners, TOC). Pas de réseau, rapide. Utile après un update plugin sans changement de contenu.
+          </div>
         </PanelSectionRow>
       </PanelSection>
 
@@ -2802,6 +2904,11 @@ function Content() {
               <PanelSectionRow>
                 <ButtonItem layout="below" disabled={isBusy} onClick={() => void handleReconstructSections()}>
                   🔧 Reconstruire le sommaire ({selectedGuide.sections.length} sections)
+                </ButtonItem>
+              </PanelSectionRow>
+              <PanelSectionRow>
+                <ButtonItem layout="below" disabled={isBusy || !selectedGuide.url} onClick={() => void handleReloadGuideContent()}>
+                  🔄 Re-télécharger le contenu (multi-page si dispo)
                 </ButtonItem>
               </PanelSectionRow>
               <PanelSectionRow>
