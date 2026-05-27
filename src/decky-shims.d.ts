@@ -21,6 +21,8 @@ declare module '@decky/api' {
   export const routerHook: {
     addRoute(path: string, component: any, props?: any): void;
     removeRoute(path: string): void;
+    addGlobalComponent(name: string, component: any): void;
+    removeGlobalComponent(name: string): void;
   };
 }
 

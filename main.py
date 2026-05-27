@@ -344,6 +344,10 @@ class GuideRecord:
     sections: list[GuideSection] = field(default_factory=list)
     source_pages: list[GuideSourcePage] = field(default_factory=list)
     progress: GuideReadingProgress = field(default_factory=GuideReadingProgress)
+    # Method that produced `sections` — surfaced in the UI so the user knows whether
+    # the parser used the explicit TOC, banners, html headings, or fell back to heuristic.
+    # Values: "headings" | "toc_codes" | "banners" | "heuristic" | "" (legacy/unknown)
+    detection_method: str = ""
 
 
 @dataclass
@@ -1382,7 +1386,7 @@ class Plugin:
         if len(content) > MAX_CONTENT_CHARS:
             content = content[:MAX_CONTENT_CHARS] + "\n\n[... contenu tronqué ...]"
 
-        sections = self._build_sections(content)
+        sections, detection_method = self._build_sections_with_method(content)
         title = str(collected["title"])
         guide_id = self._make_id(title)
         snippet = self._make_snippet(content)
@@ -1408,6 +1412,7 @@ class Plugin:
             source_charset=str(collected["source_charset"]),
             game=game,
             sections=sections,
+            detection_method=detection_method,
             source_pages=list(collected["source_pages"]),
             progress=GuideReadingProgress(),
         )
@@ -1576,8 +1581,9 @@ class Plugin:
         closest matching new section by title, falling back to clamped index."""
         record = self._load_record_or_raise(guide_id)
         old_sections = list(record.sections)
-        new_sections = self._build_sections(record.content)
+        new_sections, new_method = self._build_sections_with_method(record.content)
         record.sections = new_sections
+        record.detection_method = new_method
 
         def remap(old_index: int) -> int:
             if old_index < 0:
@@ -2801,6 +2807,7 @@ class Plugin:
             sections=sections,
             source_pages=source_pages,
             progress=progress,
+            detection_method=str(payload.get("detection_method", "")),
         )
 
     def _build_game_info(
@@ -4206,7 +4213,13 @@ class Plugin:
         return normalized[:4000]
 
     def _build_sections(self, content: str) -> list[GuideSection]:
-        """Detect section boundaries in a guide's plain text.
+        """Back-compat wrapper that drops the detection method.
+        Prefer _build_sections_with_method when you need the method label."""
+        sections, _ = self._build_sections_with_method(content)
+        return sections
+
+    def _build_sections_with_method(self, content: str) -> tuple[list[GuideSection], str]:
+        """Detect section boundaries in a guide's plain text. Returns (sections, method).
 
         Strategy (first method that yields ≥ 2 quality sections wins):
           1. HTML heading markers left by the parser (web guides w/ real h1-h6)
@@ -4216,11 +4229,13 @@ class Plugin:
 
         All paths go through a merge pass that removes sections shorter than
         MIN_SECTION_CONTENT_LINES lines of real content.
+
+        The returned method is one of: "headings" | "toc_codes" | "banners" | "heuristic" | "none".
         """
         lines = content.splitlines()
         total = len(lines)
         if total < 10:
-            return []
+            return [], "none"
 
         # --- PASS 1: explicit HTML headings ---
         heading_indexes: list[tuple[int, int, str]] = []
@@ -4246,27 +4261,27 @@ class Plugin:
             )
             sections = self._merge_small_sections(sections, lines)
             if len(sections) >= 2:
-                return sections[:MAX_SECTION_COUNT]
+                return sections[:MAX_SECTION_COUNT], "headings"
 
         # --- PASS 2: GameFAQs-style TOC with [CODE] anchors ---
         toc_sections = self._sections_from_toc_codes(lines)
         if len(toc_sections) >= 2:
             toc_sections = self._merge_small_sections(toc_sections, lines)
             if len(toc_sections) >= 2:
-                return toc_sections[:MAX_SECTION_COUNT]
+                return toc_sections[:MAX_SECTION_COUNT], "toc_codes"
 
         # --- PASS 3: ASCII banners ---
         banner_sections = self._sections_from_ascii_banners(lines)
         if len(banner_sections) >= 2:
             banner_sections = self._merge_small_sections(banner_sections, lines)
             if len(banner_sections) >= 2:
-                return banner_sections[:MAX_SECTION_COUNT]
+                return banner_sections[:MAX_SECTION_COUNT], "banners"
 
         # --- PASS 4: heuristic fallback (stricter than before) ---
         heuristic_sections = self._sections_from_heuristic(lines)
         if heuristic_sections:
             heuristic_sections = self._merge_small_sections(heuristic_sections, lines)
-        return heuristic_sections[:MAX_SECTION_COUNT]
+        return heuristic_sections[:MAX_SECTION_COUNT], ("heuristic" if heuristic_sections else "none")
 
     def _sections_from_starts(
         self,

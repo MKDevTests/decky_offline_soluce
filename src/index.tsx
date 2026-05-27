@@ -25,6 +25,12 @@ function consumeFullScreenGuideId(): string | null {
 }
 
 const FULL_SCREEN_ROUTE = "/decky-offline-soluce/reader";
+const HOTKEY_GLOBAL_NAME = "OfflineSoluceHotkey";
+// Steam Big Picture overlays at top (status / battery / time ~40px) and bottom (back
+// hint / system shortcuts ~40px). Pad full-screen routes so our header & footer
+// aren't covered. Tuned for SteamOS 3.8.x — bump if Steam changes the chrome height.
+const STEAM_UI_TOP_BAR_PX = 40;
+const STEAM_UI_BOTTOM_BAR_PX = 40;
 
 // ========== Types ==========
 
@@ -93,6 +99,8 @@ type GuideSummary = {
   section_count: number;
   page_count: number;
   source_charset: string;
+  // Method used to detect sections: "headings" | "toc_codes" | "banners" | "heuristic" | "none" | "" (legacy)
+  detection_method: string;
   progress: GuideProgress;
   resume_label: string;
   bookmark_label: string;
@@ -372,6 +380,18 @@ const pillStyle: React.CSSProperties = {
 };
 
 // ========== Utility functions ==========
+
+function formatDetectionMethod(value: string): string {
+  // Map backend method codes to short, user-readable French labels.
+  switch (value) {
+    case "headings": return "Titres HTML";
+    case "toc_codes": return "TOC [CODE]";
+    case "banners": return "Banners ASCII";
+    case "heuristic": return "Heuristique";
+    case "none": return "Aucune section";
+    default: return value || "—";
+  }
+}
 
 function formatDate(value: string): string {
   const date = new Date(value);
@@ -733,6 +753,9 @@ function FullScreenReader() {
   const lastScrollFractionRef = useRef<number>(0);
   const restoreFractionRef = useRef<number | null>(null);
   const initialScrollRef = useRef<boolean>(true);
+  // Mirror of latest section/font so the unmount cleanup persists the freshest values,
+  // not the values captured at first effect run (closure trap on the [guide?.id]-only dep).
+  const latestStateRef = useRef<{ sectionIndex: number; fontScale: number }>({ sectionIndex: -1, fontScale: 1.0 });
 
   useEffect(() => {
     const id = guideIdRef.current;
@@ -757,6 +780,11 @@ function FullScreenReader() {
     })();
   }, []);
 
+  // Keep the latest section/font mirrored in a ref so the unmount cleanup is accurate
+  useEffect(() => {
+    latestStateRef.current = { sectionIndex, fontScale };
+  }, [sectionIndex, fontScale]);
+
   // Debounced persist on section / font / scroll changes
   useEffect(() => {
     if (!guide) return;
@@ -767,10 +795,12 @@ function FullScreenReader() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sectionIndex, fontScale, guide?.id]);
 
-  // Final persist on unmount
+  // Final persist on unmount — uses latestStateRef to capture values right before exit,
+  // so "reprendre" lands exactly where the user left off even on fast back-presses.
   useEffect(() => () => {
     if (guide) {
-      saveProgress(guide.id, sectionIndex, fontScale, lastScrollFractionRef.current).catch(() => {});
+      const { sectionIndex: si, fontScale: fs } = latestStateRef.current;
+      saveProgress(guide.id, si, fs, lastScrollFractionRef.current).catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [guide?.id]);
@@ -788,6 +818,9 @@ function FullScreenReader() {
   const layoutStyle: React.CSSProperties = {
     width: "100vw",
     height: "100vh",
+    paddingTop: `${STEAM_UI_TOP_BAR_PX}px`,
+    paddingBottom: `${STEAM_UI_BOTTOM_BAR_PX}px`,
+    boxSizing: "border-box",
     display: "flex",
     flexDirection: "column",
     background: theme.background,
@@ -940,7 +973,7 @@ function FullScreenReader() {
               lastScrollFractionRef.current = f;
               if (restoreFractionRef.current !== null) restoreFractionRef.current = null;
             }}
-            maxHeight={showSearch ? "calc(100vh - 200px)" : "calc(100vh - 150px)"}
+            maxHeight={showSearch ? "calc(100vh - 280px)" : "calc(100vh - 230px)"}
           />
         </div>
       </div>
@@ -975,6 +1008,45 @@ function FullScreenReader() {
       </div>
     </div>
   );
+}
+
+
+// ========== Global hotkey listener ==========
+
+/**
+ * Invisible global component that listens for F8 keypresses anywhere in Steam UI.
+ * On press: loads the most-recently-opened guide and navigates to the full-screen reader.
+ *
+ * The user maps a back paddle (L4/R4/L5/R5) to F8 in Steam Input — pressing the paddle
+ * fires F8 → this handler triggers → reader opens at last position. No QAM detour.
+ */
+function GlobalHotkeyListener() {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "F8") return;
+      e.preventDefault();
+      void (async () => {
+        try {
+          const guides = await listGuides();
+          if (!guides.length) return;
+          // Pick most-recently-opened (highest last_opened_at, ISO strings sort lex correctly)
+          const sorted = [...guides].sort((a, b) =>
+            (b.progress?.last_opened_at || "").localeCompare(a.progress?.last_opened_at || "")
+          );
+          const target = sorted[0];
+          if (!target?.id) return;
+          requestFullScreenGuide(target.id);
+          Router.CloseSideMenus();
+          Router.Navigate(FULL_SCREEN_ROUTE);
+        } catch {
+          // Silent — nothing useful to show globally; user can still open via QAM.
+        }
+      })();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
+  return null;
 }
 
 
@@ -2340,6 +2412,11 @@ function Content() {
                   <div>
                     <span style={pillStyle}>{selectedGuideSummary.site}</span>
                     <span style={pillStyle}>{selectedGuideSummary.game.platform}</span>
+                    {selectedGuideSummary.detection_method ? (
+                      <span style={pillStyle} title="Méthode utilisée pour découper les sections">
+                        ✂ {formatDetectionMethod(selectedGuideSummary.detection_method)}
+                      </span>
+                    ) : null}
                     {selectedGuideSummary.has_resume ? <span style={pillStyle}>Reprise</span> : null}
                     {selectedGuideSummary.has_bookmark ? <span style={pillStyle}>Marque-page</span> : null}
                     {selectedGuideSummary.progress.named_bookmarks.length > 0 ? (
@@ -2776,12 +2853,14 @@ function Content() {
 
 export default definePlugin(() => {
   routerHook.addRoute(FULL_SCREEN_ROUTE, FullScreenReader, { exact: true });
+  routerHook.addGlobalComponent(HOTKEY_GLOBAL_NAME, GlobalHotkeyListener);
   return {
     title: <div className="title">Offline Soluce</div>,
     content: <Content />,
     icon: <FaBookOpen />,
     onDismount() {
       routerHook.removeRoute(FULL_SCREEN_ROUTE);
+      routerHook.removeGlobalComponent(HOTKEY_GLOBAL_NAME);
     },
   };
 });

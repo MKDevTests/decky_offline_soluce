@@ -93,6 +93,12 @@ function consumeFullScreenGuideId() {
     return id;
 }
 const FULL_SCREEN_ROUTE = "/decky-offline-soluce/reader";
+const HOTKEY_GLOBAL_NAME = "OfflineSoluceHotkey";
+// Steam Big Picture overlays at top (status / battery / time ~40px) and bottom (back
+// hint / system shortcuts ~40px). Pad full-screen routes so our header & footer
+// aren't covered. Tuned for SteamOS 3.8.x — bump if Steam changes the chrome height.
+const STEAM_UI_TOP_BAR_PX = 40;
+const STEAM_UI_BOTTOM_BAR_PX = 40;
 // ========== Backend callables ==========
 const listGuides = callable("list_guides");
 const getGuide = callable("get_guide");
@@ -246,6 +252,17 @@ const pillStyle = {
     marginBottom: "6px",
 };
 // ========== Utility functions ==========
+function formatDetectionMethod(value) {
+    // Map backend method codes to short, user-readable French labels.
+    switch (value) {
+        case "headings": return "Titres HTML";
+        case "toc_codes": return "TOC [CODE]";
+        case "banners": return "Banners ASCII";
+        case "heuristic": return "Heuristique";
+        case "none": return "Aucune section";
+        default: return value || "—";
+    }
+}
 function formatDate(value) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime()))
@@ -547,6 +564,9 @@ function FullScreenReader() {
     const lastScrollFractionRef = SP_REACT.useRef(0);
     const restoreFractionRef = SP_REACT.useRef(null);
     const initialScrollRef = SP_REACT.useRef(true);
+    // Mirror of latest section/font so the unmount cleanup persists the freshest values,
+    // not the values captured at first effect run (closure trap on the [guide?.id]-only dep).
+    const latestStateRef = SP_REACT.useRef({ sectionIndex: -1, fontScale: 1.0 });
     SP_REACT.useEffect(() => {
         const id = guideIdRef.current;
         if (!id) {
@@ -570,6 +590,10 @@ function FullScreenReader() {
             }
         })();
     }, []);
+    // Keep the latest section/font mirrored in a ref so the unmount cleanup is accurate
+    SP_REACT.useEffect(() => {
+        latestStateRef.current = { sectionIndex, fontScale };
+    }, [sectionIndex, fontScale]);
     // Debounced persist on section / font / scroll changes
     SP_REACT.useEffect(() => {
         if (!guide)
@@ -580,10 +604,12 @@ function FullScreenReader() {
         return () => clearTimeout(t);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sectionIndex, fontScale, guide?.id]);
-    // Final persist on unmount
+    // Final persist on unmount — uses latestStateRef to capture values right before exit,
+    // so "reprendre" lands exactly where the user left off even on fast back-presses.
     SP_REACT.useEffect(() => () => {
         if (guide) {
-            saveProgress(guide.id, sectionIndex, fontScale, lastScrollFractionRef.current).catch(() => { });
+            const { sectionIndex: si, fontScale: fs } = latestStateRef.current;
+            saveProgress(guide.id, si, fs, lastScrollFractionRef.current).catch(() => { });
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [guide?.id]);
@@ -599,6 +625,9 @@ function FullScreenReader() {
     const layoutStyle = {
         width: "100vw",
         height: "100vh",
+        paddingTop: `${STEAM_UI_TOP_BAR_PX}px`,
+        paddingBottom: `${STEAM_UI_BOTTOM_BAR_PX}px`,
+        boxSizing: "border-box",
         display: "flex",
         flexDirection: "column",
         background: theme.background,
@@ -679,13 +708,51 @@ function FullScreenReader() {
                                 lastScrollFractionRef.current = f;
                                 if (restoreFractionRef.current !== null)
                                     restoreFractionRef.current = null;
-                            }, maxHeight: showSearch ? "calc(100vh - 200px)" : "calc(100vh - 150px)" }) })] }), SP_JSX.jsxs("div", { style: footerStyle, children: [SP_JSX.jsx(DFL.DialogButton, { disabled: sectionIndex <= 0, onClick: () => setSectionIndex((v) => Math.max(0, v - 1)), children: "\u25C0 Section pr\u00E9c\u00E9dente" }), SP_JSX.jsx("div", { style: { flex: 1, textAlign: "center", fontSize: "0.78rem", opacity: 0.7 }, children: sectionCount > 0 && sectionIndex >= 0 ? `${sectionIndex + 1} / ${sectionCount}` : "" }), SP_JSX.jsx(DFL.DialogButton, { onClick: () => {
+                            }, maxHeight: showSearch ? "calc(100vh - 280px)" : "calc(100vh - 230px)" }) })] }), SP_JSX.jsxs("div", { style: footerStyle, children: [SP_JSX.jsx(DFL.DialogButton, { disabled: sectionIndex <= 0, onClick: () => setSectionIndex((v) => Math.max(0, v - 1)), children: "\u25C0 Section pr\u00E9c\u00E9dente" }), SP_JSX.jsx("div", { style: { flex: 1, textAlign: "center", fontSize: "0.78rem", opacity: 0.7 }, children: sectionCount > 0 && sectionIndex >= 0 ? `${sectionIndex + 1} / ${sectionCount}` : "" }), SP_JSX.jsx(DFL.DialogButton, { onClick: () => {
                             if (!guide)
                                 return;
                             void setBookmark(guide.id, sectionIndex, lastScrollFractionRef.current)
                                 .then((g) => setGuide(g))
                                 .catch(() => { });
                         }, children: "\uD83D\uDD16 Marque-page" }), SP_JSX.jsx("div", { style: { flex: 1 } }), SP_JSX.jsx(DFL.DialogButton, { disabled: sectionCount === 0 || sectionIndex >= sectionCount - 1, onClick: () => setSectionIndex((v) => Math.min(sectionCount - 1, v + 1)), children: "Section suivante \u25B6" })] })] }));
+}
+// ========== Global hotkey listener ==========
+/**
+ * Invisible global component that listens for F8 keypresses anywhere in Steam UI.
+ * On press: loads the most-recently-opened guide and navigates to the full-screen reader.
+ *
+ * The user maps a back paddle (L4/R4/L5/R5) to F8 in Steam Input — pressing the paddle
+ * fires F8 → this handler triggers → reader opens at last position. No QAM detour.
+ */
+function GlobalHotkeyListener() {
+    SP_REACT.useEffect(() => {
+        const handler = (e) => {
+            if (e.key !== "F8")
+                return;
+            e.preventDefault();
+            void (async () => {
+                try {
+                    const guides = await listGuides();
+                    if (!guides.length)
+                        return;
+                    // Pick most-recently-opened (highest last_opened_at, ISO strings sort lex correctly)
+                    const sorted = [...guides].sort((a, b) => (b.progress?.last_opened_at || "").localeCompare(a.progress?.last_opened_at || ""));
+                    const target = sorted[0];
+                    if (!target?.id)
+                        return;
+                    requestFullScreenGuide(target.id);
+                    DFL.Router.CloseSideMenus();
+                    DFL.Router.Navigate(FULL_SCREEN_ROUTE);
+                }
+                catch {
+                    // Silent — nothing useful to show globally; user can still open via QAM.
+                }
+            })();
+        };
+        document.addEventListener("keydown", handler);
+        return () => document.removeEventListener("keydown", handler);
+    }, []);
+    return null;
 }
 // ========== Main Content component ==========
 function Content() {
@@ -1602,7 +1669,7 @@ function Content() {
                         flex: 1, height: "6px", borderRadius: "2px", background: bg,
                     } }, i));
             }) })) : null;
-        return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [!expandedReader ? (SP_JSX.jsxs(DFL.PanelSection, { title: selectedGuideSummary ? `Guide importé ${guideIndex + 1}/${guides.length}` : "Guides importés", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: boxStyle, children: selectedGuideSummary ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx("div", { style: { fontWeight: 700, marginBottom: "6px" }, children: selectedGuideSummary.title }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("span", { style: pillStyle, children: selectedGuideSummary.site }), SP_JSX.jsx("span", { style: pillStyle, children: selectedGuideSummary.game.platform }), selectedGuideSummary.has_resume ? SP_JSX.jsx("span", { style: pillStyle, children: "Reprise" }) : null, selectedGuideSummary.has_bookmark ? SP_JSX.jsx("span", { style: pillStyle, children: "Marque-page" }) : null, selectedGuideSummary.progress.named_bookmarks.length > 0 ? (SP_JSX.jsxs("span", { style: pillStyle, children: ["\uD83D\uDD16 ", selectedGuideSummary.progress.named_bookmarks.length] })) : null, selectedGuideSummary.progress.section_notes.length > 0 ? (SP_JSX.jsxs("span", { style: pillStyle, children: ["\uD83D\uDCDD ", selectedGuideSummary.progress.section_notes.length] })) : null] }), fieldLine("Jeu lié", selectedGuideSummary.game.game_title), fieldLine("Extrait", selectedGuideSummary.snippet), SP_JSX.jsxs("div", { style: { fontSize: "0.8rem", opacity: 0.86 }, children: [SP_JSX.jsx("strong", { children: "Pages :" }), " ", selectedGuideSummary.page_count, " \u00B7 ", SP_JSX.jsx("strong", { children: "Sections :" }), " ", selectedGuideSummary.section_count, " \u00B7 ", SP_JSX.jsx("strong", { children: "Taille :" }), " ", bytesToKo(selectedGuideSummary.size_bytes)] })] })) : (SP_JSX.jsx("div", { style: { fontSize: "0.82rem", opacity: 0.86 }, children: "Aucun guide import\u00E9 pour le moment." })) }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || guides.length <= 1, onClick: () => setGuideIndex((v) => cycleIndex(v, guides.length, -1)), children: "Guide pr\u00E9c\u00E9dent" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || guides.length <= 1, onClick: () => setGuideIndex((v) => cycleIndex(v, guides.length, 1)), children: "Guide suivant" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedGuideSummary, onClick: () => void openGuideById(selectedGuideSummary.id), children: "Ouvrir ce guide" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedGuideSummary, onClick: () => {
+        return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [!expandedReader ? (SP_JSX.jsxs(DFL.PanelSection, { title: selectedGuideSummary ? `Guide importé ${guideIndex + 1}/${guides.length}` : "Guides importés", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: boxStyle, children: selectedGuideSummary ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx("div", { style: { fontWeight: 700, marginBottom: "6px" }, children: selectedGuideSummary.title }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("span", { style: pillStyle, children: selectedGuideSummary.site }), SP_JSX.jsx("span", { style: pillStyle, children: selectedGuideSummary.game.platform }), selectedGuideSummary.detection_method ? (SP_JSX.jsxs("span", { style: pillStyle, title: "M\u00E9thode utilis\u00E9e pour d\u00E9couper les sections", children: ["\u2702 ", formatDetectionMethod(selectedGuideSummary.detection_method)] })) : null, selectedGuideSummary.has_resume ? SP_JSX.jsx("span", { style: pillStyle, children: "Reprise" }) : null, selectedGuideSummary.has_bookmark ? SP_JSX.jsx("span", { style: pillStyle, children: "Marque-page" }) : null, selectedGuideSummary.progress.named_bookmarks.length > 0 ? (SP_JSX.jsxs("span", { style: pillStyle, children: ["\uD83D\uDD16 ", selectedGuideSummary.progress.named_bookmarks.length] })) : null, selectedGuideSummary.progress.section_notes.length > 0 ? (SP_JSX.jsxs("span", { style: pillStyle, children: ["\uD83D\uDCDD ", selectedGuideSummary.progress.section_notes.length] })) : null] }), fieldLine("Jeu lié", selectedGuideSummary.game.game_title), fieldLine("Extrait", selectedGuideSummary.snippet), SP_JSX.jsxs("div", { style: { fontSize: "0.8rem", opacity: 0.86 }, children: [SP_JSX.jsx("strong", { children: "Pages :" }), " ", selectedGuideSummary.page_count, " \u00B7 ", SP_JSX.jsx("strong", { children: "Sections :" }), " ", selectedGuideSummary.section_count, " \u00B7 ", SP_JSX.jsx("strong", { children: "Taille :" }), " ", bytesToKo(selectedGuideSummary.size_bytes)] })] })) : (SP_JSX.jsx("div", { style: { fontSize: "0.82rem", opacity: 0.86 }, children: "Aucun guide import\u00E9 pour le moment." })) }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || guides.length <= 1, onClick: () => setGuideIndex((v) => cycleIndex(v, guides.length, -1)), children: "Guide pr\u00E9c\u00E9dent" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || guides.length <= 1, onClick: () => setGuideIndex((v) => cycleIndex(v, guides.length, 1)), children: "Guide suivant" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedGuideSummary, onClick: () => void openGuideById(selectedGuideSummary.id), children: "Ouvrir ce guide" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedGuideSummary, onClick: () => {
                                     if (!selectedGuideSummary)
                                         return;
                                     requestFullScreenGuide(selectedGuideSummary.id);
@@ -1659,12 +1726,14 @@ function Content() {
 }
 var index = DFL.definePlugin(() => {
     routerHook.addRoute(FULL_SCREEN_ROUTE, FullScreenReader, { exact: true });
+    routerHook.addGlobalComponent(HOTKEY_GLOBAL_NAME, GlobalHotkeyListener);
     return {
         title: SP_JSX.jsx("div", { className: "title", children: "Offline Soluce" }),
         content: SP_JSX.jsx(Content, {}),
         icon: SP_JSX.jsx(FaBookOpen, {}),
         onDismount() {
             routerHook.removeRoute(FULL_SCREEN_ROUTE);
+            routerHook.removeGlobalComponent(HOTKEY_GLOBAL_NAME);
         },
     };
 });

@@ -14,9 +14,29 @@
 
 set -euo pipefail
 
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source le fichier de config local s'il existe (DECK_HOST, DECK_SUDO_PASSWORD, etc.)
+CREDS_FILE="$PROJECT_DIR/.deck-deploy.local"
+if [[ -f "$CREDS_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$CREDS_FILE"
+fi
+
 DECK_HOST="${DECK_HOST:-deck@steamdeck.local}"
 PLUGIN_NAME="${PLUGIN_NAME:-decky-offline-soluce}"
 REMOTE_DIR="${REMOTE_DIR:-/home/deck/homebrew/plugins/${PLUGIN_NAME}}"
+
+# Wrapper sudo-over-ssh : si DECK_SUDO_PASSWORD est defini, on passe le mdp via stdin
+# (sudo -S le lit, -p '' supprime le prompt visible). Sinon on retombe sur ssh -t qui prompt.
+sudo_ssh() {
+    local cmd="$1"
+    if [[ -n "${DECK_SUDO_PASSWORD:-}" ]]; then
+        ssh "$DECK_HOST" "sudo -S -p '' $cmd" <<< "$DECK_SUDO_PASSWORD"
+    else
+        ssh -t "$DECK_HOST" "sudo $cmd"
+    fi
+}
 
 DO_BUILD=1
 DO_RESTART=1
@@ -35,7 +55,6 @@ for arg in "$@"; do
     esac
 done
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
 # 1) SSH reachability check (fail fast)
@@ -89,18 +108,22 @@ for f in "${OPTIONAL[@]}"; do
     fi
 done
 
-# 4) Sync vers le Deck (--delete pour purger d'anciens fichiers obsoletes du plugin)
-echo "[deploy] rsync vers $DECK_HOST:$REMOTE_DIR ..."
-ssh "$DECK_HOST" "mkdir -p '$REMOTE_DIR'"
+# 4) Sync vers le Deck (--delete pour purger d'anciens fichiers obsoletes du plugin).
+# --rsync-path="sudo rsync" execute rsync en root cote Deck pour pouvoir ecrire
+# dans /home/deck/homebrew/plugins/ qui est root-owned (Decky cree les plugins en root).
+# Necessite: deck ALL=(ALL) NOPASSWD: /usr/bin/rsync dans sudoers (one-time).
+# rsync cree le dossier destination automatiquement, pas besoin de mkdir prealable.
+echo "[deploy] rsync (en sudo cote Deck) vers $DECK_HOST:$REMOTE_DIR ..."
 rsync -az --delete \
+    --rsync-path="sudo rsync" \
     --exclude='__pycache__' \
     --exclude='*.pyc' \
     "$STAGING/" "$DECK_HOST:$REMOTE_DIR/"
 
-# 5) Reload Decky (demande le mot de passe sudo deck via -t)
+# 5) Reload Decky (sudo via DECK_SUDO_PASSWORD si defini, sinon prompt interactif)
 if [[ "$DO_RESTART" == "1" ]]; then
-    echo "[deploy] restart plugin_loader (mot de passe sudo du Deck demande) ..."
-    ssh -t "$DECK_HOST" "sudo systemctl restart plugin_loader"
+    echo "[deploy] restart plugin_loader ..."
+    sudo_ssh "systemctl restart plugin_loader"
 fi
 
 echo "[deploy] OK -> $REMOTE_DIR sur $DECK_HOST"
