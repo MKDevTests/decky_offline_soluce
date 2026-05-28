@@ -298,6 +298,19 @@ class ReaderPreferences:
     max_width: str = "normal"  # narrow | normal | full
     highlight_keywords: bool = True
     numbered_sections: bool = True
+    # Legacy keyboard hotkey — kept for backward-compat but unused on Steam Deck
+    # because SteamOS doesn't deliver keyboard events from Steam Input bindings
+    # to Steam UI. Use resume_button instead.
+    resume_hotkey: str = ""
+    # Controller button index from ControllerInputGamepadButton enum:
+    #   32 = LBACK (left back paddle), 33 = RBACK (right back paddle)
+    #   30 = LSHOULDER (L1), 31 = RSHOULDER (R1)
+    # -1 = defaults (both back paddles accepted, L4/L5 + R4/R5)
+    resume_button: int = -1
+    # v0.40: master switch — when False the controller listener still receives
+    # events but skips the resume action entirely. Lets the user disable
+    # auto-resume for games where they want their palettes free for game use.
+    resume_enabled: bool = True
 
 
 @dataclass
@@ -317,6 +330,10 @@ class GuideReadingProgress:
     bookmark_scroll_fraction: float = 0.0
     named_bookmarks: list[NamedBookmark] = field(default_factory=list)
     section_notes: list[GuideSectionNote] = field(default_factory=list)
+    # Titles of sections the user has hidden from the TOC. Stored by title (not
+    # index) so the hide-state survives reconstruct_sections / reload_guide_content
+    # operations that may renumber sections. Only exact title match counts.
+    hidden_section_titles: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -818,6 +835,8 @@ class Plugin:
         self._library_index_path = self._runtime_dir / "library_index.json"
         self._reader_prefs_path = self._runtime_dir / "reader_prefs.json"
         self._favorites_path = self._runtime_dir / "favorites.json"
+        # A2 auto-backup config
+        self._backup_config_path = self._runtime_dir / "backup_config.json"
         self._search_cache: dict[str, tuple[float, str, str]] = {}
         self._debug_dir = Path("/home/deck/Documents/Plugins/OfflineSoluce")
         try:
@@ -846,6 +865,12 @@ class Plugin:
                 self._debug_log(f"  {test_path}: ERROR {exc}")
         self._ensure_scan_config()
         self._debug_log("Backend ready")
+        # A2: schedule a delayed auto-backup check (won't block plugin load)
+        try:
+            import asyncio as _asyncio
+            _asyncio.create_task(self._delayed_auto_backup_check())
+        except Exception as exc:
+            self._debug_log(f"auto-backup scheduling failed: {exc}")
 
     def _debug_log(self, message: str) -> None:
         try:
@@ -1579,6 +1604,33 @@ class Plugin:
         self._write_record(record)
         return self._record_to_payload(record)
 
+    async def toggle_section_hidden(self, guide_id: str, section_index: int) -> dict[str, Any]:
+        """Toggle the "hidden" flag on a section. Stored by title (not index) so it
+        survives section reconstruction/reload. Hidden sections are filtered out of
+        the sidebar unless the "Show hidden" toggle is on."""
+        record = self._load_record_or_raise(guide_id)
+        idx = int(section_index)
+        if idx < 0 or idx >= len(record.sections):
+            raise ValueError("Section index hors range")
+        title = (record.sections[idx].title or "").strip()
+        if not title:
+            raise ValueError("Section sans titre — ne peut pas être masquée (titre vide ne survit pas une reconstruction)")
+        current = list(record.progress.hidden_section_titles)
+        if title in current:
+            current.remove(title)
+        else:
+            current.append(title)
+        record.progress.hidden_section_titles = current
+        self._write_record(record)
+        return self._record_to_payload(record)
+
+    async def show_all_sections(self, guide_id: str) -> dict[str, Any]:
+        """Clear all hidden flags for this guide."""
+        record = self._load_record_or_raise(guide_id)
+        record.progress.hidden_section_titles = []
+        self._write_record(record)
+        return self._record_to_payload(record)
+
     async def reconstruct_sections(self, guide_id: str) -> dict[str, Any]:
         """Re-run the section detector on an existing guide's content.
         Preserves progress/notes/bookmarks but remaps their section_index to the
@@ -1625,6 +1677,150 @@ class Plugin:
 
         self._write_record(record)
         return self._record_to_payload(record)
+
+    # ===================== A2: Auto-backup =====================
+
+    DEFAULT_BACKUP_CONFIG = {
+        "enabled": False,
+        "interval_days": 7,
+        "last_backup_at": "",
+        "last_backup_path": "",
+        "last_backup_size_bytes": 0,
+    }
+
+    def _load_backup_config(self) -> dict[str, Any]:
+        if not self._backup_config_path.exists():
+            return dict(self.DEFAULT_BACKUP_CONFIG)
+        try:
+            data = json.loads(self._backup_config_path.read_text(encoding="utf-8"))
+            merged = dict(self.DEFAULT_BACKUP_CONFIG)
+            for k in self.DEFAULT_BACKUP_CONFIG:
+                if k in data:
+                    merged[k] = data[k]
+            return merged
+        except Exception as exc:
+            self._debug_log(f"backup_config read failed: {exc}")
+            return dict(self.DEFAULT_BACKUP_CONFIG)
+
+    def _save_backup_config(self, cfg: dict[str, Any]) -> None:
+        try:
+            self._backup_config_path.write_text(
+                json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except Exception as exc:
+            self._debug_log(f"backup_config write failed: {exc}")
+
+    async def get_running_emulator_game_hint(self) -> dict[str, Any]:
+        """Detect a running emulator and extract the loaded ROM/ISO as a game-title hint.
+
+        Used by the frontend per-game palette feature for games launched OUTSIDE
+        Steam (e.g. via EmulationStation DE → PCSX2 / RetroArch / etc.), where
+        Steam's `MainRunningApp` doesn't identify the actual game.
+
+        Returns: {"hint": "<cleaned game title>", "rom_path": "...", "emulator": "..."}
+        Empty fields if no emulator is detected.
+        """
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["ps", "-eo", "args="],
+                capture_output=True, text=True, timeout=3,
+            )
+            if result.returncode != 0:
+                return {"hint": "", "rom_path": "", "emulator": ""}
+
+            EMULATORS = [
+                "pcsx2", "rpcs3", "duckstation", "dolphin-emu", "dolphin",
+                "ppsspp", "retroarch", "mgba", "vba-m", "snes9x", "fceux",
+                "mupen64", "cemu", "ryujinx", "yuzu", "citra", "scummvm",
+                "redream", "flycast", "mednafen", "lakka",
+            ]
+            emulator_re = re.compile(r"\b(" + "|".join(EMULATORS) + r")\b", re.IGNORECASE)
+
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                m = emulator_re.search(line)
+                if not m:
+                    continue
+                emulator_name = m.group(1).lower()
+                # Reuse the existing ROM-path extractor (handles iso/bin/chd/cso/gba/etc.)
+                rom_name = self._extract_rom_hint_from_shortcut(line)
+                if not rom_name:
+                    continue
+                # _extract_rom_hint_from_shortcut returns the filename; clean it
+                stem_no_ext = re.sub(
+                    r"\.(?:iso|bin|cue|img|mdf|nrg|chd|cso|pbp|rvz|wbfs|gcz|"
+                    r"7z|zip|rar|nes|sfc|smc|gba|gbc|gb|nds|3ds|z64|n64|v64|md|gen)$",
+                    "", rom_name, flags=re.IGNORECASE,
+                )
+                game_title = self._clean_game_title(stem_no_ext)
+                if not game_title:
+                    continue
+                self._debug_log(f"emulator hint: {emulator_name} → '{game_title}' (from {rom_name})")
+                return {
+                    "hint": game_title,
+                    "rom_path": rom_name,
+                    "emulator": emulator_name,
+                }
+            return {"hint": "", "rom_path": "", "emulator": ""}
+        except Exception as exc:
+            try: self._debug_log(f"get_running_emulator_game_hint failed: {exc}")
+            except Exception: pass
+            return {"hint": "", "rom_path": "", "emulator": ""}
+
+    async def get_backup_config(self) -> dict[str, Any]:
+        return self._load_backup_config()
+
+    async def set_backup_config(self, enabled: bool, interval_days: int) -> dict[str, Any]:
+        cfg = self._load_backup_config()
+        cfg["enabled"] = bool(enabled)
+        cfg["interval_days"] = max(1, min(int(interval_days), 365))
+        self._save_backup_config(cfg)
+        return cfg
+
+    async def run_backup_now(self) -> dict[str, Any]:
+        """Trigger an export immediately and stamp last_backup_at."""
+        result = await self.export_all_guides()
+        cfg = self._load_backup_config()
+        cfg["last_backup_at"] = datetime.now(timezone.utc).isoformat()
+        cfg["last_backup_path"] = str(result.get("path", ""))
+        cfg["last_backup_size_bytes"] = int(result.get("size_bytes", 0))
+        self._save_backup_config(cfg)
+        return {**result, "config": cfg}
+
+    async def _delayed_auto_backup_check(self) -> None:
+        """Wait 30s after plugin load, then run auto-backup if due. Fire-and-forget."""
+        import asyncio as _asyncio
+        try:
+            await _asyncio.sleep(30)
+            cfg = self._load_backup_config()
+            if not cfg.get("enabled"):
+                return
+            interval = max(1, int(cfg.get("interval_days", 7)))
+            last_at = str(cfg.get("last_backup_at", "")).strip()
+            if not last_at:
+                self._debug_log("auto-backup: enabled but no last_backup_at — running first backup")
+                await self.run_backup_now()
+                return
+            try:
+                last_dt = datetime.fromisoformat(last_at)
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+            except Exception as exc:
+                self._debug_log(f"auto-backup: invalid last_backup_at '{last_at}': {exc}")
+                return
+            delta = datetime.now(timezone.utc) - last_dt
+            if delta.total_seconds() >= interval * 86400:
+                self._debug_log(f"auto-backup: due (last={last_at}, delta={delta.days}d, interval={interval}d) — running")
+                await self.run_backup_now()
+            else:
+                self._debug_log(f"auto-backup: not due (last={last_at}, delta={delta.days}d, interval={interval}d)")
+        except Exception as exc:
+            self._debug_log(f"auto-backup check error: {exc}")
+
+    # ============================================================
 
     async def reload_guide_content(self, guide_id: str) -> dict[str, Any]:
         """Re-fetch the guide from its source URL, refreshing content + sections.
@@ -1878,7 +2074,16 @@ class Plugin:
         max_width: str = "normal",
         highlight_keywords: bool = True,
         numbered_sections: bool = True,
+        resume_hotkey: str = "",
+        resume_button: int = -1,
+        resume_enabled: bool = True,
     ) -> dict[str, Any]:
+        try:
+            btn = int(resume_button)
+        except Exception:
+            btn = -1
+        if btn < -1 or btn > 200:
+            btn = -1
         prefs = ReaderPreferences(
             theme=theme if theme in {"dark", "sepia"} else "dark",
             font_family=font_family if font_family in {"sans", "serif", "mono"} else "sans",
@@ -1886,6 +2091,9 @@ class Plugin:
             max_width=max_width if max_width in {"narrow", "normal", "full"} else "normal",
             highlight_keywords=bool(highlight_keywords),
             numbered_sections=bool(numbered_sections),
+            resume_hotkey=str(resume_hotkey or "").strip()[:30],
+            resume_button=btn,
+            resume_enabled=bool(resume_enabled),
         )
         self._save_reader_prefs(prefs)
         return asdict(prefs)
@@ -1900,6 +2108,10 @@ class Plugin:
         theme = str(payload.get("theme", "dark"))
         if theme not in {"dark", "sepia"}:
             theme = "dark"
+        try:
+            btn = int(payload.get("resume_button", -1))
+        except Exception:
+            btn = -1
         return ReaderPreferences(
             theme=theme,
             font_family=str(payload.get("font_family", "sans")),
@@ -1907,6 +2119,11 @@ class Plugin:
             max_width=str(payload.get("max_width", "normal")),
             highlight_keywords=bool(payload.get("highlight_keywords", True)),
             numbered_sections=bool(payload.get("numbered_sections", True)),
+            resume_hotkey=str(payload.get("resume_hotkey", "")).strip()[:30],
+            resume_button=btn if -1 <= btn <= 200 else -1,
+            # Default to True if key absent — preserves existing behavior for users
+            # upgrading from <v0.40 prefs files.
+            resume_enabled=bool(payload.get("resume_enabled", True)),
         )
 
     def _save_reader_prefs(self, prefs: ReaderPreferences) -> None:
@@ -2817,6 +3034,16 @@ class Plugin:
             except Exception:
                 continue
 
+        raw_hidden = raw_progress.get("hidden_section_titles") or []
+        hidden_titles: list[str] = []
+        for item in raw_hidden:
+            try:
+                s = str(item).strip()
+                if s and s not in hidden_titles:
+                    hidden_titles.append(s)
+            except Exception:
+                continue
+
         progress = GuideReadingProgress(
             last_section_index=int(raw_progress.get("last_section_index", -1)),
             last_opened_at=str(raw_progress.get("last_opened_at", "")),
@@ -2827,6 +3054,7 @@ class Plugin:
             bookmark_scroll_fraction=max(0.0, min(float(raw_progress.get("bookmark_scroll_fraction", 0.0)), 1.0)),
             named_bookmarks=named_bookmarks,
             section_notes=section_notes,
+            hidden_section_titles=hidden_titles,
         )
 
         raw_game = payload.get("game") or {}
@@ -4052,8 +4280,24 @@ class Plugin:
             parser = _ReadableTextParser()
             parser.feed(html_text)
             parser.close()
-            return parser.text()
-        return _regex_strip_tags(html_text)
+            raw = parser.text()
+        else:
+            raw = _regex_strip_tags(html_text)
+        return self._normalize_blank_runs(raw)
+
+    def _normalize_blank_runs(self, text: str) -> str:
+        """Collapse runs of 3+ consecutive newlines down to exactly 2.
+
+        HTML extraction tends to emit double-blank-lines around every <p>, <br>,
+        and <div> closure, which the frontend renderer then displays as huge
+        vertical gaps between mini "paragraphs". One blank line between content
+        is enough — anything more is visual noise.
+        """
+        if not text:
+            return text
+        # Normalise CRLF first so the regex below catches mixed line endings
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        return re.sub(r"\n{3,}", "\n\n", text)
 
     def _extract_html_region(self, html_text: str, selectors: list[str]) -> str | None:
         for selector in selectors:

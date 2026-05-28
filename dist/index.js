@@ -17,6 +17,7 @@ if (api._version != API_VERSION) {
 }
 const callable = api.callable;
 const routerHook = api.routerHook;
+const toaster = api.toaster;
 
 var DefaultContext = {
   color: undefined,
@@ -80,6 +81,33 @@ function FaBookOpen (props) {
   return GenIcon({"attr":{"viewBox":"0 0 576 512"},"child":[{"tag":"path","attr":{"d":"M542.22 32.05c-54.8 3.11-163.72 14.43-230.96 55.59-4.64 2.84-7.27 7.89-7.27 13.17v363.87c0 11.55 12.63 18.85 23.28 13.49 69.18-34.82 169.23-44.32 218.7-46.92 16.89-.89 30.02-14.43 30.02-30.66V62.75c.01-17.71-15.35-31.74-33.77-30.7zM264.73 87.64C197.5 46.48 88.58 35.17 33.78 32.05 15.36 31.01 0 45.04 0 62.75V400.6c0 16.24 13.13 29.78 30.02 30.66 49.49 2.6 149.59 12.11 218.77 46.95 10.62 5.35 23.21-1.94 23.21-13.46V100.63c0-5.29-2.62-10.14-7.27-12.99z"},"child":[]}]})(props);
 }
 
+/** v0.33: robust back navigation. Router.NavigateBack doesn't exist on every
+ * Steam UI build. Try Navigation.NavigateBack first (the documented API),
+ * then Router.NavigateBack, then window.history.back() as last resort. */
+function safeNavigateBack() {
+    try {
+        const nav = DFL.Navigation;
+        if (nav?.NavigateBack) {
+            nav.NavigateBack();
+            return true;
+        }
+    }
+    catch { }
+    try {
+        const rt = DFL.Router;
+        if (rt?.NavigateBack) {
+            rt.NavigateBack();
+            return true;
+        }
+    }
+    catch { }
+    try {
+        window.history.back();
+        return true;
+    }
+    catch { }
+    return false;
+}
 // Module-level handoff for the full-screen reader.
 // QAM sets the target guide id, then navigates to the route; FullScreenReader
 // reads (and clears) it on mount. Avoids URL params + global state libs.
@@ -93,7 +121,6 @@ function consumeFullScreenGuideId() {
     return id;
 }
 const FULL_SCREEN_ROUTE = "/decky-offline-soluce/reader";
-const HOTKEY_GLOBAL_NAME = "OfflineSoluceHotkey";
 // Steam Big Picture overlays at top (status / battery / time ~40px) and bottom (back
 // hint / system shortcuts ~40px). Pad full-screen routes so our header & footer
 // aren't covered. Tuned for SteamOS 3.8.x — bump if Steam changes the chrome height.
@@ -115,6 +142,15 @@ const setSectionNote = callable("set_section_note");
 const clearSectionNote = callable("clear_section_note");
 const reconstructSections = callable("reconstruct_sections");
 const reloadGuideContent = callable("reload_guide_content");
+const toggleSectionHidden = callable("toggle_section_hidden");
+callable("show_all_sections");
+const getBackupConfig = callable("get_backup_config");
+const setBackupConfig = callable("set_backup_config");
+const runBackupNow = callable("run_backup_now");
+// A3 ES-DE: returns the cleaned game-title of the ROM currently loaded by a running emulator,
+// or empty fields if no emulator is detected.
+const getRunningEmulatorGameHint = callable("get_running_emulator_game_hint");
+const BACKUP_INTERVAL_CHOICES = [1, 3, 7, 14, 30];
 const findInGuide = callable("find_in_guide");
 const exportGuide = callable("export_guide");
 const exportAllGuides = callable("export_all_guides");
@@ -136,17 +172,6 @@ const testSearch = callable("test_search");
 const clearDebugLog = callable("clear_debug_log");
 // ========== Constants ==========
 const VIEW_SEQUENCE = ["sources", "library", "search", "guides"];
-const SEARCH_SITE_CHOICES = [
-    { value: "all", label: "Tous" },
-    { value: "gamefaqs", label: "GameFAQs" },
-    { value: "rpgsoluce", label: "RPGSoluce" },
-    { value: "ign", label: "IGN" },
-    { value: "jeuxvideo", label: "Jeuxvideo.com" },
-    { value: "vally8", label: "Vally8" },
-    { value: "darklevel", label: "Darklevel" },
-    { value: "neoseeker", label: "Neoseeker" },
-    { value: "strategywiki", label: "StrategyWiki" },
-];
 const LANGUAGE_CHOICES = [
     { value: "auto", label: "Auto" },
     { value: "fr", label: "Français" },
@@ -303,6 +328,91 @@ function fieldLine(label, value) {
         return null;
     return (SP_JSX.jsxs("div", { style: { fontSize: "0.8rem", opacity: 0.88 }, children: [SP_JSX.jsxs("strong", { children: [label, " :"] }), " ", value] }));
 }
+/** A3: find the guide that matches the currently running Steam app (if any).
+ *  Tries: exact normalized title/game_title, alias match, substring containment.
+ *  Returns null if no plausible match.
+ *
+ *  v0.39 fix: when multiple guides match the running game at the same tier
+ *  (e.g. user has both a site-specific guide AND a generic "RPG Soluce" guide
+ *  attached to the same `game_title`), pick the one with the most recent
+ *  `last_opened_at`. Previously we returned the first match in array order,
+ *  which depended on the non-deterministic Python `glob` order on the Deck —
+ *  resulting in the palette opening the "wrong" guide for the same game.
+ *  Auto-healing: opening the intended guide once manually bumps its
+ *  timestamp above the other(s), and the palette locks onto it thereafter. */
+function findGuideForRunningApp(guides, appName) {
+    if (!appName || !guides.length)
+        return null;
+    const normApp = normalizeText(appName);
+    if (!normApp)
+        return null;
+    // Tiebreak helper: within a match tier, pick the most-recently-opened guide.
+    const pickMostRecent = (candidates) => {
+        if (candidates.length === 0)
+            return null;
+        if (candidates.length === 1)
+            return candidates[0];
+        return candidates.slice().sort((a, b) => (b.progress?.last_opened_at || "").localeCompare(a.progress?.last_opened_at || ""))[0];
+    };
+    // Tier 1: exact match on normalized game_title or title
+    const tier1 = guides.filter((g) => normalizeText(g.game.game_title || "") === normApp ||
+        normalizeText(g.title) === normApp);
+    if (tier1.length)
+        return pickMostRecent(tier1);
+    // Tier 2: alias match
+    const tier2 = guides.filter((g) => (g.game.aliases || []).some((a) => normalizeText(a) === normApp));
+    if (tier2.length)
+        return pickMostRecent(tier2);
+    // Tier 3: substring containment (either direction). Skips matches where one side
+    // is too short (<4 chars) to avoid false positives like "II" matching "Civ II".
+    if (normApp.length >= 4) {
+        const tier3 = guides.filter((g) => {
+            const gt = normalizeText(g.game.game_title || g.title);
+            if (!gt || gt.length < 4)
+                return false;
+            return gt.includes(normApp) || normApp.includes(gt);
+        });
+        if (tier3.length)
+            return pickMostRecent(tier3);
+    }
+    return null;
+}
+/** A5: find guides similar to the current one — same series (shared title words),
+ *  same platform, same site. Returns up to 5 results sorted by relevance. */
+function findSimilarGuides(current, all) {
+    if (!current)
+        return [];
+    const currentText = `${current.title} ${current.game.game_title || ""}`;
+    const currentWords = new Set(normalizeText(currentText)
+        .split(/\s+/)
+        .filter((w) => w.length >= 4 && !STOPWORDS.has(w)));
+    if (currentWords.size === 0)
+        return [];
+    const scored = [];
+    for (const g of all) {
+        if (g.id === current.id)
+            continue;
+        let score = 0;
+        const gWords = normalizeText(`${g.title} ${g.game.game_title || ""}`).split(/\s+/);
+        for (const w of gWords) {
+            if (w.length >= 4 && currentWords.has(w))
+                score += 5;
+        }
+        if (g.game.platform && g.game.platform === current.game.platform)
+            score += 2;
+        if (g.site && g.site === current.site)
+            score += 1;
+        if (score >= 5)
+            scored.push({ guide: g, score });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, 5).map((s) => s.guide);
+}
+const STOPWORDS = new Set([
+    "the", "and", "for", "with", "from", "this", "that", "guide", "walkthrough",
+    "soluce", "cheminement", "dans", "avec", "pour", "complet", "complete", "full",
+    "version", "final", "english", "francais", "french",
+]);
 function guideMatchesLibraryItem(guide, item) {
     const guidePlatform = guide.game.platform || "Autre";
     const itemPlatform = item.platform || "Autre";
@@ -351,6 +461,68 @@ function parseBlocks(raw) {
     }
     return blocks;
 }
+/**
+ * Old-school FAQs hard-wrap prose at ~80 chars with literal `\n`. On a wide
+ * Deck screen with `white-space: pre-wrap`, every wrap shows as a forced break,
+ * making 1 paragraph look like 8 mini-paragraphs. This collapses the soft-wrap
+ * `\n` into spaces so the browser can wrap naturally — but PRESERVES hard
+ * breaks for lists, stat labels, indented blocks, and short all-caps headers.
+ */
+function smartCollapseParagraph(text) {
+    const lines = text.split(/\n/);
+    if (lines.length <= 1)
+        return text;
+    const isHardBreak = (idx) => {
+        if (idx === 0)
+            return false;
+        const rawLine = lines[idx];
+        const line = rawLine.trim();
+        const prev = lines[idx - 1].trim();
+        if (!line)
+            return true;
+        // Bullet/list items
+        if (/^[-*•·●▪▫►▼>+]\s+\S/.test(line))
+            return true;
+        if (/^\d{1,3}[.):]\s+\S/.test(line))
+            return true;
+        if (/^[a-z]\)\s+\S/.test(line))
+            return true;
+        if (/^\d+[a-z]\.\s+\S/.test(line))
+            return true;
+        // Labeled stat lines, with or without colon ("HP : 950", "Level 27", "BOSS:")
+        if (/^(BOSS|Boss|HP|MP|SP|XP|EXP|Level|Niveau|Item|Objet|Items|Attack|Defend|Defense|Special|Magic|Stats|Stat|Rune|Skill|Skills|Equipement|Equipment)\b/i.test(line))
+            return true;
+        // Previous line was short header ending with colon ("Stats:" / "Items:")
+        if (prev.length < 60 && /[:：]\s*$/.test(prev))
+            return true;
+        // Short ALL-CAPS / dashed-banner line (small headers like "STORMFIST" or "------")
+        if (line.length < 80 && /^[A-Z][A-Z0-9\s\-]{2,}$/.test(line))
+            return true;
+        if (line.length < 80 && /^[=\-_*#~+]{4,}/.test(line))
+            return true;
+        // Indented line (preserved code/stat blocks)
+        if (/^\s{2,}\S/.test(rawLine))
+            return true;
+        // Short numeric-heavy line ("Level 1 6 9", "100 200 300") — likely table row
+        if (line.length < 60 && (line.match(/\d/g) || []).length >= 3 && !/[.!?]$/.test(line))
+            return true;
+        return false;
+    };
+    const out = [];
+    let buffer = lines[0];
+    for (let i = 1; i < lines.length; i++) {
+        if (isHardBreak(i)) {
+            out.push(buffer);
+            buffer = lines[i];
+        }
+        else {
+            // Soft-wrap continuation → join with single space
+            buffer = buffer.replace(/\s+$/, "") + " " + lines[i].replace(/^\s+/, "");
+        }
+    }
+    out.push(buffer);
+    return out.join("\n");
+}
 function parseParagraphsAndHeadings(raw) {
     const blocks = [];
     const headingRegex = /\x01H(\d)\x02(.*?)\x01\/H\x02/g;
@@ -365,8 +537,13 @@ function parseParagraphsAndHeadings(raw) {
         const paragraphs = joined.split(/\n\n+/);
         for (const p of paragraphs) {
             const trimmed = p.trim();
-            if (trimmed)
-                blocks.push({ kind: "paragraph", text: trimmed });
+            if (trimmed) {
+                // Collapse soft-wrap newlines into spaces so the browser flows the
+                // text at screen width. Hard breaks (lists, stat lines, ASCII art)
+                // are preserved by smartCollapseParagraph.
+                const flowed = smartCollapseParagraph(trimmed);
+                blocks.push({ kind: "paragraph", text: flowed });
+            }
         }
         paragraphBuffer = [];
     };
@@ -388,8 +565,29 @@ function parseParagraphsAndHeadings(raw) {
     flushParagraph();
     return blocks;
 }
-// Highlight keywords + search matches in a text block
-function renderHighlightedText(text, highlightKeywords, searchPattern) {
+/** L5: resolve a "section/chapter/chap. N[letter]" reference in text to a section index.
+ * Heuristic: looks for a section whose title starts with `Nx.` or `Nx ` (case-insensitive).
+ * Returns -1 if no plausible target. */
+function resolveSectionReference(refId, sections) {
+    const id = refId.toLowerCase().trim();
+    if (!id)
+        return -1;
+    // Pattern A: title starts with "<id>." or "<id> "
+    for (let i = 0; i < sections.length; i++) {
+        const t = (sections[i].title || "").trim().toLowerCase();
+        if (t.startsWith(id + ".") || t.startsWith(id + " ") || t.startsWith(id + ":"))
+            return i;
+    }
+    // Pattern B: title contains "[<id>]" — for TOC code-style anchors
+    for (let i = 0; i < sections.length; i++) {
+        const t = (sections[i].title || "").trim().toLowerCase();
+        if (t.includes("[" + id + "]"))
+            return i;
+    }
+    return -1;
+}
+// Highlight keywords + search matches + cross-references in a text block
+function renderHighlightedText(text, highlightKeywords, searchPattern, sections, onJumpToSection) {
     if (!text)
         return text;
     // Build a combined regex of keywords (word-ish boundaries) and the search pattern.
@@ -410,6 +608,13 @@ function renderHighlightedText(text, highlightKeywords, searchPattern) {
             }
         }
     }
+    // L5: cross-references — only active when we have sections + a jump callback
+    if (sections && sections.length > 0 && onJumpToSection) {
+        pieces.push({
+            regex: /\b(?:section|chapitre|chapter|chap\.?)\s+(\d{1,3}[a-z]?)\b/gi,
+            className: "os-ref",
+        });
+    }
     if (pieces.length === 0)
         return text;
     const spans = [];
@@ -419,21 +624,29 @@ function renderHighlightedText(text, highlightKeywords, searchPattern) {
         while ((m = piece.regex.exec(text)) !== null) {
             if (m.index === piece.regex.lastIndex)
                 piece.regex.lastIndex++;
-            spans.push({ start: m.index, end: m.index + m[0].length, className: piece.className, color: piece.color });
+            const span = { start: m.index, end: m.index + m[0].length, className: piece.className, color: piece.color };
+            if (piece.className === "os-ref" && sections && m[1]) {
+                const target = resolveSectionReference(m[1], sections);
+                if (target < 0)
+                    continue; // skip cross-refs that don't resolve to anything
+                span.refTarget = target;
+            }
+            spans.push(span);
         }
     }
     if (spans.length === 0)
         return text;
-    // Sort, then merge overlaps (search match wins over keyword)
+    // Sort, then merge overlaps (search match wins, then ref, then keyword)
+    const priority = { "os-find": 3, "os-ref": 2, "os-kw": 1 };
     spans.sort((a, b) => a.start - b.start || b.end - a.end);
     const merged = [];
     for (const s of spans) {
         const last = merged[merged.length - 1];
         if (last && s.start < last.end) {
-            // Overlap: keep the one with higher priority (find > keyword)
-            if (s.className === "os-find" && last.className !== "os-find") {
+            const lastP = priority[last.className] || 0;
+            const sP = priority[s.className] || 0;
+            if (sP > lastP)
                 merged[merged.length - 1] = s;
-            }
             continue;
         }
         merged.push(s);
@@ -447,6 +660,16 @@ function renderHighlightedText(text, highlightKeywords, searchPattern) {
         const substr = text.slice(s.start, s.end);
         if (s.className === "os-find") {
             out.push(SP_JSX.jsx("mark", { style: { background: "#ffe066", color: "#1a1a1a", borderRadius: "2px", padding: "0 2px" }, children: substr }, `m-${i}`));
+        }
+        else if (s.className === "os-ref" && typeof s.refTarget === "number" && onJumpToSection) {
+            const target = s.refTarget;
+            out.push(SP_JSX.jsx("span", { onClick: () => onJumpToSection(target), style: {
+                    color: "#8fd0ff",
+                    textDecoration: "underline",
+                    textDecorationStyle: "dotted",
+                    cursor: "pointer",
+                    fontWeight: 500,
+                }, children: substr }, `r-${i}`));
         }
         else {
             out.push(SP_JSX.jsx("span", { style: { color: s.color, fontWeight: 600 }, children: substr }, `k-${i}`));
@@ -462,7 +685,7 @@ function renderHighlightedText(text, highlightKeywords, searchPattern) {
  * search-match highlighting, and monospace rendering for ASCII-art blocks.
  */
 function GuideReader(props) {
-    const { guide, sectionIndex, fontScale, preferences, searchPattern, scrollRestoreFraction, onScrollChange, maxHeight, } = props;
+    const { guide, sectionIndex, fontScale, preferences, searchPattern, scrollRestoreFraction, onScrollChange, maxHeight, onJumpToSection, restoreGeneration, } = props;
     const scrollRef = SP_REACT.useRef(null);
     const raw = SP_REACT.useMemo(() => getSectionText(guide, sectionIndex), [guide, sectionIndex]);
     const blocks = SP_REACT.useMemo(() => parseBlocks(raw), [raw]);
@@ -470,25 +693,48 @@ function GuideReader(props) {
     const lh = lineHeightValue(preferences.line_height);
     const widthCap = maxWidthValue(preferences.max_width);
     const ff = fontFamily(preferences.font_family);
-    // Restore scroll when section switches / on first render if requested
+    // Restore scroll when section switches / on first render / on intentional bookmark jump.
+    // v0.34: retry across multiple RAF frames if scrollHeight is still growing (content not
+    // fully laid out yet for long sections). Reacts to restoreGeneration so the parent can
+    // force a re-fire without changing sectionIndex.
+    // v0.34 fix: scrollRestoreFraction REMOVED from deps. The parent nulls it via onScrollChange
+    // after restore, which would have re-fired this effect with null → scroll back to 0.
+    // We read scrollRestoreFraction at run time (closure captures the value at the moment the
+    // effect actually runs, which is right after the relevant render).
     SP_REACT.useEffect(() => {
         const el = scrollRef.current;
         if (!el)
             return;
-        const raf = window.requestAnimationFrame(() => {
-            if (scrollRestoreFraction !== null) {
-                const max = Math.max(1, el.scrollHeight - el.clientHeight);
-                el.scrollTop = max * scrollRestoreFraction;
-            }
-            else {
-                el.scrollTop = 0;
-            }
-            const max = Math.max(1, el.scrollHeight - el.clientHeight);
-            onScrollChange(Math.max(0, Math.min(1, el.scrollTop / max)));
-        });
-        return () => window.cancelAnimationFrame(raf);
+        let cancelled = false;
+        let rafId = 0;
+        // Snapshot the target fraction at effect-run time so a subsequent prop change can't
+        // override our intent mid-restore.
+        const targetFrac = scrollRestoreFraction;
+        const attempt = (tries) => {
+            if (cancelled)
+                return;
+            const currentMax = Math.max(1, el.scrollHeight - el.clientHeight);
+            const targetTop = targetFrac !== null
+                ? currentMax * targetFrac
+                : 0;
+            el.scrollTop = targetTop;
+            // Re-check next frame: if scrollHeight changed (content still rendering), redo with new max
+            rafId = window.requestAnimationFrame(() => {
+                if (cancelled)
+                    return;
+                const newMax = Math.max(1, el.scrollHeight - el.clientHeight);
+                if (newMax !== currentMax && tries < 5) {
+                    attempt(tries + 1);
+                    return;
+                }
+                const finalFrac = newMax > 1 ? Math.max(0, Math.min(1, el.scrollTop / newMax)) : 0;
+                onScrollChange(finalFrac);
+            });
+        };
+        rafId = window.requestAnimationFrame(() => attempt(0));
+        return () => { cancelled = true; window.cancelAnimationFrame(rafId); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sectionIndex, guide.id, scrollRestoreFraction]);
+    }, [sectionIndex, guide.id, restoreGeneration]);
     const containerStyle = {
         overflowY: "auto",
         overflowX: "hidden",
@@ -509,7 +755,10 @@ function GuideReader(props) {
         marginRight: "auto",
     };
     const paragraphStyle = {
-        margin: "0 0 0.8em",
+        // Tightened in v0.22: was 0.8em which combined with HTML's per-line blank-line
+        // emission made the rendered text look airy and broken. 0.4em keeps paragraphs
+        // distinguishable but compacts the visual rhythm.
+        margin: "0 0 0.4em",
         whiteSpace: "pre-wrap",
         overflowWrap: "anywhere",
     };
@@ -543,10 +792,209 @@ function GuideReader(props) {
                 if (block.kind === "pre") {
                     return SP_JSX.jsx("pre", { style: preStyle, children: block.text }, idx);
                 }
-                return (SP_JSX.jsx("p", { style: paragraphStyle, children: renderHighlightedText(block.text, preferences.highlight_keywords, searchPattern) }, idx));
+                return (SP_JSX.jsx("p", { style: paragraphStyle, children: renderHighlightedText(block.text, preferences.highlight_keywords, searchPattern, guide.sections, onJumpToSection) }, idx));
             })) }) }));
 }
-// ========== Full-screen reader component ==========
+/** Group consecutive sections so heading_level <= 2 starts a group, deeper levels nest under it. */
+function buildTocGroups(sections) {
+    const groups = [];
+    let current = null;
+    sections.forEach((sec, idx) => {
+        const level = sec.heading_level || 2;
+        if (level <= 2 || current === null) {
+            current = { parent: { index: idx, sec }, children: [] };
+            groups.push(current);
+        }
+        else {
+            current.children.push({ index: idx, sec });
+        }
+    });
+    return groups;
+}
+/** Sidebar TOC with filter + collapsible groups + hide-section toggle + auto-scroll. */
+function TocSidebar(props) {
+    const { guide, preferences, theme, sidebarStyle, sectionIndex, setSectionIndex, tocFilter, setTocFilter, collapsedParents, setCollapsedParents, showHiddenSections, setShowHiddenSections, } = props;
+    const currentRowRef = SP_REACT.useRef(null);
+    // L3: auto-scroll the sidebar so the current section's row is visible whenever sectionIndex changes
+    SP_REACT.useEffect(() => {
+        const el = currentRowRef.current;
+        if (el && typeof el.scrollIntoView === "function") {
+            try {
+                el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+            }
+            catch { /* older browsers */ }
+        }
+    }, [sectionIndex]);
+    const hiddenTitles = new Set((guide.progress?.hidden_section_titles || []).map((t) => (t || "").trim()));
+    const isHidden = (sec) => hiddenTitles.has((sec.title || "").trim());
+    const hiddenCount = guide.sections.reduce((n, s) => n + (isHidden(s) ? 1 : 0), 0);
+    // v0.25: which sections are marked as "done" (manually or auto via scroll-to-bottom)
+    const doneIndices = new Set();
+    const flaggedIndices = new Set();
+    for (const n of guide.progress?.section_notes || []) {
+        if (n.done)
+            doneIndices.add(n.section_index);
+        if (n.flagged)
+            flaggedIndices.add(n.section_index);
+    }
+    const sectionBadge = (idx) => {
+        let out = "";
+        if (doneIndices.has(idx))
+            out += "✅ ";
+        if (flaggedIndices.has(idx))
+            out += "⚐ ";
+        return out;
+    };
+    const groups = buildTocGroups(guide.sections);
+    const filterNeedle = tocFilter.trim().toLowerCase();
+    // Apply hide filter first (unless "show hidden" toggle is on), then text filter.
+    let working = showHiddenSections
+        ? groups
+        : groups
+            .map((g) => {
+            const childrenVisible = g.children.filter((c) => !isHidden(c.sec));
+            if (isHidden(g.parent.sec)) {
+                // Parent hidden: surface children that aren't hidden by making the FIRST visible
+                // child a new pseudo-parent. If none, drop the group entirely.
+                if (childrenVisible.length === 0)
+                    return null;
+                return { parent: childrenVisible[0], children: childrenVisible.slice(1) };
+            }
+            return { parent: g.parent, children: childrenVisible };
+        })
+            .filter((g) => g !== null);
+    // Then text filter: keep groups whose parent OR any child title matches; drop non-matching children.
+    const filtered = filterNeedle
+        ? working
+            .map((g) => {
+            const parentMatches = (g.parent.sec.title || "").toLowerCase().includes(filterNeedle);
+            const matchingChildren = g.children.filter((c) => (c.sec.title || "").toLowerCase().includes(filterNeedle));
+            if (parentMatches || matchingChildren.length > 0) {
+                return { parent: g.parent, children: parentMatches ? g.children : matchingChildren };
+            }
+            return null;
+        })
+            .filter((g) => g !== null)
+        : working;
+    const toggle = (parentIdx) => {
+        setCollapsedParents((prev) => {
+            const next = new Set(prev);
+            if (next.has(parentIdx))
+                next.delete(parentIdx);
+            else
+                next.add(parentIdx);
+            return next;
+        });
+    };
+    const filterWrapStyle = {
+        padding: "8px 10px 6px",
+        position: "sticky",
+        top: 0,
+        background: "rgba(0,0,0,0.55)",
+        borderBottom: `1px solid ${theme.borderColor}`,
+        zIndex: 1,
+    };
+    const hiddenToggleStyle = {
+        marginTop: "5px",
+        fontSize: "0.7rem",
+        padding: "4px 6px",
+        borderRadius: "3px",
+        background: showHiddenSections ? "rgba(255, 217, 102, 0.15)" : "rgba(255,255,255,0.05)",
+        color: theme.textColor,
+        cursor: "pointer",
+        textAlign: "center",
+        border: "1px solid " + (showHiddenSections ? "rgba(255, 217, 102, 0.4)" : "transparent"),
+    };
+    const parentRowStyleBase = (isCurrent) => ({
+        padding: "7px 10px",
+        borderLeft: isCurrent ? "3px solid #ffd966" : "3px solid transparent",
+        background: isCurrent ? "rgba(255, 217, 102, 0.18)" : "transparent",
+        cursor: "pointer",
+        fontSize: "0.86rem",
+        fontWeight: 700,
+        color: theme.textColor,
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+    });
+    const childRowStyleBase = (isCurrent) => ({
+        padding: "5px 10px 5px 30px",
+        borderLeft: isCurrent ? "3px solid #ffd966" : "3px solid transparent",
+        background: isCurrent ? "rgba(255, 217, 102, 0.18)" : "transparent",
+        cursor: "pointer",
+        fontSize: "0.76rem",
+        fontWeight: isCurrent ? 700 : 400,
+        color: theme.textColor,
+        opacity: 0.92,
+    });
+    return (SP_JSX.jsxs("div", { style: sidebarStyle, children: [SP_JSX.jsxs("div", { style: filterWrapStyle, children: [SP_JSX.jsx(DFL.TextField, { value: tocFilter, onChange: (e) => setTocFilter(e.target.value), placeholder: "Filtrer le sommaire\u2026", bShowClearAction: true }), hiddenCount > 0 ? (SP_JSX.jsx(DFL.Focusable, { onActivate: () => setShowHiddenSections((v) => !v), style: hiddenToggleStyle, children: showHiddenSections
+                            ? `👁 Cacher les ${hiddenCount} masquée(s)`
+                            : `🙈 Afficher les ${hiddenCount} masquée(s)` })) : null] }), SP_JSX.jsxs(DFL.Focusable, { children: [filtered.length === 0 && filterNeedle ? (SP_JSX.jsxs("div", { style: { padding: "16px", textAlign: "center", opacity: 0.6, fontSize: "0.8rem" }, children: ["Aucune section ne correspond \u00E0 \u00AB ", tocFilter, " \u00BB"] })) : null, filtered.map((group) => {
+                        const containsCurrent = sectionIndex === group.parent.index
+                            || group.children.some((c) => c.index === sectionIndex);
+                        // Always expand the group containing the current section, and when filtering.
+                        const effectiveCollapsed = !filterNeedle && !containsCurrent && collapsedParents.has(group.parent.index);
+                        const hasChildren = group.children.length > 0;
+                        const parentIsCurrent = sectionIndex === group.parent.index;
+                        const parentHidden = isHidden(group.parent.sec);
+                        const parentStyle = { ...parentRowStyleBase(parentIsCurrent), opacity: parentHidden ? 0.45 : 1 };
+                        return (SP_JSX.jsxs("div", { children: [SP_JSX.jsxs(DFL.Focusable, { ref: parentIsCurrent ? currentRowRef : undefined, onActivate: () => {
+                                        if (hasChildren && !filterNeedle)
+                                            toggle(group.parent.index);
+                                        setSectionIndex(group.parent.index);
+                                    }, style: parentStyle, children: [SP_JSX.jsx("span", { style: { width: "12px", display: "inline-block", opacity: hasChildren ? 0.7 : 0, fontSize: "0.7rem" }, children: hasChildren ? (effectiveCollapsed ? "▶" : "▼") : "" }), SP_JSX.jsxs("span", { style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: [parentHidden ? "🙈 " : "", sectionBadge(group.parent.index), preferences.numbered_sections ? `${group.parent.index + 1}. ` : "", group.parent.sec.title || "(sans titre)"] }), hasChildren ? (SP_JSX.jsx("span", { style: { fontSize: "0.66rem", opacity: 0.55, padding: "1px 5px", borderRadius: "3px", background: "rgba(255,255,255,0.08)" }, children: group.children.length })) : null] }), !effectiveCollapsed && group.children.map((child) => {
+                                    const isCurrent = child.index === sectionIndex;
+                                    const childHidden = isHidden(child.sec);
+                                    const childStyle = { ...childRowStyleBase(isCurrent), opacity: childHidden ? 0.45 : 0.92 };
+                                    return (SP_JSX.jsxs(DFL.Focusable, { ref: isCurrent ? currentRowRef : undefined, onActivate: () => setSectionIndex(child.index), style: childStyle, children: [childHidden ? "🙈 " : "", sectionBadge(child.index), preferences.numbered_sections ? `${child.index + 1}. ` : "", child.sec.title || "(sans titre)"] }, child.index));
+                                })] }, group.parent.index));
+                    })] })] }));
+}
+/**
+ * v0.35: collapsible named-bookmarks panel for the FullScreenReader.
+ * Replaces the GuideReader pane when toggled on, so it doesn't permanently
+ * eat reading space. List of bookmarks is sorted newest-first.
+ */
+function NamedBookmarksPanel(props) {
+    const { guide, currentSectionIndex, currentScrollFraction, busy, theme, onClose, onAdd, onDelete, onGoTo } = props;
+    const bookmarks = (guide.progress?.named_bookmarks || []).slice().sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+    const containerStyle = {
+        flex: 1,
+        minHeight: 0,
+        overflowY: "auto",
+        overflowX: "hidden",
+        padding: "12px 14px",
+        borderRadius: "10px",
+        border: `1px solid ${theme.borderColor}`,
+        background: theme.background,
+        color: theme.textColor,
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+    };
+    const headerRowStyle = {
+        display: "flex",
+        gap: "8px",
+        alignItems: "center",
+        paddingBottom: "8px",
+        borderBottom: `1px solid ${theme.borderColor}`,
+    };
+    const itemStyle = {
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        padding: "8px 10px",
+        borderRadius: "6px",
+        background: "rgba(255,255,255,0.04)",
+        border: `1px solid ${theme.borderColor}`,
+    };
+    const currentSectionTitle = guide.sections[currentSectionIndex]?.title || "Début";
+    return (SP_JSX.jsxs("div", { style: containerStyle, children: [SP_JSX.jsxs("div", { style: headerRowStyle, children: [SP_JSX.jsxs("div", { style: { flex: 1, fontWeight: 700, fontSize: "0.95rem" }, children: ["\uD83D\uDCDA Marques-pages (", bookmarks.length, ")"] }), SP_JSX.jsx(DFL.DialogButton, { onClick: onClose, children: "Fermer \u2715" })] }), SP_JSX.jsxs("div", { style: { fontSize: "0.75rem", opacity: 0.78 }, children: ["Position actuelle : ", SP_JSX.jsx("strong", { children: currentSectionTitle.slice(0, 50) }), " \u00B7 ", Math.round(currentScrollFraction * 100), "%"] }), SP_JSX.jsx(DFL.DialogButton, { disabled: busy, onClick: onAdd, children: "\u2795 Ajouter le point actuel comme marque-page" }), bookmarks.length === 0 ? (SP_JSX.jsxs("div", { style: { padding: "20px", textAlign: "center", opacity: 0.6, fontSize: "0.85rem" }, children: ["Aucun marque-page nomm\u00E9 pour ce guide.", SP_JSX.jsx("br", {}), "Clique \u00AB Ajouter \u00BB ci-dessus pour en cr\u00E9er un."] })) : (bookmarks.map((bm) => {
+                const sec = guide.sections[bm.section_index] || null;
+                const secLabel = sec?.title || (bm.section_index >= 0 ? `Section ${bm.section_index + 1}` : "Début");
+                return (SP_JSX.jsxs("div", { style: itemStyle, children: [SP_JSX.jsxs(DFL.Focusable, { onActivate: () => onGoTo(bm), style: { flex: 1, minWidth: 0, cursor: "pointer", padding: "2px 4px" }, children: [SP_JSX.jsxs("div", { style: { fontWeight: 600, fontSize: "0.85rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: ["\uD83D\uDCCD ", bm.name || "(sans nom)"] }), SP_JSX.jsxs("div", { style: { fontSize: "0.72rem", opacity: 0.72, marginTop: "2px" }, children: [secLabel.slice(0, 60), " \u00B7 ", Math.round((bm.scroll_fraction || 0) * 100), "%", bm.created_at ? ` · ${formatDate(bm.created_at)}` : ""] })] }), SP_JSX.jsx(DFL.DialogButton, { disabled: busy, onClick: () => onDelete(bm.bookmark_id), children: "\u2715" })] }, bm.bookmark_id));
+            }))] }));
+}
 /**
  * Stand-alone full-page reading surface, mounted via routerHook on the
  * `/decky-offline-soluce/reader` route. Owns its own state — when the user
@@ -566,9 +1014,37 @@ function FullScreenReader() {
     const lastScrollFractionRef = SP_REACT.useRef(0);
     const restoreFractionRef = SP_REACT.useRef(null);
     const initialScrollRef = SP_REACT.useRef(true);
+    // L4: state mirror of the scroll fraction so the intra-section progress bar can re-render.
+    // Separate from the ref because the ref is updated on every scroll tick and we want React
+    // to know about it.
+    const [displayScrollFraction, setDisplayScrollFraction] = SP_REACT.useState(0);
+    // v0.25: track which section indices we've already auto-marked as read this session
+    // (avoids spamming setSectionNote on every scroll tick once the threshold is crossed).
+    const autoMarkedRef = SP_REACT.useRef(new Set());
     // Mirror of latest section/font so the unmount cleanup persists the freshest values,
     // not the values captured at first effect run (closure trap on the [guide?.id]-only dep).
     const latestStateRef = SP_REACT.useRef({ sectionIndex: -1, fontScale: 1.0 });
+    // v0.33: flag set by "Go to bookmark" so the section-change effect doesn't wipe
+    // the restore fraction we just set.
+    const intentionalRestoreRef = SP_REACT.useRef(false);
+    // v0.33: scroll-debounced save timer ref — saves the latest position 1.5s after
+    // the user stops scrolling, even if section doesn't change. Without this the
+    // only persistence point was the unmount cleanup, which may not always fire.
+    const scrollSaveTimerRef = SP_REACT.useRef(null);
+    // v0.34: incremented on each "Go to bookmark" click. Passed to GuideReader as a
+    // prop so the scroll-restore effect re-fires even when sectionIndex doesn't change
+    // (clicking "Aller au marque-page" while already in that section).
+    const [restoreGeneration, setRestoreGeneration] = SP_REACT.useState(0);
+    // v0.34: last bookmark-click timestamp for cheap double-fire protection
+    const lastBookmarkClickRef = SP_REACT.useRef(0);
+    // v0.35: collapsible named-bookmarks panel — when ON the reader pane is replaced
+    // by the list (saves space; OFF gives reader maximum width).
+    const [showBookmarksPanel, setShowBookmarksPanel] = SP_REACT.useState(false);
+    const [bookmarksBusy, setBookmarksBusy] = SP_REACT.useState(false);
+    // Sidebar TOC UX state
+    const [tocFilter, setTocFilter] = SP_REACT.useState("");
+    const [collapsedParents, setCollapsedParents] = SP_REACT.useState(new Set());
+    const [showHiddenSections, setShowHiddenSections] = SP_REACT.useState(false);
     SP_REACT.useEffect(() => {
         const id = guideIdRef.current;
         if (!id) {
@@ -615,15 +1091,47 @@ function FullScreenReader() {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [guide?.id]);
-    // Reset restore fraction when section changes after initial load
+    // Reset restore fraction AND last-scroll-fraction when section changes after initial load.
+    // v0.32 fix: also reset lastScrollFractionRef so old section's scroll doesn't leak.
+    // v0.33: preserve restoreFractionRef when "Go to bookmark" intentionally set it.
     SP_REACT.useEffect(() => {
         if (initialScrollRef.current) {
             initialScrollRef.current = false;
             return;
         }
-        restoreFractionRef.current = 0;
+        if (intentionalRestoreRef.current) {
+            intentionalRestoreRef.current = false; // consume the flag, keep restoreFractionRef as-is
+        }
+        else {
+            restoreFractionRef.current = 0;
+        }
+        lastScrollFractionRef.current = 0;
     }, [sectionIndex]);
-    const theme = preferences ? themeStyle(preferences.theme) : { background: "#111", textColor: "#eee", borderColor: "rgba(255,255,255,0.1)"};
+    // v0.25: auto-mark a section as "lu" (done) when the user scrolls past ~97%.
+    // Only fires once per section per mount. Preserves existing flagged/note when
+    // promoting a section from "no note" to "done".
+    SP_REACT.useEffect(() => {
+        if (!guide || sectionIndex < 0)
+            return;
+        if (displayScrollFraction < 0.97)
+            return;
+        if (autoMarkedRef.current.has(sectionIndex))
+            return;
+        const existing = (guide.progress?.section_notes || []).find((n) => n.section_index === sectionIndex);
+        autoMarkedRef.current.add(sectionIndex); // mark immediately to avoid re-fire
+        if (existing?.done)
+            return; // already done, nothing to persist
+        const flagged = existing?.flagged ?? false;
+        const note = existing?.note ?? "";
+        void setSectionNote(guide.id, sectionIndex, true, flagged, note)
+            .then((updated) => setGuide(updated))
+            .catch(() => { autoMarkedRef.current.delete(sectionIndex); /* allow retry */ });
+    }, [displayScrollFraction, sectionIndex, guide?.id]);
+    // Reset the in-session "already marked" set when guide changes
+    SP_REACT.useEffect(() => {
+        autoMarkedRef.current = new Set();
+    }, [guide?.id]);
+    const theme = preferences ? themeStyle(preferences.theme) : { background: "#111", textColor: "#eee", borderColor: "rgba(255,255,255,0.1)", headingColor: "#ffd966", preBg: "rgba(0,0,0,0.3)", preText: "#ddd" };
     const layoutStyle = {
         width: "100vw",
         height: "100vh",
@@ -675,87 +1183,208 @@ function FullScreenReader() {
         flexShrink: 0,
     };
     if (loadError) {
-        return (SP_JSX.jsxs("div", { style: layoutStyle, children: [SP_JSX.jsxs("div", { style: headerStyle, children: [SP_JSX.jsx(DFL.DialogButton, { onClick: () => DFL.Router.NavigateBack(), children: "\u2190 Retour" }), SP_JSX.jsx("div", { style: { flex: 1, fontWeight: 700 }, children: "Lecteur plein \u00E9cran" })] }), SP_JSX.jsx("div", { style: { padding: "24px", fontSize: "0.95rem" }, children: loadError })] }));
+        return (SP_JSX.jsxs("div", { style: layoutStyle, children: [SP_JSX.jsxs("div", { style: headerStyle, children: [SP_JSX.jsx(DFL.DialogButton, { onClick: () => safeNavigateBack(), children: "\u2190 Retour" }), SP_JSX.jsx("div", { style: { flex: 1, fontWeight: 700 }, children: "Lecteur plein \u00E9cran" })] }), SP_JSX.jsx("div", { style: { padding: "24px", fontSize: "0.95rem" }, children: loadError })] }));
     }
     if (!guide || !preferences) {
-        return (SP_JSX.jsx("div", { style: layoutStyle, children: SP_JSX.jsxs("div", { style: headerStyle, children: [SP_JSX.jsx(DFL.DialogButton, { onClick: () => DFL.Router.NavigateBack(), children: "\u2190 Retour" }), SP_JSX.jsx("div", { style: { flex: 1, fontWeight: 700 }, children: "Chargement\u2026" })] }) }));
+        return (SP_JSX.jsx("div", { style: layoutStyle, children: SP_JSX.jsxs("div", { style: headerStyle, children: [SP_JSX.jsx(DFL.DialogButton, { onClick: () => safeNavigateBack(), children: "\u2190 Retour" }), SP_JSX.jsx("div", { style: { flex: 1, fontWeight: 700 }, children: "Chargement\u2026" })] }) }));
     }
     const sectionCount = guide.sections.length;
     const currentSection = sectionIndex >= 0 ? guide.sections[sectionIndex] : null;
     const sectionLabel = currentSection ? currentSection.title : "—";
-    return (SP_JSX.jsxs("div", { style: layoutStyle, children: [SP_JSX.jsxs("div", { style: headerStyle, children: [SP_JSX.jsx(DFL.DialogButton, { onClick: () => DFL.Router.NavigateBack(), children: "\u2190 Retour" }), SP_JSX.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [SP_JSX.jsx("div", { style: { fontWeight: 700, fontSize: "0.95rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, children: guide.game.game_title || guide.title }), SP_JSX.jsx("div", { style: { fontSize: "0.78rem", opacity: 0.75, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, children: sectionCount > 0 && sectionIndex >= 0
+    return (SP_JSX.jsxs("div", { style: layoutStyle, children: [SP_JSX.jsxs("div", { style: headerStyle, children: [SP_JSX.jsx(DFL.DialogButton, { onClick: () => safeNavigateBack(), children: "\u2190 Retour" }), SP_JSX.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [SP_JSX.jsx("div", { style: { fontWeight: 700, fontSize: "0.95rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, children: guide.game.game_title || guide.title }), SP_JSX.jsx("div", { style: { fontSize: "0.78rem", opacity: 0.75, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, children: sectionCount > 0 && sectionIndex >= 0
                                     ? `Section ${sectionIndex + 1}/${sectionCount} · ${sectionLabel}`
-                                    : "Aucune section" })] }), SP_JSX.jsx(DFL.DialogButton, { onClick: () => setShowToc((v) => !v), children: showToc ? "Masquer sommaire" : "📚 Sommaire" }), SP_JSX.jsx(DFL.DialogButton, { onClick: () => setFontScale((v) => Math.max(0.85, +(v - 0.1).toFixed(2))), children: "A\u2212" }), SP_JSX.jsx(DFL.DialogButton, { onClick: () => setFontScale((v) => Math.min(2.0, +(v + 0.1).toFixed(2))), children: "A+" }), SP_JSX.jsx(DFL.DialogButton, { onClick: () => setShowSearch((v) => !v), children: showSearch ? "Fermer 🔍" : "🔍" })] }), showSearch ? (SP_JSX.jsx("div", { style: { padding: "8px 16px", background: "rgba(0,0,0,0.25)", flexShrink: 0 }, children: SP_JSX.jsx("input", { type: "text", value: searchPattern, onChange: (e) => setSearchPattern(e.target.value), placeholder: "Surligner dans la section\u2026", style: {
-                        width: "100%",
-                        padding: "8px 10px",
-                        borderRadius: "6px",
-                        border: `1px solid ${theme.borderColor}`,
-                        background: "rgba(0,0,0,0.4)",
-                        color: theme.textColor,
-                        fontSize: "0.9rem",
-                    } }) })) : null, SP_JSX.jsxs("div", { style: mainAreaStyle, children: [showToc ? (SP_JSX.jsx(DFL.Focusable, { style: sidebarStyle, children: guide.sections.map((sec, idx) => {
-                            const isCurrent = idx === sectionIndex;
-                            const indent = Math.max(0, (sec.heading_level || 0) - 1) * 12;
-                            return (SP_JSX.jsxs(DFL.Focusable, { onActivate: () => setSectionIndex(idx), style: {
-                                    padding: "8px 10px",
-                                    paddingLeft: `${10 + indent}px`,
-                                    borderLeft: isCurrent ? "3px solid #ffd966" : "3px solid transparent",
-                                    background: isCurrent ? "rgba(255, 217, 102, 0.18)" : "transparent",
-                                    cursor: "pointer",
-                                    fontSize: "0.85rem",
-                                    fontWeight: isCurrent ? 700 : 400,
-                                    color: theme.textColor,
-                                }, children: [preferences.numbered_sections ? `[${idx + 1}] ` : "", sec.title || "(sans titre)"] }, idx));
-                        }) })) : null, SP_JSX.jsx("div", { style: readerPaneStyle, children: SP_JSX.jsx(GuideReader, { guide: guide, sectionIndex: sectionIndex, fontScale: fontScale, preferences: preferences, searchPattern: searchPattern, scrollRestoreFraction: restoreFractionRef.current, onScrollChange: (f) => {
-                                lastScrollFractionRef.current = f;
-                                if (restoreFractionRef.current !== null)
-                                    restoreFractionRef.current = null;
-                            }, maxHeight: showSearch ? "calc(100vh - 280px)" : "calc(100vh - 230px)" }) })] }), SP_JSX.jsxs("div", { style: footerStyle, children: [SP_JSX.jsx(DFL.DialogButton, { disabled: sectionIndex <= 0, onClick: () => setSectionIndex((v) => Math.max(0, v - 1)), children: "\u25C0 Section pr\u00E9c\u00E9dente" }), SP_JSX.jsx("div", { style: { flex: 1, textAlign: "center", fontSize: "0.78rem", opacity: 0.7 }, children: sectionCount > 0 && sectionIndex >= 0 ? `${sectionIndex + 1} / ${sectionCount}` : "" }), SP_JSX.jsx(DFL.DialogButton, { onClick: () => {
+                                    : "Aucune section" })] }), SP_JSX.jsx(DFL.DialogButton, { onClick: () => setShowToc((v) => !v), children: showToc ? "Masquer sommaire" : "📚 Sommaire" }), SP_JSX.jsx(DFL.DialogButton, { onClick: () => setShowBookmarksPanel((v) => !v), children: showBookmarksPanel ? "Fermer 🔖" : `🔖 Marques (${guide.progress?.named_bookmarks?.length || 0})` }), SP_JSX.jsx(DFL.DialogButton, { onClick: () => setFontScale((v) => Math.max(0.85, +(v - 0.1).toFixed(2))), children: "A\u2212" }), SP_JSX.jsx(DFL.DialogButton, { onClick: () => setFontScale((v) => Math.min(2.0, +(v + 0.1).toFixed(2))), children: "A+" }), SP_JSX.jsx(DFL.DialogButton, { onClick: () => setShowSearch((v) => !v), children: showSearch ? "Fermer 🔍" : "🔍" })] }), showSearch ? (SP_JSX.jsx("div", { style: { padding: "8px 16px", background: "rgba(0,0,0,0.25)", flexShrink: 0 }, children: SP_JSX.jsx(DFL.TextField, { value: searchPattern, onChange: (e) => setSearchPattern(e.target.value), placeholder: "Surligner dans la section\u2026", bShowClearAction: true }) })) : null, SP_JSX.jsxs("div", { style: mainAreaStyle, children: [showToc ? (SP_JSX.jsx(TocSidebar, { guide: guide, preferences: preferences, theme: theme, sidebarStyle: sidebarStyle, sectionIndex: sectionIndex, setSectionIndex: setSectionIndex, tocFilter: tocFilter, setTocFilter: setTocFilter, collapsedParents: collapsedParents, setCollapsedParents: setCollapsedParents, showHiddenSections: showHiddenSections, setShowHiddenSections: setShowHiddenSections })) : null, SP_JSX.jsxs("div", { style: readerPaneStyle, children: [showBookmarksPanel ? (SP_JSX.jsx(NamedBookmarksPanel, { guide: guide, currentSectionIndex: sectionIndex, currentScrollFraction: lastScrollFractionRef.current, busy: bookmarksBusy, theme: theme, onClose: () => setShowBookmarksPanel(false), onAdd: async () => {
+                                    if (!guide)
+                                        return;
+                                    setBookmarksBusy(true);
+                                    try {
+                                        const sec = guide.sections[sectionIndex];
+                                        const secTitle = (sec?.title || "Début").slice(0, 40);
+                                        const now = new Date();
+                                        const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+                                        const name = `${secTitle} — ${hhmm}`;
+                                        const updated = await addNamedBookmark(guide.id, name, sectionIndex, lastScrollFractionRef.current);
+                                        setGuide(updated);
+                                        try {
+                                            toaster.toast({ title: "Marque-page ajouté", body: name, duration: 2500 });
+                                        }
+                                        catch { }
+                                    }
+                                    catch (e) {
+                                        try {
+                                            toaster.toast({ title: "Ajout KO", body: String(e?.message || e), critical: true, duration: 4000 });
+                                        }
+                                        catch { }
+                                    }
+                                    finally {
+                                        setBookmarksBusy(false);
+                                    }
+                                }, onDelete: async (bookmarkId) => {
+                                    if (!guide)
+                                        return;
+                                    setBookmarksBusy(true);
+                                    try {
+                                        const updated = await deleteNamedBookmark(guide.id, bookmarkId);
+                                        setGuide(updated);
+                                    }
+                                    catch (e) {
+                                        try {
+                                            toaster.toast({ title: "Suppression KO", body: String(e?.message || e), critical: true, duration: 3500 });
+                                        }
+                                        catch { }
+                                    }
+                                    finally {
+                                        setBookmarksBusy(false);
+                                    }
+                                }, onGoTo: (bm) => {
+                                    restoreFractionRef.current = bm.scroll_fraction || 0;
+                                    intentionalRestoreRef.current = true;
+                                    setRestoreGeneration((g) => g + 1);
+                                    setSectionIndex(bm.section_index >= 0 ? bm.section_index : 0);
+                                    setShowBookmarksPanel(false); // auto-close so user sees content
+                                    try {
+                                        toaster.toast({ title: bm.name, body: `Section ${(bm.section_index >= 0 ? bm.section_index : 0) + 1} · ${Math.round((bm.scroll_fraction || 0) * 100)}%`, duration: 1800 });
+                                    }
+                                    catch { }
+                                } })) : (SP_JSX.jsx(SP_JSX.Fragment, { children: SP_JSX.jsx("div", { style: {
+                                        height: "3px",
+                                        background: "rgba(255,255,255,0.08)",
+                                        borderRadius: "2px",
+                                        marginBottom: "6px",
+                                        overflow: "hidden",
+                                        flexShrink: 0,
+                                    }, children: SP_JSX.jsx("div", { style: {
+                                            width: `${Math.round(displayScrollFraction * 100)}%`,
+                                            height: "100%",
+                                            background: "#ffd966",
+                                            transition: "width 80ms linear",
+                                        } }) }) })), !showBookmarksPanel ? (SP_JSX.jsx(GuideReader, { guide: guide, sectionIndex: sectionIndex, fontScale: fontScale, preferences: preferences, searchPattern: searchPattern, scrollRestoreFraction: restoreFractionRef.current, restoreGeneration: restoreGeneration, onScrollChange: (f) => {
+                                    lastScrollFractionRef.current = f;
+                                    setDisplayScrollFraction(f);
+                                    if (restoreFractionRef.current !== null)
+                                        restoreFractionRef.current = null;
+                                    // v0.33: debounce-save 1.5s after scroll stops so position is persisted
+                                    // even if user exits without triggering the unmount cleanup.
+                                    if (scrollSaveTimerRef.current !== null)
+                                        window.clearTimeout(scrollSaveTimerRef.current);
+                                    scrollSaveTimerRef.current = window.setTimeout(() => {
+                                        if (!guide)
+                                            return;
+                                        const si = latestStateRef.current.sectionIndex;
+                                        const fs = latestStateRef.current.fontScale;
+                                        saveProgress(guide.id, si, fs, lastScrollFractionRef.current).catch(() => { });
+                                    }, 1500);
+                                }, maxHeight: showSearch ? "calc(100vh - 290px)" : "calc(100vh - 240px)", onJumpToSection: (idx) => setSectionIndex(idx) })) : null] })] }), SP_JSX.jsxs("div", { style: footerStyle, children: [SP_JSX.jsx(DFL.DialogButton, { disabled: sectionIndex <= 0, onClick: () => setSectionIndex((v) => Math.max(0, v - 1)), children: "\u25C0 Section pr\u00E9c\u00E9dente" }), SP_JSX.jsx("div", { style: { flex: 1, textAlign: "center", fontSize: "0.78rem", opacity: 0.7 }, children: sectionCount > 0 && sectionIndex >= 0 ? `${sectionIndex + 1} / ${sectionCount}` : "" }), SP_JSX.jsx(DFL.DialogButton, { onClick: () => {
+                            // v0.34: double-fire protection — ignore clicks within 800ms of last one
+                            const now = Date.now();
+                            if (now - lastBookmarkClickRef.current < 800) {
+                                try {
+                                    console.log("[Offline Soluce] bookmark click ignored (debounce)");
+                                }
+                                catch { }
+                                return;
+                            }
+                            lastBookmarkClickRef.current = now;
                             if (!guide)
                                 return;
-                            void setBookmark(guide.id, sectionIndex, lastScrollFractionRef.current)
-                                .then((g) => setGuide(g))
-                                .catch(() => { });
-                        }, children: "\uD83D\uDD16 Marque-page" }), SP_JSX.jsx("div", { style: { flex: 1 } }), SP_JSX.jsx(DFL.DialogButton, { disabled: sectionCount === 0 || sectionIndex >= sectionCount - 1, onClick: () => setSectionIndex((v) => Math.min(sectionCount - 1, v + 1)), children: "Section suivante \u25B6" })] })] }));
+                            const sec = sectionIndex;
+                            const frac = lastScrollFractionRef.current;
+                            // Log with a stack trace fragment so we can identify accidental triggers
+                            try {
+                                const stack = new Error().stack?.split("\n").slice(1, 4).join(" → ") || "(no stack)";
+                                console.log("[Offline Soluce] set bookmark click", { sec, frac, stack });
+                            }
+                            catch { }
+                            void setBookmark(guide.id, sec, frac)
+                                .then((g) => {
+                                setGuide(g);
+                                try {
+                                    toaster.toast({ title: "Marque-page posé", body: `Section ${sec + 1} · position ${Math.round(frac * 100)}%`, duration: 2500 });
+                                }
+                                catch { }
+                            })
+                                .catch((err) => {
+                                try {
+                                    toaster.toast({ title: "Marque-page KO", body: String(err?.message || err), critical: true, duration: 4000 });
+                                }
+                                catch { }
+                            });
+                        }, children: "\uD83D\uDD16 Poser marque-page" }), guide.progress?.bookmark_set_at ? (SP_JSX.jsx(DFL.DialogButton, { onClick: () => {
+                            const tgtSection = guide.progress?.bookmark_section_index ?? -1;
+                            const tgtScroll = guide.progress?.bookmark_scroll_fraction ?? 0;
+                            if (tgtSection < 0)
+                                return;
+                            try {
+                                console.log("[Offline Soluce] go to bookmark", { tgtSection, tgtScroll, currentSection: sectionIndex });
+                            }
+                            catch { }
+                            // Set restore fraction + flag so the section-change effect doesn't wipe it
+                            restoreFractionRef.current = tgtScroll;
+                            intentionalRestoreRef.current = true;
+                            // Bump generation FIRST so even if sectionIndex doesn't change (same section
+                            // case), the GuideReader's effect re-fires and restores the scroll.
+                            setRestoreGeneration((g) => g + 1);
+                            setSectionIndex(tgtSection);
+                            try {
+                                toaster.toast({ title: "Marque-page", body: `Section ${tgtSection + 1} · ${Math.round(tgtScroll * 100)}%`, duration: 2000 });
+                            }
+                            catch { }
+                        }, children: "\uD83D\uDCCD Aller au marque-page" })) : null, currentSection ? (() => {
+                        const currentTitle = (currentSection.title || "").trim();
+                        const currentIsHidden = currentTitle.length > 0
+                            && (guide.progress?.hidden_section_titles || []).includes(currentTitle);
+                        return (SP_JSX.jsx(DFL.DialogButton, { onClick: () => {
+                                if (!currentTitle)
+                                    return;
+                                void toggleSectionHidden(guide.id, sectionIndex)
+                                    .then((updated) => setGuide(updated))
+                                    .catch(() => { });
+                            }, disabled: !currentTitle, children: currentIsHidden ? "👁 Afficher" : "🙈 Masquer" }));
+                    })() : null, SP_JSX.jsx("div", { style: { flex: 1 } }), SP_JSX.jsx(DFL.DialogButton, { disabled: sectionCount === 0 || sectionIndex >= sectionCount - 1, onClick: () => setSectionIndex((v) => Math.min(sectionCount - 1, v + 1)), children: "Section suivante \u25B6" })] })] }));
 }
 // ========== Global hotkey listener ==========
-/**
- * Invisible global component that listens for F8 keypresses anywhere in Steam UI.
- * On press: loads the most-recently-opened guide and navigates to the full-screen reader.
- *
- * The user maps a back paddle (L4/R4/L5/R5) to F8 in Steam Input — pressing the paddle
- * fires F8 → this handler triggers → reader opens at last position. No QAM detour.
- */
-function GlobalHotkeyListener() {
-    SP_REACT.useEffect(() => {
-        const handler = (e) => {
-            if (e.key !== "F8")
-                return;
-            e.preventDefault();
-            void (async () => {
-                try {
-                    const guides = await listGuides();
-                    if (!guides.length)
-                        return;
-                    // Pick most-recently-opened (highest last_opened_at, ISO strings sort lex correctly)
-                    const sorted = [...guides].sort((a, b) => (b.progress?.last_opened_at || "").localeCompare(a.progress?.last_opened_at || ""));
-                    const target = sorted[0];
-                    if (!target?.id)
-                        return;
-                    requestFullScreenGuide(target.id);
-                    DFL.Router.CloseSideMenus();
-                    DFL.Router.Navigate(FULL_SCREEN_ROUTE);
-                }
-                catch {
-                    // Silent — nothing useful to show globally; user can still open via QAM.
-                }
-            })();
-        };
-        document.addEventListener("keydown", handler);
-        return () => document.removeEventListener("keydown", handler);
-    }, []);
-    return null;
+// Controller button indices the user can pick for the "open last guide" trigger.
+// Sourced from ControllerInputGamepadButton enum in @decky/ui Input.d.ts.
+// We focus on the back paddles + bumpers + special buttons — the analog/dpad/face
+// buttons are kept for Steam UI navigation so binding our action to them would
+// hijack the UI.
+const RESUME_BUTTON_CHOICES = [
+    { value: -1, label: "L4/L5 + R4/R5 (palettes, défaut)" },
+    { value: 32, label: "Palette gauche (LBACK = L4/L5)" },
+    { value: 33, label: "Palette droite (RBACK = R4/R5)" },
+    { value: 30, label: "L1 (LSHOULDER)" },
+    { value: 31, label: "R1 (RSHOULDER)" },
+    { value: 28, label: "L2 (LTRIGGER click)" },
+    { value: 29, label: "R2 (RTRIGGER click)" },
+    { value: 25, label: "L3 (LEFTSTICK click)" },
+];
+// Default buttons (LBACK + RBACK both trigger when prefs.resume_button === -1)
+const RESUME_BUTTON_DEFAULTS = new Set([32, 33]);
+// Module-level cache of the user's selected resume button. -1 means use defaults.
+// Updated by Content's prefs UI AND read by the controller listener. Plain mutable
+// because the listener mounts outside the QAM React tree.
+let _currentResumeButton = -1;
+function setCurrentResumeButton(btn) {
+    _currentResumeButton = Number.isFinite(btn) ? btn : -1;
 }
+// v0.40: master enable/disable for the resume action. Same mirror pattern.
+let _currentResumeEnabled = true;
+function setCurrentResumeEnabled(enabled) {
+    _currentResumeEnabled = !!enabled;
+}
+// v0.40: transient guard set while the QAM is in "capture a palette" mode.
+// Suppresses the main resume action so the captured press doesn't ALSO open
+// a guide. Not persisted — purely a runtime mute.
+let _captureInProgress = false;
+function setCaptureInProgress(active) {
+    _captureInProgress = !!active;
+}
+// NOTE: previous versions had a GlobalHotkeyListener React component registered
+// via routerHook.addGlobalComponent. That approach failed because Decky only mounts
+// global components when the plugin's tab is opened in QAM. v0.35 moved the
+// SteamClient.Input registration into definePlugin's factory directly (see bottom
+// of file), so the listener registers at plugin frontend load (first time the user
+// opens our plugin tab after a Decky restart) and stays alive across QAM open/close.
 // ========== Main Content component ==========
 function Content() {
     // Core state
@@ -777,9 +1406,14 @@ function Content() {
     const [storageIndex, setStorageIndex] = SP_REACT.useState(0);
     const [platformIndex, setPlatformIndex] = SP_REACT.useState(0);
     const [libraryIndex, setLibraryIndex] = SP_REACT.useState(0);
-    const [searchSiteIndex, setSearchSiteIndex] = SP_REACT.useState(0);
+    SP_REACT.useState(0);
     const [languageIndex, setLanguageIndex] = SP_REACT.useState(0);
     const [searchResultIndex, setSearchResultIndex] = SP_REACT.useState(0);
+    // v0.27: free-text search input + multi-site filter
+    const [searchQuery, setSearchQuery] = SP_REACT.useState("");
+    // Sites the user wants in the result list. Empty = no filter (= "all"). Filters CLIENT-SIDE
+    // after the backend returns up to ~12 results across all sites — no extra network calls.
+    const [searchSiteFilter, setSearchSiteFilter] = SP_REACT.useState(new Set());
     const [guideIndex, setGuideIndex] = SP_REACT.useState(0);
     const [relatedGuideIndex, setRelatedGuideIndex] = SP_REACT.useState(0);
     const [selectedSectionIndex, setSelectedSectionIndex] = SP_REACT.useState(-1);
@@ -794,6 +1428,7 @@ function Content() {
     const [preferences, setPreferences] = SP_REACT.useState({
         theme: "dark", font_family: "sans", line_height: "normal",
         max_width: "normal", highlight_keywords: true, numbered_sections: true,
+        resume_hotkey: "", resume_button: -1, resume_enabled: true,
     });
     // Reading features
     const [findPresetIndex, setFindPresetIndex] = SP_REACT.useState(0);
@@ -805,6 +1440,11 @@ function Content() {
     const [showBookmarks, setShowBookmarks] = SP_REACT.useState(false);
     const [bookmarkIndex, setBookmarkIndex] = SP_REACT.useState(0);
     const [exportFiles, setExportFiles] = SP_REACT.useState([]);
+    const [backupConfig, setBackupConfigState] = SP_REACT.useState(null);
+    // v0.30/v0.31: cycle through predefined hotkey choices + test mode (toast every controller button received)
+    const [hotkeyTestMode, setHotkeyTestMode] = SP_REACT.useState(false);
+    // v0.32: remember the last button pressed during test mode so user can bind it without knowing its index
+    const [lastTestButton, setLastTestButton] = SP_REACT.useState(null);
     const [exportIndex, setExportIndex] = SP_REACT.useState(0);
     const [showExports, setShowExports] = SP_REACT.useState(false);
     const saveTimeoutRef = SP_REACT.useRef(null);
@@ -921,10 +1561,10 @@ function Content() {
             candidates.add(dashSplit[0].trim());
         return Array.from(candidates).filter((c) => c.length >= 2);
     }, [selectedLibraryItem]);
-    const selectedSearchSite = SEARCH_SITE_CHOICES[searchSiteIndex] || SEARCH_SITE_CHOICES[0];
     const selectedLanguage = LANGUAGE_CHOICES[languageIndex] || LANGUAGE_CHOICES[0];
-    const selectedSearchResult = searchResults[searchResultIndex] || null;
     const selectedGuideSummary = guides[guideIndex] || null;
+    // A5: similar-guides suggestions for the currently selected guide
+    const similarGuides = SP_REACT.useMemo(() => findSimilarGuides(selectedGuideSummary, guides), [selectedGuideSummary, guides]);
     // Most-recently-opened guide across the whole library (for the "Resume" banner)
     const lastOpenedGuide = SP_REACT.useMemo(() => {
         let best = null;
@@ -964,6 +1604,9 @@ function Content() {
         try {
             const prefs = await getReaderPreferences();
             setPreferences(prefs);
+            // Sync the global controller listener with the loaded user preference
+            setCurrentResumeButton(typeof prefs.resume_button === "number" ? prefs.resume_button : -1);
+            setCurrentResumeEnabled(prefs.resume_enabled !== false);
         }
         catch {
             // keep defaults
@@ -977,12 +1620,75 @@ function Content() {
             catch (e) {
                 setError(e instanceof Error ? e.message : "Chargement initial impossible");
             }
+            // A2: load backup config (non-blocking, separate from loadAll because not all users use it)
+            try {
+                const cfg = await getBackupConfig();
+                setBackupConfigState(cfg);
+            }
+            catch { /* silent — backup is optional */ }
         })();
         return () => {
             if (saveTimeoutRef.current !== null)
                 window.clearTimeout(saveTimeoutRef.current);
         };
     }, []);
+    // v0.31 / v0.40: capture mode — listen for the next controller press and remember
+    // its raw button index so the user can bind a SPECIFIC palette (L4 vs L5, etc.),
+    // not just the LBACK/RBACK group exposed by the preset list. Sets the module-level
+    // `_captureInProgress` flag while active so the main resume listener stays muted
+    // (otherwise the captured press would ALSO trigger the resume action).
+    SP_REACT.useEffect(() => {
+        if (!hotkeyTestMode) {
+            setCaptureInProgress(false);
+            return;
+        }
+        setCaptureInProgress(true);
+        const sc = window.SteamClient;
+        const inputApi = sc?.Input;
+        if (!inputApi?.RegisterForControllerInputMessages) {
+            try {
+                toaster.toast({ title: "Capture KO", body: "SteamClient.Input indisponible", duration: 3500, critical: true });
+            }
+            catch { }
+            setCaptureInProgress(false);
+            return;
+        }
+        let lastToastAt = 0;
+        let active = true; // v0.33: guard against unregister failing to free the listener
+        const unregisterable = inputApi.RegisterForControllerInputMessages((idx, button, pressed) => {
+            if (!active)
+                return;
+            if (!pressed)
+                return;
+            // Remember the last button so user can confirm without typing.
+            setLastTestButton(button);
+            // Rate-limit toasts so a held paddle doesn't spam
+            const now = Date.now();
+            if (now - lastToastAt < 350)
+                return;
+            lastToastAt = now;
+            try {
+                toaster.toast({
+                    title: "Bouton capté",
+                    body: `#${button} — confirme dans le QAM`,
+                    duration: 2500,
+                });
+            }
+            catch { }
+            try {
+                console.log("[Offline Soluce] capture button:", { idx, button });
+            }
+            catch { }
+        });
+        return () => {
+            active = false; // disable callback even if unregister doesn't work
+            try {
+                unregisterable?.unregister?.();
+            }
+            catch { }
+            setCaptureInProgress(false);
+        };
+    }, [hotkeyTestMode]);
     SP_REACT.useEffect(() => { if (sourceIndex >= sources.length)
         setSourceIndex(0); }, [sourceIndex, sources.length]);
     SP_REACT.useEffect(() => { if (libraryIndex >= filteredItems.length)
@@ -1174,19 +1880,25 @@ function Content() {
         }
     };
     const handleSearch = async () => {
-        if (!selectedLibraryItem) {
-            setError("Aucun jeu sélectionné dans la bibliothèque locale.");
+        // v0.27: free-text query takes priority over library item
+        const fallbackQuery = selectedLibraryItem
+            ? (selectedLibraryItem.custom_title || selectedLibraryItem.title)
+            : "";
+        const effectiveQuery = (searchQuery.trim() || fallbackQuery).trim();
+        if (!effectiveQuery) {
+            setError("Tape un nom de jeu ou choisis un jeu dans la bibliothèque.");
             return;
         }
+        const effectivePlatform = selectedLibraryItem?.platform || "Autre";
         setIsBusy(true);
         setError("");
         try {
-            const searchTitle = selectedLibraryItem.custom_title || selectedLibraryItem.title;
-            const results = await searchGuides(searchTitle, selectedLibraryItem.platform, selectedSearchSite.value, selectedLanguage.value);
+            // Always pull "all" sites — multi-site filter is applied client-side from searchSiteFilter
+            const results = await searchGuides(effectiveQuery, effectivePlatform, "all", selectedLanguage.value);
             setSearchResults(results);
             setSearchResultIndex(0);
             if (!results.length)
-                setError("Aucun résultat. Change de site ou de langue, puis relance.");
+                setError("Aucun résultat. Change de langue ou affine le titre, puis relance.");
         }
         catch (e) {
             setSearchResults([]);
@@ -1196,16 +1908,33 @@ function Content() {
             setIsBusy(false);
         }
     };
-    const handleImportSelectedResult = async () => {
-        if (!selectedLibraryItem || !selectedSearchResult) {
-            setError("Aucun résultat sélectionné à importer.");
-            return;
-        }
+    /** v0.27: import a specific search result. Uses the library item info if one is
+     * selected; otherwise falls back to the free-text query as game_title. */
+    const handleImportResultDirect = async (result) => {
         setIsBusy(true);
         setError("");
         try {
-            const importTitle = selectedLibraryItem.custom_title || selectedLibraryItem.title;
-            const detail = await saveGuide(selectedSearchResult.url, importTitle, selectedLibraryItem.platform, selectedLibraryItem.primary_path || importTitle, selectedLibraryItem.aliases.join("; "), selectedLibraryItem.emulator || "");
+            let importTitle;
+            let importPlatform;
+            let importRomHint;
+            let importAliases;
+            let importEmulator;
+            if (selectedLibraryItem) {
+                importTitle = selectedLibraryItem.custom_title || selectedLibraryItem.title;
+                importPlatform = selectedLibraryItem.platform;
+                importRomHint = selectedLibraryItem.primary_path || importTitle;
+                importAliases = selectedLibraryItem.aliases.join("; ");
+                importEmulator = selectedLibraryItem.emulator || "";
+            }
+            else {
+                // Free-text search import: use the query (or fallback to result title) as game_title.
+                importTitle = (searchQuery.trim() || result.title).slice(0, 120);
+                importPlatform = "Autre";
+                importRomHint = importTitle;
+                importAliases = "";
+                importEmulator = "";
+            }
+            const detail = await saveGuide(result.url, importTitle, importPlatform, importRomHint, importAliases, importEmulator);
             await loadAll();
             setGuideIndex(0);
             setSearchResults([]);
@@ -1223,6 +1952,17 @@ function Content() {
         finally {
             setIsBusy(false);
         }
+    };
+    /** v0.27: toggle a site in the multi-site filter */
+    const toggleSearchSite = (siteLabel) => {
+        setSearchSiteFilter((prev) => {
+            const next = new Set(prev);
+            if (next.has(siteLabel))
+                next.delete(siteLabel);
+            else
+                next.add(siteLabel);
+            return next;
+        });
     };
     const handleDeleteSelectedGuide = async () => {
         if (!selectedGuideSummary)
@@ -1525,8 +2265,11 @@ function Content() {
     // Preferences
     const savePrefs = async (next) => {
         setPreferences(next);
+        // Sync the global controller listener immediately (no wait for backend round-trip)
+        setCurrentResumeButton(typeof next.resume_button === "number" ? next.resume_button : -1);
+        setCurrentResumeEnabled(next.resume_enabled !== false);
         try {
-            await updateReaderPreferences(next.theme, next.font_family, next.line_height, next.max_width, next.highlight_keywords, next.numbered_sections);
+            await updateReaderPreferences(next.theme, next.font_family, next.line_height, next.max_width, next.highlight_keywords, next.numbered_sections, next.resume_hotkey || "", typeof next.resume_button === "number" ? next.resume_button : -1, next.resume_enabled !== false);
         }
         catch (e) {
             setError(e instanceof Error ? e.message : "Sauvegarde préférences impossible");
@@ -1634,6 +2377,48 @@ function Content() {
         setDebugOutput(failed > 0 ? `${summary}\n\nÉchecs :\n${errors.join("\n")}` : summary);
         setIsBusy(false);
     };
+    // A2 auto-backup handlers
+    const handleToggleBackupEnabled = async () => {
+        if (!backupConfig)
+            return;
+        try {
+            const next = await setBackupConfig(!backupConfig.enabled, backupConfig.interval_days);
+            setBackupConfigState(next);
+        }
+        catch (e) {
+            setError(e instanceof Error ? e.message : "Toggle backup impossible");
+        }
+    };
+    const handleCycleBackupInterval = async () => {
+        if (!backupConfig)
+            return;
+        const i = BACKUP_INTERVAL_CHOICES.indexOf(backupConfig.interval_days);
+        const next_i = i < 0 ? 0 : (i + 1) % BACKUP_INTERVAL_CHOICES.length;
+        try {
+            const next = await setBackupConfig(backupConfig.enabled, BACKUP_INTERVAL_CHOICES[next_i]);
+            setBackupConfigState(next);
+        }
+        catch (e) {
+            setError(e instanceof Error ? e.message : "Changement intervalle impossible");
+        }
+    };
+    const handleRunBackupNow = async () => {
+        setIsBusy(true);
+        setError("");
+        setDebugOutput("Backup en cours…");
+        try {
+            const result = await runBackupNow();
+            setBackupConfigState(result.config);
+            setDebugOutput(`Backup OK : ${result.path}\n${result.guide_count} guides, ${bytesToKo(result.size_bytes)}`);
+        }
+        catch (e) {
+            setError(e instanceof Error ? e.message : "Backup manuel impossible");
+            setDebugOutput("");
+        }
+        finally {
+            setIsBusy(false);
+        }
+    };
     const handleReconstructAllSections = async () => {
         if (!guides.length) {
             setError("Aucun guide à reconstruire.");
@@ -1713,7 +2498,33 @@ function Content() {
                                 requestFullScreenGuide(lastOpenedGuide.id);
                                 DFL.Router.CloseSideMenus();
                                 DFL.Router.Navigate(FULL_SCREEN_ROUTE);
-                            }, children: "\uD83D\uDDA5\uFE0F Reprendre en plein \u00E9cran" }) })] })) : null, SP_JSX.jsxs(DFL.PanelSection, { title: "R\u00E9sum\u00E9 scan", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Sources activ\u00E9es :" }), " ", libraryStatus.enabled_source_count] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Jeux index\u00E9s :" }), " ", libraryStatus.item_count] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Occurrences trouv\u00E9es :" }), " ", libraryStatus.instance_count] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Dernier scan :" }), " ", libraryStatus.scanned_at ? formatDate(libraryStatus.scanned_at) : "Jamais"] })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleRescan(), children: isBusy ? "Scan en cours..." : "Rescanner les dossiers activés" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void loadSourcesAndLibrary(), children: "Red\u00E9tecter les dossiers" }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: selectedSource ? `Source ${sourceIndex + 1}/${sources.length}` : "Sources détectées", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: boxStyle, children: selectedSource ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx("div", { style: { fontWeight: 700, marginBottom: "6px" }, children: selectedSource.label }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("span", { style: pillStyle, children: selectedSource.kind === "roms" ? "ROMs" : selectedSource.kind === "games" ? "Games" : "Steam" }), SP_JSX.jsx("span", { style: pillStyle, children: selectedSource.storage }), SP_JSX.jsx("span", { style: pillStyle, children: selectedSource.enabled ? "Activée" : "Désactivée" }), SP_JSX.jsx("span", { style: pillStyle, children: selectedSource.exists ? "Présente" : "Absente" })] }), fieldLine("Chemin", selectedSource.path)] })) : (SP_JSX.jsx("div", { style: { fontSize: "0.82rem", opacity: 0.86 }, children: "Aucune source d\u00E9tect\u00E9e. V\u00E9rifie tes dossiers Emulation/roms et Games." })) }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || sources.length <= 1, onClick: () => setSourceIndex((v) => cycleIndex(v, sources.length, -1)), children: "Source pr\u00E9c\u00E9dente" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || sources.length <= 1, onClick: () => setSourceIndex((v) => cycleIndex(v, sources.length, 1)), children: "Source suivante" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedSource, onClick: () => void handleToggleCurrentSource(), children: selectedSource?.enabled ? "Désactiver cette source" : "Activer cette source" }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Maintenance", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleReloadAllGuides(), children: ["\uD83D\uDD04 Re-t\u00E9l\u00E9charger TOUS les guides (", guides.length, ")"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.7, padding: "4px 6px" }, children: "Refait passer chaque guide par le crawler \u00E0 jour (multi-page, nouvelles strat\u00E9gies de d\u00E9coupage). R\u00E9seau + lent. Garde tes marque-pages/notes/progression." }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleReconstructAllSections(), children: ["\uD83D\uDD27 Reconstruire le sommaire de TOUS (", guides.length, ")"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.7, padding: "4px 6px" }, children: "Re-segmente tous les guides avec la derni\u00E8re logique (split-large-sections, banners, TOC). Pas de r\u00E9seau, rapide. Utile apr\u00E8s un update plugin sans changement de contenu." }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Sauvegarde / restauration", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleExportAll(), children: "Exporter tous les guides (bundle JSON)" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleListExports(), children: "Lister les exports disponibles" }) }), showExports && exportFiles.length ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { style: { fontWeight: 700, marginBottom: "4px" }, children: ["Export ", exportIndex + 1, "/", exportFiles.length] }), SP_JSX.jsx("div", { style: { fontSize: "0.85rem" }, children: exportFiles[exportIndex]?.name }), SP_JSX.jsxs("div", { style: { fontSize: "0.72rem", opacity: 0.75 }, children: [formatDate(exportFiles[exportIndex]?.modified_at || ""), " \u00B7 ", bytesToKo(exportFiles[exportIndex]?.size_bytes || 0)] })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || exportFiles.length <= 1, onClick: () => setExportIndex((v) => cycleIndex(v, exportFiles.length, -1)), children: "Export pr\u00E9c\u00E9dent" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || exportFiles.length <= 1, onClick: () => setExportIndex((v) => cycleIndex(v, exportFiles.length, 1)), children: "Export suivant" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !exportFiles[exportIndex], onClick: () => void handleImportSelectedExport(), children: "Importer cet export" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setShowExports(false), children: "Masquer la liste" }) })] })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Diagnostic", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleDebug(), children: isBusy ? "Diagnostic en cours..." : "Lancer le diagnostic" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleTestNetwork(), children: isBusy ? "Test réseau en cours..." : "Tester la connexion aux moteurs" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleTestSearch(), children: isBusy ? "Test recherche en cours..." : "Tester le parsing des résultats" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleClearDebug(), children: "Effacer le fichier debug" }) }), debugOutput ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: {
+                            }, children: "\uD83D\uDDA5\uFE0F Reprendre en plein \u00E9cran" }) })] })) : null, SP_JSX.jsxs(DFL.PanelSection, { title: "R\u00E9sum\u00E9 scan", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Sources activ\u00E9es :" }), " ", libraryStatus.enabled_source_count] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Jeux index\u00E9s :" }), " ", libraryStatus.item_count] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Occurrences trouv\u00E9es :" }), " ", libraryStatus.instance_count] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Dernier scan :" }), " ", libraryStatus.scanned_at ? formatDate(libraryStatus.scanned_at) : "Jamais"] })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleRescan(), children: isBusy ? "Scan en cours..." : "Rescanner les dossiers activés" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void loadSourcesAndLibrary(), children: "Red\u00E9tecter les dossiers" }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: selectedSource ? `Source ${sourceIndex + 1}/${sources.length}` : "Sources détectées", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: boxStyle, children: selectedSource ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx("div", { style: { fontWeight: 700, marginBottom: "6px" }, children: selectedSource.label }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("span", { style: pillStyle, children: selectedSource.kind === "roms" ? "ROMs" : selectedSource.kind === "games" ? "Games" : "Steam" }), SP_JSX.jsx("span", { style: pillStyle, children: selectedSource.storage }), SP_JSX.jsx("span", { style: pillStyle, children: selectedSource.enabled ? "Activée" : "Désactivée" }), SP_JSX.jsx("span", { style: pillStyle, children: selectedSource.exists ? "Présente" : "Absente" })] }), fieldLine("Chemin", selectedSource.path)] })) : (SP_JSX.jsx("div", { style: { fontSize: "0.82rem", opacity: 0.86 }, children: "Aucune source d\u00E9tect\u00E9e. V\u00E9rifie tes dossiers Emulation/roms et Games." })) }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || sources.length <= 1, onClick: () => setSourceIndex((v) => cycleIndex(v, sources.length, -1)), children: "Source pr\u00E9c\u00E9dente" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || sources.length <= 1, onClick: () => setSourceIndex((v) => cycleIndex(v, sources.length, 1)), children: "Source suivante" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedSource, onClick: () => void handleToggleCurrentSource(), children: selectedSource?.enabled ? "Désactiver cette source" : "Activer cette source" }) })] }), SP_JSX.jsx(DFL.PanelSection, { title: "Bouton manette pour reprise", children: preferences ? (() => {
+                    const currentValue = typeof preferences.resume_button === "number" ? preferences.resume_button : -1;
+                    const presetMatch = RESUME_BUTTON_CHOICES.find((c) => c.value === currentValue);
+                    const currentLabel = presetMatch?.label || `Bouton custom #${currentValue}`;
+                    const enabled = preferences.resume_enabled !== false;
+                    const cycle = (dir) => {
+                        const n = RESUME_BUTTON_CHOICES.length;
+                        // Start cycling from the current preset if any; else from index 0.
+                        const currentIdx = presetMatch
+                            ? RESUME_BUTTON_CHOICES.findIndex((c) => c.value === currentValue)
+                            : 0;
+                        const nextIdx = (currentIdx + dir + n) % n;
+                        void savePrefs({ ...preferences, resume_button: RESUME_BUTTON_CHOICES[nextIdx].value });
+                    };
+                    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "\u00C9tat :" }), " ", SP_JSX.jsx("span", { style: { color: enabled ? "#7ee787" : "#ff8080" }, children: enabled ? "✅ Activé" : "⛔ Désactivé" })] }), SP_JSX.jsxs("div", { style: { marginTop: "4px" }, children: [SP_JSX.jsx("strong", { children: "Bouton :" }), " ", currentLabel] }), SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.75, marginTop: "6px" }, children: "Lecture directe de la manette (SteamClient.Input). Hors-jeu ou en jeu, la pression ouvre le dernier guide / le guide du jeu en cours." })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: enabled ? "Reprise par palette activée" : "Reprise par palette désactivée", description: "D\u00E9sactive temporairement quand tu veux garder ta palette libre pour le jeu.", checked: enabled, onChange: (val) => {
+                                        void savePrefs({ ...preferences, resume_enabled: !!val });
+                                    } }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: !enabled || hotkeyTestMode, onClick: () => { setLastTestButton(null); setHotkeyTestMode(true); }, children: "\uD83C\uDFAF Capturer une palette pr\u00E9cise" }) }), hotkeyTestMode ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: { fontSize: "0.78rem", padding: "4px 6px", color: "#ffd966" }, children: [SP_JSX.jsx("strong", { children: "Presse maintenant la palette voulue" }), " (L4, L5, R4, R5, ou tout autre bouton non utilis\u00E9 par les jeux). Le bouton sera m\u00E9moris\u00E9 automatiquement."] }) }), lastTestButton !== null ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", onClick: () => {
+                                                if (!preferences)
+                                                    return;
+                                                void savePrefs({ ...preferences, resume_button: lastTestButton });
+                                                setHotkeyTestMode(false);
+                                                try {
+                                                    toaster.toast({ title: "Offline Soluce", body: `Bouton #${lastTestButton} enregistré`, duration: 2200 });
+                                                }
+                                                catch { }
+                                            }, children: ["\u2705 Confirmer : utiliser le bouton #", lastTestButton] }) })) : (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.7rem", opacity: 0.7, padding: "2px 6px" }, children: "En attente d'une pression\u2026" }) })), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => { setHotkeyTestMode(false); setLastTestButton(null); }, children: "\u270B Annuler la capture" }) })] })) : (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: !enabled, onClick: () => cycle(1), children: "\u2192 Preset suivant" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: !enabled, onClick: () => cycle(-1), children: "\u2190 Preset pr\u00E9c\u00E9dent" }) })] }))] }));
+                })() : (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.75rem", opacity: 0.7 }, children: "Chargement pr\u00E9f\u00E9rences\u2026" }) })) }), SP_JSX.jsx(DFL.PanelSection, { title: "Auto-backup", children: backupConfig ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "\u00C9tat :" }), " ", backupConfig.enabled ? "✅ activé" : "❌ désactivé"] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Intervalle :" }), " tous les ", backupConfig.interval_days, " jour(s)"] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Dernier :" }), " ", backupConfig.last_backup_at ? formatDate(backupConfig.last_backup_at) : "Jamais"] }), backupConfig.last_backup_size_bytes > 0 ? (SP_JSX.jsxs("div", { style: { fontSize: "0.72rem", opacity: 0.78 }, children: [bytesToKo(backupConfig.last_backup_size_bytes), " \u2014 ", backupConfig.last_backup_path] })) : null] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleToggleBackupEnabled(), children: [backupConfig.enabled ? "Désactiver" : "Activer", " l'auto-backup"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleCycleBackupInterval(), children: ["Intervalle: ", backupConfig.interval_days, "j \u2192 suivant (", BACKUP_INTERVAL_CHOICES.join("/"), ")"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleRunBackupNow(), children: "\uD83D\uDCBE Sauver maintenant" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.7rem", opacity: 0.65, padding: "4px 6px" }, children: "V\u00E9rification 30s apr\u00E8s chaque d\u00E9marrage de Decky. Export vers ~/Documents/OfflineSoluce/exports/" }) })] })) : (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.75rem", opacity: 0.7 }, children: "Chargement config\u2026" }) })) }), SP_JSX.jsxs(DFL.PanelSection, { title: "Maintenance", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleReloadAllGuides(), children: ["\uD83D\uDD04 Re-t\u00E9l\u00E9charger TOUS les guides (", guides.length, ")"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.7, padding: "4px 6px" }, children: "Refait passer chaque guide par le crawler \u00E0 jour (multi-page, nouvelles strat\u00E9gies de d\u00E9coupage). R\u00E9seau + lent. Garde tes marque-pages/notes/progression." }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleReconstructAllSections(), children: ["\uD83D\uDD27 Reconstruire le sommaire de TOUS (", guides.length, ")"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.7, padding: "4px 6px" }, children: "Re-segmente tous les guides avec la derni\u00E8re logique (split-large-sections, banners, TOC). Pas de r\u00E9seau, rapide. Utile apr\u00E8s un update plugin sans changement de contenu." }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Sauvegarde / restauration", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleExportAll(), children: "Exporter tous les guides (bundle JSON)" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleListExports(), children: "Lister les exports disponibles" }) }), showExports && exportFiles.length ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { style: { fontWeight: 700, marginBottom: "4px" }, children: ["Export ", exportIndex + 1, "/", exportFiles.length] }), SP_JSX.jsx("div", { style: { fontSize: "0.85rem" }, children: exportFiles[exportIndex]?.name }), SP_JSX.jsxs("div", { style: { fontSize: "0.72rem", opacity: 0.75 }, children: [formatDate(exportFiles[exportIndex]?.modified_at || ""), " \u00B7 ", bytesToKo(exportFiles[exportIndex]?.size_bytes || 0)] })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || exportFiles.length <= 1, onClick: () => setExportIndex((v) => cycleIndex(v, exportFiles.length, -1)), children: "Export pr\u00E9c\u00E9dent" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || exportFiles.length <= 1, onClick: () => setExportIndex((v) => cycleIndex(v, exportFiles.length, 1)), children: "Export suivant" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !exportFiles[exportIndex], onClick: () => void handleImportSelectedExport(), children: "Importer cet export" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setShowExports(false), children: "Masquer la liste" }) })] })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Diagnostic", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleDebug(), children: isBusy ? "Diagnostic en cours..." : "Lancer le diagnostic" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleTestNetwork(), children: isBusy ? "Test réseau en cours..." : "Tester la connexion aux moteurs" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleTestSearch(), children: isBusy ? "Test recherche en cours..." : "Tester le parsing des résultats" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleClearDebug(), children: "Effacer le fichier debug" }) }), debugOutput ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: {
                                 whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: 0,
                                 padding: "10px 12px", borderRadius: "8px",
                                 border: "1px solid rgba(255,255,255,0.12)", background: "rgba(0,0,0,0.22)",
@@ -1736,7 +2547,21 @@ function Content() {
                                     setLibraryIndex(0);
                                 }, children: "Lettre suivante \u25B6" }) }), letterFilter ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => { setLetterFilter(""); setLibraryIndex(0); }, children: "Effacer le filtre" }) })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Filtres biblioth\u00E8que", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Type :" }), " ", KIND_CHOICES[kindIndex] || "Tous"] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Stockage :" }), " ", STORAGE_CHOICES[storageIndex] || "Tous"] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Plateforme :" }), " ", platformChoices[platformIndex] || "Tous"] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Tri :" }), " ", sortByName ? "A → Z" : "Plateforme + nom"] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Favoris uniquement :" }), " ", showFavoritesOnly ? "Oui" : "Non", " (", favoriteCount, " \u2605)"] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "R\u00E9sultats :" }), " ", filteredItems.length] })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => { setShowFavoritesOnly((v) => !v); setLibraryIndex(0); }, children: showFavoritesOnly ? "Afficher tous les jeux" : `★ N'afficher que les favoris (${favoriteCount})` }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setKindIndex((v) => cycleIndex(v, KIND_CHOICES.length, 1)), children: "Changer le type" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setStorageIndex((v) => cycleIndex(v, STORAGE_CHOICES.length, 1)), children: "Changer le stockage" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setPlatformIndex((v) => cycleIndex(v, platformChoices.length, 1)), children: "Changer la plateforme" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => { setSortByName((v) => !v); setLibraryIndex(0); }, children: sortByName ? "Trier par plateforme" : "Trier par nom" }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: selectedLibraryItem ? `Jeu ${libraryIndex + 1}/${filteredItems.length}` : "Jeu sélectionné", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: boxStyle, children: selectedLibraryItem ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs("div", { style: { fontWeight: 700, marginBottom: "6px" }, children: [selectedLibraryItem.is_favorite ? "★ " : "", selectedLibraryItem.custom_title || selectedLibraryItem.title] }), selectedLibraryItem.custom_title ? (SP_JSX.jsxs("div", { style: { fontSize: "0.75rem", opacity: 0.6, marginBottom: "4px" }, children: ["Original : ", selectedLibraryItem.title] })) : null, SP_JSX.jsxs("div", { children: [SP_JSX.jsx("span", { style: pillStyle, children: selectedLibraryItem.platform }), selectedLibraryItem.disc_code ? SP_JSX.jsx("span", { style: pillStyle, children: selectedLibraryItem.disc_code }) : null, selectedLibraryItem.emulator ? SP_JSX.jsx("span", { style: pillStyle, children: selectedLibraryItem.emulator }) : null, selectedLibraryItem.source_kinds.map((kind) => (SP_JSX.jsx("span", { style: pillStyle, children: kind }, kind)))] }), fieldLine("Chemin principal", selectedLibraryItem.primary_path), fieldLine("Alias", selectedLibraryItem.aliases.join(" | ")), SP_JSX.jsxs("div", { style: { fontSize: "0.8rem", opacity: 0.86 }, children: [SP_JSX.jsx("strong", { children: "Sources :" }), " ", selectedLibraryItem.source_count, " / ", SP_JSX.jsx("strong", { children: "Occurrences :" }), " ", selectedLibraryItem.instance_count] }), SP_JSX.jsxs("div", { style: { fontSize: "0.8rem", opacity: 0.86 }, children: [SP_JSX.jsx("strong", { children: "Guides li\u00E9s :" }), " ", relatedGuides.length] })] })) : (SP_JSX.jsx("div", { style: { fontSize: "0.82rem", opacity: 0.86 }, children: "Biblioth\u00E8que vide pour ces filtres. Active des sources, puis rescanne." })) }) }), isRenaming && selectedLibraryItem ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { style: { fontWeight: 700, marginBottom: "6px" }, children: ["Choisir le titre (", renameCandidateIndex + 1, "/", renameCandidates.length, ")"] }), SP_JSX.jsx("div", { style: { fontSize: "0.95rem", marginBottom: "4px" }, children: renameCandidates[renameCandidateIndex] || selectedLibraryItem.title })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || renameCandidates.length <= 1, onClick: () => setRenameCandidateIndex((v) => cycleIndex(v, renameCandidates.length, -1)), children: "Titre pr\u00E9c\u00E9dent" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || renameCandidates.length <= 1, onClick: () => setRenameCandidateIndex((v) => cycleIndex(v, renameCandidates.length, 1)), children: "Titre suivant" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleConfirmRename(), children: "Valider ce titre" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: handleCancelRename, children: "Annuler" }) })] })) : (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || filteredItems.length <= 1, onClick: () => setLibraryIndex((v) => cycleIndex(v, filteredItems.length, -1)), children: "Jeu pr\u00E9c\u00E9dent" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || filteredItems.length <= 1, onClick: () => setLibraryIndex((v) => cycleIndex(v, filteredItems.length, 1)), children: "Jeu suivant" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || filteredItems.length <= 10, onClick: () => setLibraryIndex((v) => cycleIndex(v, filteredItems.length, -10)), children: "-10 jeux" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || filteredItems.length <= 10, onClick: () => setLibraryIndex((v) => cycleIndex(v, filteredItems.length, 10)), children: "+10 jeux" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedLibraryItem, onClick: () => void handleToggleFavorite(), children: selectedLibraryItem?.is_favorite ? "★ Retirer des favoris" : "☆ Ajouter aux favoris" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedLibraryItem || renameCandidates.length <= 1, onClick: handleStartRename, children: "Changer le titre de recherche" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedLibraryItem, onClick: () => setActiveView("search"), children: "Chercher une soluce pour ce jeu" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedRelatedGuide, onClick: () => void openGuideById(selectedRelatedGuide.id), children: "Ouvrir le guide li\u00E9 s\u00E9lectionn\u00E9" }) })] }))] }), selectedRelatedGuide ? (SP_JSX.jsxs(DFL.PanelSection, { title: `Guide lié ${relatedGuideIndex + 1}/${relatedGuides.length}`, children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsx("div", { style: { fontWeight: 700, marginBottom: "6px" }, children: selectedRelatedGuide.title }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("span", { style: pillStyle, children: selectedRelatedGuide.site }), selectedRelatedGuide.has_resume ? SP_JSX.jsxs("span", { style: pillStyle, children: ["Reprise: ", selectedRelatedGuide.resume_label] }) : null] }), fieldLine("Résumé", selectedRelatedGuide.snippet)] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || relatedGuides.length <= 1, onClick: () => setRelatedGuideIndex((v) => cycleIndex(v, relatedGuides.length, -1)), children: "Guide li\u00E9 pr\u00E9c\u00E9dent" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || relatedGuides.length <= 1, onClick: () => setRelatedGuideIndex((v) => cycleIndex(v, relatedGuides.length, 1)), children: "Guide li\u00E9 suivant" }) })] })) : null] }));
     };
-    const renderSearchView = () => (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "Base de recherche", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: boxStyle, children: selectedLibraryItem ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx("div", { style: { fontWeight: 700, marginBottom: "6px" }, children: selectedLibraryItem.custom_title || selectedLibraryItem.title }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("span", { style: pillStyle, children: selectedLibraryItem.platform }), SP_JSX.jsx("span", { style: pillStyle, children: selectedSearchSite.label }), SP_JSX.jsxs("span", { style: pillStyle, children: ["Langue : ", selectedLanguage.label] }), selectedLibraryItem.disc_code ? SP_JSX.jsx("span", { style: pillStyle, children: selectedLibraryItem.disc_code }) : null] }), selectedLibraryItem.custom_title ? fieldLine("Titre original", selectedLibraryItem.title) : null] })) : (SP_JSX.jsx("div", { style: { fontSize: "0.82rem", opacity: 0.86 }, children: "Choisis d'abord un jeu dans la vue biblioth\u00E8que." })) }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setSearchSiteIndex((v) => cycleIndex(v, SEARCH_SITE_CHOICES.length, 1)), children: ["Site : ", selectedSearchSite.label, " (suivant)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setLanguageIndex((v) => cycleIndex(v, LANGUAGE_CHOICES.length, 1)), children: ["Langue : ", selectedLanguage.label, " (suivant)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedLibraryItem, onClick: () => void handleSearch(), children: isBusy ? "Recherche en cours..." : "Lancer la recherche" }) })] }), selectedSearchResult ? (SP_JSX.jsxs(DFL.PanelSection, { title: `Résultat ${searchResultIndex + 1}/${searchResults.length}`, children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsx("div", { style: { fontWeight: 700, marginBottom: "6px" }, children: selectedSearchResult.title }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("span", { style: pillStyle, children: selectedSearchResult.site }), SP_JSX.jsxs("span", { style: pillStyle, children: ["Score ", selectedSearchResult.score] })] }), fieldLine("URL", selectedSearchResult.url), fieldLine("Extrait", selectedSearchResult.snippet)] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || searchResults.length <= 1, onClick: () => setSearchResultIndex((v) => cycleIndex(v, searchResults.length, -1)), children: "R\u00E9sultat pr\u00E9c\u00E9dent" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || searchResults.length <= 1, onClick: () => setSearchResultIndex((v) => cycleIndex(v, searchResults.length, 1)), children: "R\u00E9sultat suivant" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void openUrlExternal(selectedSearchResult.url), children: "Ouvrir dans le navigateur" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedLibraryItem, onClick: () => void handleImportSelectedResult(), children: "Importer ce r\u00E9sultat offline" }) })] })) : null] }));
+    const renderSearchView = () => {
+        // Compute distinct sites present in current results (for the multi-site filter chips)
+        const sitesInResults = Array.from(new Set(searchResults.map((r) => r.site).filter(Boolean)));
+        // Apply client-side multi-site filter (empty = no filter)
+        const filteredResults = searchSiteFilter.size === 0
+            ? searchResults
+            : searchResults.filter((r) => searchSiteFilter.has(r.site));
+        return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "Recherche", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.TextField, { value: searchQuery, onChange: (e) => setSearchQuery(e.target.value), placeholder: selectedLibraryItem
+                                    ? `Cherche autre que « ${selectedLibraryItem.title.slice(0, 35)} »…`
+                                    : "Tape le nom du jeu (ex: Suikoden V)…", label: "Recherche", bShowClearAction: true }) }), selectedLibraryItem ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setSearchQuery(selectedLibraryItem.custom_title || selectedLibraryItem.title), children: ["\u2198 Remplir avec \u00AB ", (selectedLibraryItem.custom_title || selectedLibraryItem.title).slice(0, 40), " \u00BB"] }) })) : null, SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setLanguageIndex((v) => cycleIndex(v, LANGUAGE_CHOICES.length, 1)), children: ["Langue : ", selectedLanguage.label, " (cycle)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleSearch(), children: isBusy ? "Recherche en cours…" : "🔍 Lancer la recherche" }) }), searchQuery ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setSearchQuery(""), children: "Effacer le texte" }) })) : null] }), searchResults.length > 0 ? (SP_JSX.jsxs(DFL.PanelSection, { title: `Résultats (${filteredResults.length}${searchSiteFilter.size > 0 ? ` / ${searchResults.length}` : ""})`, children: [sitesInResults.length > 1 ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.75, padding: "2px 6px" }, children: "Filtre par site (clic = toggle) :" }) }), sitesInResults.map((siteLabel) => {
+                                    const active = searchSiteFilter.has(siteLabel);
+                                    const count = searchResults.filter((r) => r.site === siteLabel).length;
+                                    return (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => toggleSearchSite(siteLabel), children: [active ? "☑" : "☐", " ", siteLabel, " (", count, ")"] }) }, siteLabel));
+                                }), searchSiteFilter.size > 0 ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setSearchSiteFilter(new Set()), children: "Tout afficher (vide le filtre)" }) })) : null] })) : null, filteredResults.map((result, idx) => (SP_JSX.jsxs("div", { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: { ...boxStyle, padding: "8px 10px" }, children: [SP_JSX.jsx("div", { style: { fontWeight: 700, marginBottom: "4px", fontSize: "0.86rem" }, children: result.title }), SP_JSX.jsxs("div", { style: { marginBottom: "4px" }, children: [SP_JSX.jsx("span", { style: pillStyle, children: result.site }), SP_JSX.jsxs("span", { style: pillStyle, children: ["Score ", result.score] })] }), result.snippet ? (SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.85, lineHeight: 1.3 }, children: result.snippet.length > 180 ? result.snippet.slice(0, 178) + "…" : result.snippet })) : null] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleImportResultDirect(result), children: "\uD83D\uDCBE Importer offline" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void openUrlExternal(result.url), children: "\uD83C\uDF10 Ouvrir dans le navigateur" }) })] }, result.url + idx))), filteredResults.length === 0 && searchSiteFilter.size > 0 ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.75rem", opacity: 0.7, padding: "8px 6px", textAlign: "center" }, children: "Aucun r\u00E9sultat ne correspond aux sites filtr\u00E9s." }) })) : null] })) : null] }));
+    };
     const renderReaderPreferences = () => (SP_JSX.jsxs(DFL.PanelSection, { title: "Pr\u00E9f\u00E9rences de lecture", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Th\u00E8me :" }), " ", THEME_LABELS[preferences.theme]] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Police :" }), " ", FONT_LABELS[preferences.font_family]] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Interligne :" }), " ", LINE_HEIGHT_LABELS[preferences.line_height]] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Largeur :" }), " ", MAX_WIDTH_LABELS[preferences.max_width]] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Surligner mots-cl\u00E9s :" }), " ", preferences.highlight_keywords ? "Oui" : "Non"] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Num\u00E9roter sections :" }), " ", preferences.numbered_sections ? "Oui" : "Non"] })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: cycleTheme, children: "Changer le th\u00E8me" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: cycleFont, children: "Changer la police" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: cycleLineHeight, children: "Changer l'interligne" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: cycleMaxWidth, children: "Changer la largeur" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", onClick: toggleHighlight, children: [preferences.highlight_keywords ? "Désactiver" : "Activer", " le surlignage des mots-cl\u00E9s"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", onClick: toggleNumbered, children: [preferences.numbered_sections ? "Cacher" : "Afficher", " les num\u00E9ros de section"] }) })] }));
     const renderGuidesView = () => {
         const sectionCount = selectedGuide?.sections.length || 0;
@@ -1763,7 +2588,7 @@ function Content() {
                                     requestFullScreenGuide(selectedGuideSummary.id);
                                     DFL.Router.CloseSideMenus();
                                     DFL.Router.Navigate(FULL_SCREEN_ROUTE);
-                                }, children: "\uD83D\uDDA5\uFE0F Ouvrir en plein \u00E9cran" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedGuideSummary, onClick: () => void handleDeleteSelectedGuide(), children: "Supprimer ce guide" }) })] })) : null, !expandedReader ? renderReaderPreferences() : null, selectedGuide ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "Lecture offline", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsx("div", { style: { fontWeight: 700, fontSize: "0.95rem", marginBottom: "4px" }, children: selectedGuide.game.game_title || selectedGuide.title }), SP_JSX.jsxs("div", { style: { fontSize: "0.82rem", opacity: 0.9, marginBottom: "2px" }, children: [SP_JSX.jsx("strong", { children: "Section :" }), " ", preferences.numbered_sections && sectionCount > 0 && selectedSectionIndex >= 0 ? `[${selectedSectionIndex + 1}/${sectionCount}] ` : "", currentSectionLabel] }), currentSectionNote ? (SP_JSX.jsxs("div", { style: { fontSize: "0.78rem", opacity: 0.85 }, children: [currentSectionNote.done ? "✅ " : "", currentSectionNote.flagged ? "⚐ " : "", currentSectionNote.note ? `"${currentSectionNote.note}"` : ""] })) : null, selectedGuide.has_bookmark ? (SP_JSX.jsxs("div", { style: { fontSize: "0.78rem", opacity: 0.85 }, children: ["\uD83D\uDD16 Marque-page rapide : ", selectedGuide.bookmark_label] })) : null, miniMap] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(GuideReader, { guide: selectedGuide, sectionIndex: selectedSectionIndex, fontScale: fontScale, preferences: preferences, searchPattern: findPattern, scrollRestoreFraction: scrollRestoreFraction, onScrollChange: (f) => {
+                                }, children: "\uD83D\uDDA5\uFE0F Ouvrir en plein \u00E9cran" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedGuideSummary, onClick: () => void handleDeleteSelectedGuide(), children: "Supprimer ce guide" }) })] })) : null, !expandedReader && selectedGuideSummary && similarGuides.length > 0 ? (SP_JSX.jsxs(DFL.PanelSection, { title: `Guides similaires (${similarGuides.length})`, children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.7, padding: "2px 6px 6px" }, children: "Bas\u00E9 sur titre / plateforme / site." }) }), similarGuides.map((sg) => (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void openGuideById(sg.id), children: ["\u2192 ", sg.title, " ", sg.site ? `(${sg.site})` : ""] }) }, sg.id)))] })) : null, !expandedReader ? renderReaderPreferences() : null, selectedGuide ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "Lecture offline", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsx("div", { style: { fontWeight: 700, fontSize: "0.95rem", marginBottom: "4px" }, children: selectedGuide.game.game_title || selectedGuide.title }), SP_JSX.jsxs("div", { style: { fontSize: "0.82rem", opacity: 0.9, marginBottom: "2px" }, children: [SP_JSX.jsx("strong", { children: "Section :" }), " ", preferences.numbered_sections && sectionCount > 0 && selectedSectionIndex >= 0 ? `[${selectedSectionIndex + 1}/${sectionCount}] ` : "", currentSectionLabel] }), currentSectionNote ? (SP_JSX.jsxs("div", { style: { fontSize: "0.78rem", opacity: 0.85 }, children: [currentSectionNote.done ? "✅ " : "", currentSectionNote.flagged ? "⚐ " : "", currentSectionNote.note ? `"${currentSectionNote.note}"` : ""] })) : null, selectedGuide.has_bookmark ? (SP_JSX.jsxs("div", { style: { fontSize: "0.78rem", opacity: 0.85 }, children: ["\uD83D\uDD16 Marque-page rapide : ", selectedGuide.bookmark_label] })) : null, miniMap] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(GuideReader, { guide: selectedGuide, sectionIndex: selectedSectionIndex, fontScale: fontScale, preferences: preferences, searchPattern: findPattern, scrollRestoreFraction: scrollRestoreFraction, onScrollChange: (f) => {
                                             lastScrollFractionRef.current = f;
                                             pendingRestoreFractionRef.current = null;
                                         }, maxHeight: expandedReader ? "78vh" : "55vh" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: toggleExpandedReader, children: expandedReader ? "🔽 Réduire le lecteur" : "📖 Agrandir le lecteur" }) })] }), !expandedReader ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "Navigation rapide", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !sectionCount, onClick: () => {
@@ -1814,14 +2639,167 @@ function Content() {
 }
 var index = DFL.definePlugin(() => {
     routerHook.addRoute(FULL_SCREEN_ROUTE, FullScreenReader, { exact: true });
-    routerHook.addGlobalComponent(HOTKEY_GLOBAL_NAME, GlobalHotkeyListener);
+    // v0.35 fix: register the controller listener AT PLUGIN LOAD (in the factory),
+    // not inside a React component via addGlobalComponent. Previously addGlobalComponent
+    // would only run when the global component actually mounted, which depended on
+    // the QAM being open. Now the listener stays alive regardless of QAM state.
+    let listenerActive = true;
+    let listenerHandle = null;
+    const setupListener = async () => {
+        try {
+            const prefs = await getReaderPreferences();
+            setCurrentResumeButton(typeof prefs.resume_button === "number" ? prefs.resume_button : -1);
+            setCurrentResumeEnabled(prefs.resume_enabled !== false);
+            try {
+                console.log("[Offline Soluce] resume button at startup:", _currentResumeButton === -1 ? "(defaults LBACK/RBACK)" : _currentResumeButton, "enabled:", _currentResumeEnabled);
+            }
+            catch { }
+        }
+        catch { }
+        const sc = window.SteamClient;
+        const inputApi = sc?.Input;
+        if (!inputApi?.RegisterForControllerInputMessages) {
+            try {
+                console.warn("[Offline Soluce] SteamClient.Input.RegisterForControllerInputMessages unavailable");
+            }
+            catch { }
+            return;
+        }
+        try {
+            console.log("[Offline Soluce] controller listener installed at plugin load");
+        }
+        catch { }
+        listenerHandle = inputApi.RegisterForControllerInputMessages((_idx, gamepadButton, isButtonPressed) => {
+            if (!listenerActive)
+                return;
+            if (!isButtonPressed)
+                return;
+            if (!_currentResumeEnabled)
+                return;
+            // v0.40: don't trigger the resume action while the user is capturing
+            // a button via the settings UI — otherwise the captured press would
+            // also open a guide.
+            if (_captureInProgress)
+                return;
+            const wanted = _currentResumeButton;
+            const matches = wanted === -1
+                ? RESUME_BUTTON_DEFAULTS.has(gamepadButton)
+                : gamepadButton === wanted;
+            if (!matches)
+                return;
+            void (async () => {
+                try {
+                    const guides = await listGuides();
+                    if (!guides.length) {
+                        try {
+                            toaster.toast({ title: "Offline Soluce", body: "Aucun guide importé.", duration: 2500 });
+                        }
+                        catch { }
+                        return;
+                    }
+                    // A3: try to match the currently running Steam app first
+                    let target = null;
+                    let matchedByGame = false;
+                    try {
+                        const runningApp = DFL.Router.MainRunningApp;
+                        const displayName = runningApp?.display_name || "";
+                        if (displayName) {
+                            const matched = findGuideForRunningApp(guides, displayName);
+                            if (matched) {
+                                target = matched;
+                                matchedByGame = true;
+                                try {
+                                    console.log("[Offline Soluce] matched running app:", displayName, "→", matched.title);
+                                }
+                                catch { }
+                            }
+                        }
+                    }
+                    catch (e) {
+                        try {
+                            console.warn("[Offline Soluce] running-app match failed:", e);
+                        }
+                        catch { }
+                    }
+                    // A3 ES-DE: if no Steam match, scan emulator processes (PCSX2, RetroArch, etc.)
+                    // for the loaded ROM — covers games launched via EmulationStation DE.
+                    if (!target) {
+                        try {
+                            const hint = await getRunningEmulatorGameHint();
+                            if (hint?.hint) {
+                                const matched = findGuideForRunningApp(guides, hint.hint);
+                                if (matched) {
+                                    target = matched;
+                                    matchedByGame = true;
+                                    try {
+                                        console.log(`[Offline Soluce] matched emulator (${hint.emulator}) ROM "${hint.hint}" → ${matched.title}`);
+                                    }
+                                    catch { }
+                                }
+                                else {
+                                    try {
+                                        console.log(`[Offline Soluce] emulator hint "${hint.hint}" had no matching guide`);
+                                    }
+                                    catch { }
+                                }
+                            }
+                        }
+                        catch (e) {
+                            try {
+                                console.warn("[Offline Soluce] emulator hint failed:", e);
+                            }
+                            catch { }
+                        }
+                    }
+                    // Fallback: most-recently-opened guide
+                    if (!target) {
+                        const sorted = [...guides].sort((a, b) => (b.progress?.last_opened_at || "").localeCompare(a.progress?.last_opened_at || ""));
+                        target = sorted[0];
+                    }
+                    if (!target?.id) {
+                        try {
+                            toaster.toast({ title: "Offline Soluce", body: "Pas de guide récent.", duration: 2500 });
+                        }
+                        catch { }
+                        return;
+                    }
+                    // Toast tells the user WHICH path matched — useful when game match vs fallback
+                    try {
+                        toaster.toast({
+                            title: matchedByGame ? "Guide du jeu en cours" : "Dernier guide ouvert",
+                            body: target.title,
+                            duration: 2000,
+                        });
+                    }
+                    catch { }
+                    requestFullScreenGuide(target.id);
+                    try {
+                        DFL.Router.CloseSideMenus();
+                    }
+                    catch { }
+                    DFL.Router.Navigate(FULL_SCREEN_ROUTE);
+                }
+                catch (err) {
+                    try {
+                        toaster.toast({ title: "Offline Soluce", body: `Erreur reprise: ${err?.message || err}`, duration: 4000, critical: true });
+                    }
+                    catch { }
+                }
+            })();
+        });
+    };
+    void setupListener();
     return {
         title: SP_JSX.jsx("div", { className: "title", children: "Offline Soluce" }),
         content: SP_JSX.jsx(Content, {}),
         icon: SP_JSX.jsx(FaBookOpen, {}),
         onDismount() {
+            listenerActive = false;
+            try {
+                listenerHandle?.unregister?.();
+            }
+            catch { }
             routerHook.removeRoute(FULL_SCREEN_ROUTE);
-            routerHook.removeGlobalComponent(HOTKEY_GLOBAL_NAME);
         },
     };
 });

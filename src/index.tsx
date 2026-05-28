@@ -5,9 +5,28 @@ import {
   DialogButton,
   Focusable,
   Router,
+  Navigation,
+  TextField,
+  ToggleField,
   definePlugin,
 } from "@decky/ui";
-import { callable, routerHook } from "@decky/api";
+
+/** v0.33: robust back navigation. Router.NavigateBack doesn't exist on every
+ * Steam UI build. Try Navigation.NavigateBack first (the documented API),
+ * then Router.NavigateBack, then window.history.back() as last resort. */
+function safeNavigateBack(): boolean {
+  try {
+    const nav: any = Navigation;
+    if (nav?.NavigateBack) { nav.NavigateBack(); return true; }
+  } catch {}
+  try {
+    const rt: any = Router;
+    if (rt?.NavigateBack) { rt.NavigateBack(); return true; }
+  } catch {}
+  try { window.history.back(); return true; } catch {}
+  return false;
+}
+import { callable, routerHook, toaster } from "@decky/api";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FaBookOpen } from "react-icons/fa";
 
@@ -25,7 +44,6 @@ function consumeFullScreenGuideId(): string | null {
 }
 
 const FULL_SCREEN_ROUTE = "/decky-offline-soluce/reader";
-const HOTKEY_GLOBAL_NAME = "OfflineSoluceHotkey";
 // Steam Big Picture overlays at top (status / battery / time ~40px) and bottom (back
 // hint / system shortcuts ~40px). Pad full-screen routes so our header & footer
 // aren't covered. Tuned for SteamOS 3.8.x — bump if Steam changes the chrome height.
@@ -73,6 +91,9 @@ type GuideProgress = {
   bookmark_scroll_fraction: number;
   named_bookmarks: NamedBookmark[];
   section_notes: GuideSectionNote[];
+  // Titles of sections the user has hidden from the sidebar. Filtered out by
+  // default; toggle "Afficher masquées" surfaces them again.
+  hidden_section_titles: string[];
 };
 
 type GuideGameInfo = {
@@ -167,6 +188,16 @@ type ReaderPreferences = {
   max_width: "narrow" | "normal" | "full";
   highlight_keywords: boolean;
   numbered_sections: boolean;
+  // Legacy keyboard hotkey (unused on Steam Deck — SteamOS never delivers keystrokes
+  // from Steam Input bindings to Steam UI). Kept for non-Deck contexts.
+  resume_hotkey: string;
+  // Controller button index from ControllerInputGamepadButton enum:
+  //   32 = LBACK (left back paddle), 33 = RBACK (right back paddle)
+  //   30 = LSHOULDER (L1), 31 = RSHOULDER (R1)
+  // -1 = defaults (both back paddles trigger)
+  resume_button: number;
+  // v0.40: master switch — when false, listener stays armed but skips action.
+  resume_enabled: boolean;
 };
 
 type FindMatch = {
@@ -217,6 +248,23 @@ const setSectionNote = callable<[guideId: string, sectionIndex: number, done: bo
 const clearSectionNote = callable<[guideId: string, sectionIndex: number], GuideDetail>("clear_section_note");
 const reconstructSections = callable<[guideId: string], GuideDetail>("reconstruct_sections");
 const reloadGuideContent = callable<[guideId: string], GuideDetail>("reload_guide_content");
+const toggleSectionHidden = callable<[guideId: string, sectionIndex: number], GuideDetail>("toggle_section_hidden");
+const showAllSections = callable<[guideId: string], GuideDetail>("show_all_sections");
+// A2 auto-backup
+type BackupConfig = {
+  enabled: boolean;
+  interval_days: number;
+  last_backup_at: string;
+  last_backup_path: string;
+  last_backup_size_bytes: number;
+};
+const getBackupConfig = callable<[], BackupConfig>("get_backup_config");
+const setBackupConfig = callable<[boolean, number], BackupConfig>("set_backup_config");
+const runBackupNow = callable<[], { path: string; size_bytes: number; guide_count: number; config: BackupConfig }>("run_backup_now");
+// A3 ES-DE: returns the cleaned game-title of the ROM currently loaded by a running emulator,
+// or empty fields if no emulator is detected.
+const getRunningEmulatorGameHint = callable<[], { hint: string; rom_path: string; emulator: string }>("get_running_emulator_game_hint");
+const BACKUP_INTERVAL_CHOICES = [1, 3, 7, 14, 30];
 const findInGuide = callable<[guideId: string, pattern: string], FindResult>("find_in_guide");
 const exportGuide = callable<[guideId: string], { path: string; size_bytes: number; guide_id: string }>("export_guide");
 const exportAllGuides = callable<[], { path: string; size_bytes: number; guide_count: number }>("export_all_guides");
@@ -231,6 +279,9 @@ const updateReaderPreferences = callable<[
   maxWidth: string,
   highlightKeywords: boolean,
   numberedSections: boolean,
+  resumeHotkey: string,
+  resumeButton: number,
+  resumeEnabled: boolean,
 ], ReaderPreferences>("update_reader_preferences");
 const listScanSources = callable<[], ScanSource[]>("list_scan_sources");
 const toggleScanSource = callable<[sourceId: string], ScanSource>("toggle_scan_source");
@@ -437,6 +488,92 @@ function fieldLine(label: string, value: string | undefined | null) {
   );
 }
 
+/** A3: find the guide that matches the currently running Steam app (if any).
+ *  Tries: exact normalized title/game_title, alias match, substring containment.
+ *  Returns null if no plausible match.
+ *
+ *  v0.39 fix: when multiple guides match the running game at the same tier
+ *  (e.g. user has both a site-specific guide AND a generic "RPG Soluce" guide
+ *  attached to the same `game_title`), pick the one with the most recent
+ *  `last_opened_at`. Previously we returned the first match in array order,
+ *  which depended on the non-deterministic Python `glob` order on the Deck —
+ *  resulting in the palette opening the "wrong" guide for the same game.
+ *  Auto-healing: opening the intended guide once manually bumps its
+ *  timestamp above the other(s), and the palette locks onto it thereafter. */
+function findGuideForRunningApp(guides: GuideSummary[], appName: string): GuideSummary | null {
+  if (!appName || !guides.length) return null;
+  const normApp = normalizeText(appName);
+  if (!normApp) return null;
+
+  // Tiebreak helper: within a match tier, pick the most-recently-opened guide.
+  const pickMostRecent = (candidates: GuideSummary[]): GuideSummary | null => {
+    if (candidates.length === 0) return null;
+    if (candidates.length === 1) return candidates[0];
+    return candidates.slice().sort((a, b) =>
+      (b.progress?.last_opened_at || "").localeCompare(a.progress?.last_opened_at || "")
+    )[0];
+  };
+
+  // Tier 1: exact match on normalized game_title or title
+  const tier1 = guides.filter((g) =>
+    normalizeText(g.game.game_title || "") === normApp ||
+    normalizeText(g.title) === normApp
+  );
+  if (tier1.length) return pickMostRecent(tier1);
+
+  // Tier 2: alias match
+  const tier2 = guides.filter((g) =>
+    (g.game.aliases || []).some((a) => normalizeText(a) === normApp)
+  );
+  if (tier2.length) return pickMostRecent(tier2);
+
+  // Tier 3: substring containment (either direction). Skips matches where one side
+  // is too short (<4 chars) to avoid false positives like "II" matching "Civ II".
+  if (normApp.length >= 4) {
+    const tier3 = guides.filter((g) => {
+      const gt = normalizeText(g.game.game_title || g.title);
+      if (!gt || gt.length < 4) return false;
+      return gt.includes(normApp) || normApp.includes(gt);
+    });
+    if (tier3.length) return pickMostRecent(tier3);
+  }
+
+  return null;
+}
+
+/** A5: find guides similar to the current one — same series (shared title words),
+ *  same platform, same site. Returns up to 5 results sorted by relevance. */
+function findSimilarGuides(current: GuideSummary | null, all: GuideSummary[]): GuideSummary[] {
+  if (!current) return [];
+  const currentText = `${current.title} ${current.game.game_title || ""}`;
+  const currentWords = new Set(
+    normalizeText(currentText)
+      .split(/\s+/)
+      .filter((w) => w.length >= 4 && !STOPWORDS.has(w)),
+  );
+  if (currentWords.size === 0) return [];
+  const scored: Array<{ guide: GuideSummary; score: number }> = [];
+  for (const g of all) {
+    if (g.id === current.id) continue;
+    let score = 0;
+    const gWords = normalizeText(`${g.title} ${g.game.game_title || ""}`).split(/\s+/);
+    for (const w of gWords) {
+      if (w.length >= 4 && currentWords.has(w)) score += 5;
+    }
+    if (g.game.platform && g.game.platform === current.game.platform) score += 2;
+    if (g.site && g.site === current.site) score += 1;
+    if (score >= 5) scored.push({ guide: g, score });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, 5).map((s) => s.guide);
+}
+
+const STOPWORDS = new Set([
+  "the", "and", "for", "with", "from", "this", "that", "guide", "walkthrough",
+  "soluce", "cheminement", "dans", "avec", "pour", "complet", "complete", "full",
+  "version", "final", "english", "francais", "french",
+]);
+
 function guideMatchesLibraryItem(guide: GuideSummary, item: LibraryItem): boolean {
   const guidePlatform = guide.game.platform || "Autre";
   const itemPlatform = item.platform || "Autre";
@@ -491,6 +628,57 @@ function parseBlocks(raw: string): ContentBlock[] {
   return blocks;
 }
 
+/**
+ * Old-school FAQs hard-wrap prose at ~80 chars with literal `\n`. On a wide
+ * Deck screen with `white-space: pre-wrap`, every wrap shows as a forced break,
+ * making 1 paragraph look like 8 mini-paragraphs. This collapses the soft-wrap
+ * `\n` into spaces so the browser can wrap naturally — but PRESERVES hard
+ * breaks for lists, stat labels, indented blocks, and short all-caps headers.
+ */
+function smartCollapseParagraph(text: string): string {
+  const lines = text.split(/\n/);
+  if (lines.length <= 1) return text;
+
+  const isHardBreak = (idx: number): boolean => {
+    if (idx === 0) return false;
+    const rawLine = lines[idx];
+    const line = rawLine.trim();
+    const prev = lines[idx - 1].trim();
+    if (!line) return true;
+    // Bullet/list items
+    if (/^[-*•·●▪▫►▼>+]\s+\S/.test(line)) return true;
+    if (/^\d{1,3}[.):]\s+\S/.test(line)) return true;
+    if (/^[a-z]\)\s+\S/.test(line)) return true;
+    if (/^\d+[a-z]\.\s+\S/.test(line)) return true;
+    // Labeled stat lines, with or without colon ("HP : 950", "Level 27", "BOSS:")
+    if (/^(BOSS|Boss|HP|MP|SP|XP|EXP|Level|Niveau|Item|Objet|Items|Attack|Defend|Defense|Special|Magic|Stats|Stat|Rune|Skill|Skills|Equipement|Equipment)\b/i.test(line)) return true;
+    // Previous line was short header ending with colon ("Stats:" / "Items:")
+    if (prev.length < 60 && /[:：]\s*$/.test(prev)) return true;
+    // Short ALL-CAPS / dashed-banner line (small headers like "STORMFIST" or "------")
+    if (line.length < 80 && /^[A-Z][A-Z0-9\s\-]{2,}$/.test(line)) return true;
+    if (line.length < 80 && /^[=\-_*#~+]{4,}/.test(line)) return true;
+    // Indented line (preserved code/stat blocks)
+    if (/^\s{2,}\S/.test(rawLine)) return true;
+    // Short numeric-heavy line ("Level 1 6 9", "100 200 300") — likely table row
+    if (line.length < 60 && (line.match(/\d/g) || []).length >= 3 && !/[.!?]$/.test(line)) return true;
+    return false;
+  };
+
+  const out: string[] = [];
+  let buffer = lines[0];
+  for (let i = 1; i < lines.length; i++) {
+    if (isHardBreak(i)) {
+      out.push(buffer);
+      buffer = lines[i];
+    } else {
+      // Soft-wrap continuation → join with single space
+      buffer = buffer.replace(/\s+$/, "") + " " + lines[i].replace(/^\s+/, "");
+    }
+  }
+  out.push(buffer);
+  return out.join("\n");
+}
+
 function parseParagraphsAndHeadings(raw: string): ContentBlock[] {
   const blocks: ContentBlock[] = [];
   const headingRegex = /\x01H(\d)\x02(.*?)\x01\/H\x02/g;
@@ -505,7 +693,13 @@ function parseParagraphsAndHeadings(raw: string): ContentBlock[] {
     const paragraphs = joined.split(/\n\n+/);
     for (const p of paragraphs) {
       const trimmed = p.trim();
-      if (trimmed) blocks.push({ kind: "paragraph", text: trimmed });
+      if (trimmed) {
+        // Collapse soft-wrap newlines into spaces so the browser flows the
+        // text at screen width. Hard breaks (lists, stat lines, ASCII art)
+        // are preserved by smartCollapseParagraph.
+        const flowed = smartCollapseParagraph(trimmed);
+        blocks.push({ kind: "paragraph", text: flowed });
+      }
     }
     paragraphBuffer = [];
   };
@@ -527,11 +721,35 @@ function parseParagraphsAndHeadings(raw: string): ContentBlock[] {
   return blocks;
 }
 
-// Highlight keywords + search matches in a text block
+/** L5: resolve a "section/chapter/chap. N[letter]" reference in text to a section index.
+ * Heuristic: looks for a section whose title starts with `Nx.` or `Nx ` (case-insensitive).
+ * Returns -1 if no plausible target. */
+function resolveSectionReference(
+  refId: string,
+  sections: GuideSection[],
+): number {
+  const id = refId.toLowerCase().trim();
+  if (!id) return -1;
+  // Pattern A: title starts with "<id>." or "<id> "
+  for (let i = 0; i < sections.length; i++) {
+    const t = (sections[i].title || "").trim().toLowerCase();
+    if (t.startsWith(id + ".") || t.startsWith(id + " ") || t.startsWith(id + ":")) return i;
+  }
+  // Pattern B: title contains "[<id>]" — for TOC code-style anchors
+  for (let i = 0; i < sections.length; i++) {
+    const t = (sections[i].title || "").trim().toLowerCase();
+    if (t.includes("[" + id + "]")) return i;
+  }
+  return -1;
+}
+
+// Highlight keywords + search matches + cross-references in a text block
 function renderHighlightedText(
   text: string,
   highlightKeywords: boolean,
   searchPattern: string,
+  sections?: GuideSection[],
+  onJumpToSection?: (idx: number) => void,
 ): React.ReactNode {
   if (!text) return text;
   // Build a combined regex of keywords (word-ish boundaries) and the search pattern.
@@ -555,30 +773,44 @@ function renderHighlightedText(
     }
   }
 
+  // L5: cross-references — only active when we have sections + a jump callback
+  if (sections && sections.length > 0 && onJumpToSection) {
+    pieces.push({
+      regex: /\b(?:section|chapitre|chapter|chap\.?)\s+(\d{1,3}[a-z]?)\b/gi,
+      className: "os-ref",
+    });
+  }
+
   if (pieces.length === 0) return text;
 
   // Collect all matches across all pieces
-  type Span = { start: number; end: number; className: string; color?: string };
+  type Span = { start: number; end: number; className: string; color?: string; refTarget?: number };
   const spans: Span[] = [];
   for (const piece of pieces) {
     piece.regex.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = piece.regex.exec(text)) !== null) {
       if (m.index === piece.regex.lastIndex) piece.regex.lastIndex++;
-      spans.push({ start: m.index, end: m.index + m[0].length, className: piece.className, color: piece.color });
+      const span: Span = { start: m.index, end: m.index + m[0].length, className: piece.className, color: piece.color };
+      if (piece.className === "os-ref" && sections && m[1]) {
+        const target = resolveSectionReference(m[1], sections);
+        if (target < 0) continue; // skip cross-refs that don't resolve to anything
+        span.refTarget = target;
+      }
+      spans.push(span);
     }
   }
   if (spans.length === 0) return text;
-  // Sort, then merge overlaps (search match wins over keyword)
+  // Sort, then merge overlaps (search match wins, then ref, then keyword)
+  const priority: Record<string, number> = { "os-find": 3, "os-ref": 2, "os-kw": 1 };
   spans.sort((a, b) => a.start - b.start || b.end - a.end);
   const merged: Span[] = [];
   for (const s of spans) {
     const last = merged[merged.length - 1];
     if (last && s.start < last.end) {
-      // Overlap: keep the one with higher priority (find > keyword)
-      if (s.className === "os-find" && last.className !== "os-find") {
-        merged[merged.length - 1] = s;
-      }
+      const lastP = priority[last.className] || 0;
+      const sP = priority[s.className] || 0;
+      if (sP > lastP) merged[merged.length - 1] = s;
       continue;
     }
     merged.push(s);
@@ -592,6 +824,23 @@ function renderHighlightedText(
     const substr = text.slice(s.start, s.end);
     if (s.className === "os-find") {
       out.push(<mark key={`m-${i}`} style={{ background: "#ffe066", color: "#1a1a1a", borderRadius: "2px", padding: "0 2px" }}>{substr}</mark>);
+    } else if (s.className === "os-ref" && typeof s.refTarget === "number" && onJumpToSection) {
+      const target = s.refTarget;
+      out.push(
+        <span
+          key={`r-${i}`}
+          onClick={() => onJumpToSection(target)}
+          style={{
+            color: "#8fd0ff",
+            textDecoration: "underline",
+            textDecorationStyle: "dotted",
+            cursor: "pointer",
+            fontWeight: 500,
+          }}
+        >
+          {substr}
+        </span>
+      );
     } else {
       out.push(<span key={`k-${i}`} style={{ color: s.color, fontWeight: 600 }}>{substr}</span>);
     }
@@ -613,6 +862,13 @@ type GuideReaderProps = {
   onScrollChange: (fraction: number) => void;
   onSectionChange?: (index: number) => void;
   maxHeight?: string;
+  /** L5: when provided, cross-references like "voir section 4b" in the rendered
+   * text become clickable spans that jump to the target section. */
+  onJumpToSection?: (idx: number) => void;
+  /** v0.34: incremented by parent to force the scroll-restore effect to re-fire,
+   * even when sectionIndex doesn't change (e.g. "Aller au marque-page" while
+   * already in the bookmark's section). */
+  restoreGeneration?: number;
 };
 
 /**
@@ -623,7 +879,7 @@ function GuideReader(props: GuideReaderProps) {
   const {
     guide, sectionIndex, fontScale, preferences,
     searchPattern, scrollRestoreFraction, onScrollChange,
-    maxHeight,
+    maxHeight, onJumpToSection, restoreGeneration,
   } = props;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const raw = useMemo(() => getSectionText(guide, sectionIndex), [guide, sectionIndex]);
@@ -634,23 +890,45 @@ function GuideReader(props: GuideReaderProps) {
   const widthCap = maxWidthValue(preferences.max_width);
   const ff = fontFamily(preferences.font_family);
 
-  // Restore scroll when section switches / on first render if requested
+  // Restore scroll when section switches / on first render / on intentional bookmark jump.
+  // v0.34: retry across multiple RAF frames if scrollHeight is still growing (content not
+  // fully laid out yet for long sections). Reacts to restoreGeneration so the parent can
+  // force a re-fire without changing sectionIndex.
+  // v0.34 fix: scrollRestoreFraction REMOVED from deps. The parent nulls it via onScrollChange
+  // after restore, which would have re-fired this effect with null → scroll back to 0.
+  // We read scrollRestoreFraction at run time (closure captures the value at the moment the
+  // effect actually runs, which is right after the relevant render).
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const raf = window.requestAnimationFrame(() => {
-      if (scrollRestoreFraction !== null) {
-        const max = Math.max(1, el.scrollHeight - el.clientHeight);
-        el.scrollTop = max * scrollRestoreFraction;
-      } else {
-        el.scrollTop = 0;
-      }
-      const max = Math.max(1, el.scrollHeight - el.clientHeight);
-      onScrollChange(Math.max(0, Math.min(1, el.scrollTop / max)));
-    });
-    return () => window.cancelAnimationFrame(raf);
+    let cancelled = false;
+    let rafId = 0;
+    // Snapshot the target fraction at effect-run time so a subsequent prop change can't
+    // override our intent mid-restore.
+    const targetFrac = scrollRestoreFraction;
+    const attempt = (tries: number) => {
+      if (cancelled) return;
+      const currentMax = Math.max(1, el.scrollHeight - el.clientHeight);
+      const targetTop = targetFrac !== null
+        ? currentMax * targetFrac
+        : 0;
+      el.scrollTop = targetTop;
+      // Re-check next frame: if scrollHeight changed (content still rendering), redo with new max
+      rafId = window.requestAnimationFrame(() => {
+        if (cancelled) return;
+        const newMax = Math.max(1, el.scrollHeight - el.clientHeight);
+        if (newMax !== currentMax && tries < 5) {
+          attempt(tries + 1);
+          return;
+        }
+        const finalFrac = newMax > 1 ? Math.max(0, Math.min(1, el.scrollTop / newMax)) : 0;
+        onScrollChange(finalFrac);
+      });
+    };
+    rafId = window.requestAnimationFrame(() => attempt(0));
+    return () => { cancelled = true; window.cancelAnimationFrame(rafId); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sectionIndex, guide.id, scrollRestoreFraction]);
+  }, [sectionIndex, guide.id, restoreGeneration]);
 
   const containerStyle: React.CSSProperties = {
     overflowY: "auto",
@@ -674,7 +952,10 @@ function GuideReader(props: GuideReaderProps) {
   };
 
   const paragraphStyle: React.CSSProperties = {
-    margin: "0 0 0.8em",
+    // Tightened in v0.22: was 0.8em which combined with HTML's per-line blank-line
+    // emission made the rendered text look airy and broken. 0.4em keeps paragraphs
+    // distinguishable but compacts the visual rhythm.
+    margin: "0 0 0.4em",
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
   };
@@ -723,7 +1004,7 @@ function GuideReader(props: GuideReaderProps) {
             }
             return (
               <p key={idx} style={paragraphStyle}>
-                {renderHighlightedText(block.text, preferences.highlight_keywords, searchPattern)}
+                {renderHighlightedText(block.text, preferences.highlight_keywords, searchPattern, guide.sections, onJumpToSection)}
               </p>
             );
           })
@@ -735,6 +1016,349 @@ function GuideReader(props: GuideReaderProps) {
 
 
 // ========== Full-screen reader component ==========
+
+type TocGroup = {
+  parent: { index: number; sec: GuideSection };
+  children: { index: number; sec: GuideSection }[];
+};
+
+/** Group consecutive sections so heading_level <= 2 starts a group, deeper levels nest under it. */
+function buildTocGroups(sections: GuideSection[]): TocGroup[] {
+  const groups: TocGroup[] = [];
+  let current: TocGroup | null = null;
+  sections.forEach((sec, idx) => {
+    const level = sec.heading_level || 2;
+    if (level <= 2 || current === null) {
+      current = { parent: { index: idx, sec }, children: [] };
+      groups.push(current);
+    } else {
+      current.children.push({ index: idx, sec });
+    }
+  });
+  return groups;
+}
+
+/** Sidebar TOC with filter + collapsible groups + hide-section toggle + auto-scroll. */
+function TocSidebar(props: {
+  guide: GuideDetail;
+  preferences: ReaderPreferences;
+  theme: any; // ThemeStyle-shaped; loose to accept the fallback used during loading
+  sidebarStyle: React.CSSProperties;
+  sectionIndex: number;
+  setSectionIndex: (n: number) => void;
+  tocFilter: string;
+  setTocFilter: (s: string) => void;
+  collapsedParents: Set<number>;
+  setCollapsedParents: (next: Set<number> | ((c: Set<number>) => Set<number>)) => void;
+  showHiddenSections: boolean;
+  setShowHiddenSections: (next: boolean | ((c: boolean) => boolean)) => void;
+}) {
+  const {
+    guide, preferences, theme, sidebarStyle, sectionIndex, setSectionIndex,
+    tocFilter, setTocFilter, collapsedParents, setCollapsedParents,
+    showHiddenSections, setShowHiddenSections,
+  } = props;
+  const currentRowRef = useRef<any>(null);
+  // L3: auto-scroll the sidebar so the current section's row is visible whenever sectionIndex changes
+  useEffect(() => {
+    const el = currentRowRef.current;
+    if (el && typeof el.scrollIntoView === "function") {
+      try { el.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch { /* older browsers */ }
+    }
+  }, [sectionIndex]);
+
+  const hiddenTitles = new Set((guide.progress?.hidden_section_titles || []).map((t) => (t || "").trim()));
+  const isHidden = (sec: GuideSection) => hiddenTitles.has((sec.title || "").trim());
+  const hiddenCount = guide.sections.reduce((n, s) => n + (isHidden(s) ? 1 : 0), 0);
+  // v0.25: which sections are marked as "done" (manually or auto via scroll-to-bottom)
+  const doneIndices = new Set<number>();
+  const flaggedIndices = new Set<number>();
+  for (const n of guide.progress?.section_notes || []) {
+    if (n.done) doneIndices.add(n.section_index);
+    if (n.flagged) flaggedIndices.add(n.section_index);
+  }
+  const sectionBadge = (idx: number): string => {
+    let out = "";
+    if (doneIndices.has(idx)) out += "✅ ";
+    if (flaggedIndices.has(idx)) out += "⚐ ";
+    return out;
+  };
+
+  const groups = buildTocGroups(guide.sections);
+  const filterNeedle = tocFilter.trim().toLowerCase();
+
+  // Apply hide filter first (unless "show hidden" toggle is on), then text filter.
+  let working: TocGroup[] = showHiddenSections
+    ? groups
+    : groups
+        .map((g) => {
+          const childrenVisible = g.children.filter((c) => !isHidden(c.sec));
+          if (isHidden(g.parent.sec)) {
+            // Parent hidden: surface children that aren't hidden by making the FIRST visible
+            // child a new pseudo-parent. If none, drop the group entirely.
+            if (childrenVisible.length === 0) return null;
+            return { parent: childrenVisible[0], children: childrenVisible.slice(1) };
+          }
+          return { parent: g.parent, children: childrenVisible };
+        })
+        .filter((g): g is TocGroup => g !== null);
+
+  // Then text filter: keep groups whose parent OR any child title matches; drop non-matching children.
+  const filtered: TocGroup[] = filterNeedle
+    ? working
+        .map((g) => {
+          const parentMatches = (g.parent.sec.title || "").toLowerCase().includes(filterNeedle);
+          const matchingChildren = g.children.filter((c) => (c.sec.title || "").toLowerCase().includes(filterNeedle));
+          if (parentMatches || matchingChildren.length > 0) {
+            return { parent: g.parent, children: parentMatches ? g.children : matchingChildren };
+          }
+          return null;
+        })
+        .filter((g): g is TocGroup => g !== null)
+    : working;
+
+  const toggle = (parentIdx: number) => {
+    setCollapsedParents((prev) => {
+      const next = new Set(prev);
+      if (next.has(parentIdx)) next.delete(parentIdx);
+      else next.add(parentIdx);
+      return next;
+    });
+  };
+
+  const filterInputStyle: React.CSSProperties = {
+    width: "100%",
+    padding: "6px 8px",
+    borderRadius: "4px",
+    border: `1px solid ${theme.borderColor}`,
+    background: "rgba(0,0,0,0.5)",
+    color: theme.textColor,
+    fontSize: "0.78rem",
+    boxSizing: "border-box",
+  };
+  const filterWrapStyle: React.CSSProperties = {
+    padding: "8px 10px 6px",
+    position: "sticky",
+    top: 0,
+    background: "rgba(0,0,0,0.55)",
+    borderBottom: `1px solid ${theme.borderColor}`,
+    zIndex: 1,
+  };
+  const hiddenToggleStyle: React.CSSProperties = {
+    marginTop: "5px",
+    fontSize: "0.7rem",
+    padding: "4px 6px",
+    borderRadius: "3px",
+    background: showHiddenSections ? "rgba(255, 217, 102, 0.15)" : "rgba(255,255,255,0.05)",
+    color: theme.textColor,
+    cursor: "pointer",
+    textAlign: "center",
+    border: "1px solid " + (showHiddenSections ? "rgba(255, 217, 102, 0.4)" : "transparent"),
+  };
+  const parentRowStyleBase = (isCurrent: boolean): React.CSSProperties => ({
+    padding: "7px 10px",
+    borderLeft: isCurrent ? "3px solid #ffd966" : "3px solid transparent",
+    background: isCurrent ? "rgba(255, 217, 102, 0.18)" : "transparent",
+    cursor: "pointer",
+    fontSize: "0.86rem",
+    fontWeight: 700,
+    color: theme.textColor,
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+  });
+  const childRowStyleBase = (isCurrent: boolean): React.CSSProperties => ({
+    padding: "5px 10px 5px 30px",
+    borderLeft: isCurrent ? "3px solid #ffd966" : "3px solid transparent",
+    background: isCurrent ? "rgba(255, 217, 102, 0.18)" : "transparent",
+    cursor: "pointer",
+    fontSize: "0.76rem",
+    fontWeight: isCurrent ? 700 : 400,
+    color: theme.textColor,
+    opacity: 0.92,
+  });
+
+  return (
+    <div style={sidebarStyle}>
+      <div style={filterWrapStyle}>
+        {/* v0.36: TextField (Steam-Deck-native) ouvre le clavier virtuel à la prise de focus. */}
+        <TextField
+          value={tocFilter}
+          onChange={(e: any) => setTocFilter(e.target.value)}
+          placeholder="Filtrer le sommaire…"
+          bShowClearAction
+        />
+        {hiddenCount > 0 ? (
+          <Focusable onActivate={() => setShowHiddenSections((v) => !v)} style={hiddenToggleStyle}>
+            {showHiddenSections
+              ? `👁 Cacher les ${hiddenCount} masquée(s)`
+              : `🙈 Afficher les ${hiddenCount} masquée(s)`}
+          </Focusable>
+        ) : null}
+      </div>
+      <Focusable>
+        {filtered.length === 0 && filterNeedle ? (
+          <div style={{ padding: "16px", textAlign: "center", opacity: 0.6, fontSize: "0.8rem" }}>
+            Aucune section ne correspond à « {tocFilter} »
+          </div>
+        ) : null}
+        {filtered.map((group) => {
+          const containsCurrent = sectionIndex === group.parent.index
+            || group.children.some((c) => c.index === sectionIndex);
+          // Always expand the group containing the current section, and when filtering.
+          const effectiveCollapsed = !filterNeedle && !containsCurrent && collapsedParents.has(group.parent.index);
+          const hasChildren = group.children.length > 0;
+          const parentIsCurrent = sectionIndex === group.parent.index;
+          const parentHidden = isHidden(group.parent.sec);
+          const parentStyle = { ...parentRowStyleBase(parentIsCurrent), opacity: parentHidden ? 0.45 : 1 };
+          return (
+            <div key={group.parent.index}>
+              <Focusable
+                ref={parentIsCurrent ? currentRowRef : undefined}
+                onActivate={() => {
+                  if (hasChildren && !filterNeedle) toggle(group.parent.index);
+                  setSectionIndex(group.parent.index);
+                }}
+                style={parentStyle}
+              >
+                <span style={{ width: "12px", display: "inline-block", opacity: hasChildren ? 0.7 : 0, fontSize: "0.7rem" }}>
+                  {hasChildren ? (effectiveCollapsed ? "▶" : "▼") : ""}
+                </span>
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {parentHidden ? "🙈 " : ""}
+                  {sectionBadge(group.parent.index)}
+                  {preferences.numbered_sections ? `${group.parent.index + 1}. ` : ""}{group.parent.sec.title || "(sans titre)"}
+                </span>
+                {hasChildren ? (
+                  <span style={{ fontSize: "0.66rem", opacity: 0.55, padding: "1px 5px", borderRadius: "3px", background: "rgba(255,255,255,0.08)" }}>
+                    {group.children.length}
+                  </span>
+                ) : null}
+              </Focusable>
+              {!effectiveCollapsed && group.children.map((child) => {
+                const isCurrent = child.index === sectionIndex;
+                const childHidden = isHidden(child.sec);
+                const childStyle = { ...childRowStyleBase(isCurrent), opacity: childHidden ? 0.45 : 0.92 };
+                return (
+                  <Focusable
+                    key={child.index}
+                    ref={isCurrent ? currentRowRef : undefined}
+                    onActivate={() => setSectionIndex(child.index)}
+                    style={childStyle}
+                  >
+                    {childHidden ? "🙈 " : ""}
+                    {sectionBadge(child.index)}
+                    {preferences.numbered_sections ? `${child.index + 1}. ` : ""}{child.sec.title || "(sans titre)"}
+                  </Focusable>
+                );
+              })}
+            </div>
+          );
+        })}
+      </Focusable>
+    </div>
+  );
+}
+
+/**
+ * v0.35: collapsible named-bookmarks panel for the FullScreenReader.
+ * Replaces the GuideReader pane when toggled on, so it doesn't permanently
+ * eat reading space. List of bookmarks is sorted newest-first.
+ */
+function NamedBookmarksPanel(props: {
+  guide: GuideDetail;
+  currentSectionIndex: number;
+  currentScrollFraction: number;
+  busy: boolean;
+  theme: any;
+  onClose: () => void;
+  onAdd: () => void;
+  onDelete: (bookmarkId: string) => void;
+  onGoTo: (bm: NamedBookmark) => void;
+}) {
+  const { guide, currentSectionIndex, currentScrollFraction, busy, theme, onClose, onAdd, onDelete, onGoTo } = props;
+  const bookmarks = (guide.progress?.named_bookmarks || []).slice().sort((a, b) =>
+    (b.created_at || "").localeCompare(a.created_at || "")
+  );
+  const containerStyle: React.CSSProperties = {
+    flex: 1,
+    minHeight: 0,
+    overflowY: "auto",
+    overflowX: "hidden",
+    padding: "12px 14px",
+    borderRadius: "10px",
+    border: `1px solid ${theme.borderColor}`,
+    background: theme.background,
+    color: theme.textColor,
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+  };
+  const headerRowStyle: React.CSSProperties = {
+    display: "flex",
+    gap: "8px",
+    alignItems: "center",
+    paddingBottom: "8px",
+    borderBottom: `1px solid ${theme.borderColor}`,
+  };
+  const itemStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "8px 10px",
+    borderRadius: "6px",
+    background: "rgba(255,255,255,0.04)",
+    border: `1px solid ${theme.borderColor}`,
+  };
+  const currentSectionTitle = guide.sections[currentSectionIndex]?.title || "Début";
+  return (
+    <div style={containerStyle}>
+      <div style={headerRowStyle}>
+        <div style={{ flex: 1, fontWeight: 700, fontSize: "0.95rem" }}>
+          📚 Marques-pages ({bookmarks.length})
+        </div>
+        <DialogButton onClick={onClose}>Fermer ✕</DialogButton>
+      </div>
+      <div style={{ fontSize: "0.75rem", opacity: 0.78 }}>
+        Position actuelle : <strong>{currentSectionTitle.slice(0, 50)}</strong> · {Math.round(currentScrollFraction * 100)}%
+      </div>
+      <DialogButton disabled={busy} onClick={onAdd}>
+        ➕ Ajouter le point actuel comme marque-page
+      </DialogButton>
+      {bookmarks.length === 0 ? (
+        <div style={{ padding: "20px", textAlign: "center", opacity: 0.6, fontSize: "0.85rem" }}>
+          Aucun marque-page nommé pour ce guide.<br />
+          Clique « Ajouter » ci-dessus pour en créer un.
+        </div>
+      ) : (
+        bookmarks.map((bm) => {
+          const sec = guide.sections[bm.section_index] || null;
+          const secLabel = sec?.title || (bm.section_index >= 0 ? `Section ${bm.section_index + 1}` : "Début");
+          return (
+            <div key={bm.bookmark_id} style={itemStyle}>
+              <Focusable
+                onActivate={() => onGoTo(bm)}
+                style={{ flex: 1, minWidth: 0, cursor: "pointer", padding: "2px 4px" }}
+              >
+                <div style={{ fontWeight: 600, fontSize: "0.85rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  📍 {bm.name || "(sans nom)"}
+                </div>
+                <div style={{ fontSize: "0.72rem", opacity: 0.72, marginTop: "2px" }}>
+                  {secLabel.slice(0, 60)} · {Math.round((bm.scroll_fraction || 0) * 100)}%
+                  {bm.created_at ? ` · ${formatDate(bm.created_at)}` : ""}
+                </div>
+              </Focusable>
+              <DialogButton disabled={busy} onClick={() => onDelete(bm.bookmark_id)}>
+                ✕
+              </DialogButton>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
 
 /**
  * Stand-alone full-page reading surface, mounted via routerHook on the
@@ -755,9 +1379,37 @@ function FullScreenReader() {
   const lastScrollFractionRef = useRef<number>(0);
   const restoreFractionRef = useRef<number | null>(null);
   const initialScrollRef = useRef<boolean>(true);
+  // L4: state mirror of the scroll fraction so the intra-section progress bar can re-render.
+  // Separate from the ref because the ref is updated on every scroll tick and we want React
+  // to know about it.
+  const [displayScrollFraction, setDisplayScrollFraction] = useState<number>(0);
+  // v0.25: track which section indices we've already auto-marked as read this session
+  // (avoids spamming setSectionNote on every scroll tick once the threshold is crossed).
+  const autoMarkedRef = useRef<Set<number>>(new Set());
   // Mirror of latest section/font so the unmount cleanup persists the freshest values,
   // not the values captured at first effect run (closure trap on the [guide?.id]-only dep).
   const latestStateRef = useRef<{ sectionIndex: number; fontScale: number }>({ sectionIndex: -1, fontScale: 1.0 });
+  // v0.33: flag set by "Go to bookmark" so the section-change effect doesn't wipe
+  // the restore fraction we just set.
+  const intentionalRestoreRef = useRef<boolean>(false);
+  // v0.33: scroll-debounced save timer ref — saves the latest position 1.5s after
+  // the user stops scrolling, even if section doesn't change. Without this the
+  // only persistence point was the unmount cleanup, which may not always fire.
+  const scrollSaveTimerRef = useRef<number | null>(null);
+  // v0.34: incremented on each "Go to bookmark" click. Passed to GuideReader as a
+  // prop so the scroll-restore effect re-fires even when sectionIndex doesn't change
+  // (clicking "Aller au marque-page" while already in that section).
+  const [restoreGeneration, setRestoreGeneration] = useState<number>(0);
+  // v0.34: last bookmark-click timestamp for cheap double-fire protection
+  const lastBookmarkClickRef = useRef<number>(0);
+  // v0.35: collapsible named-bookmarks panel — when ON the reader pane is replaced
+  // by the list (saves space; OFF gives reader maximum width).
+  const [showBookmarksPanel, setShowBookmarksPanel] = useState<boolean>(false);
+  const [bookmarksBusy, setBookmarksBusy] = useState<boolean>(false);
+  // Sidebar TOC UX state
+  const [tocFilter, setTocFilter] = useState<string>("");
+  const [collapsedParents, setCollapsedParents] = useState<Set<number>>(new Set());
+  const [showHiddenSections, setShowHiddenSections] = useState<boolean>(false);
 
   useEffect(() => {
     const id = guideIdRef.current;
@@ -807,14 +1459,43 @@ function FullScreenReader() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [guide?.id]);
 
-  // Reset restore fraction when section changes after initial load
+  // Reset restore fraction AND last-scroll-fraction when section changes after initial load.
+  // v0.32 fix: also reset lastScrollFractionRef so old section's scroll doesn't leak.
+  // v0.33: preserve restoreFractionRef when "Go to bookmark" intentionally set it.
   useEffect(() => {
     if (initialScrollRef.current) {
       initialScrollRef.current = false;
       return;
     }
-    restoreFractionRef.current = 0;
+    if (intentionalRestoreRef.current) {
+      intentionalRestoreRef.current = false; // consume the flag, keep restoreFractionRef as-is
+    } else {
+      restoreFractionRef.current = 0;
+    }
+    lastScrollFractionRef.current = 0;
   }, [sectionIndex]);
+
+  // v0.25: auto-mark a section as "lu" (done) when the user scrolls past ~97%.
+  // Only fires once per section per mount. Preserves existing flagged/note when
+  // promoting a section from "no note" to "done".
+  useEffect(() => {
+    if (!guide || sectionIndex < 0) return;
+    if (displayScrollFraction < 0.97) return;
+    if (autoMarkedRef.current.has(sectionIndex)) return;
+    const existing = (guide.progress?.section_notes || []).find((n) => n.section_index === sectionIndex);
+    autoMarkedRef.current.add(sectionIndex); // mark immediately to avoid re-fire
+    if (existing?.done) return; // already done, nothing to persist
+    const flagged = existing?.flagged ?? false;
+    const note = existing?.note ?? "";
+    void setSectionNote(guide.id, sectionIndex, true, flagged, note)
+      .then((updated) => setGuide(updated))
+      .catch(() => { autoMarkedRef.current.delete(sectionIndex); /* allow retry */ });
+  }, [displayScrollFraction, sectionIndex, guide?.id]);
+
+  // Reset the in-session "already marked" set when guide changes
+  useEffect(() => {
+    autoMarkedRef.current = new Set();
+  }, [guide?.id]);
 
   const theme = preferences ? themeStyle(preferences.theme) : { background: "#111", textColor: "#eee", borderColor: "rgba(255,255,255,0.1)", headingColor: "#ffd966", preBg: "rgba(0,0,0,0.3)", preText: "#ddd" };
   const layoutStyle: React.CSSProperties = {
@@ -872,7 +1553,7 @@ function FullScreenReader() {
     return (
       <div style={layoutStyle}>
         <div style={headerStyle}>
-          <DialogButton onClick={() => Router.NavigateBack()}>← Retour</DialogButton>
+          <DialogButton onClick={() => safeNavigateBack()}>← Retour</DialogButton>
           <div style={{ flex: 1, fontWeight: 700 }}>Lecteur plein écran</div>
         </div>
         <div style={{ padding: "24px", fontSize: "0.95rem" }}>{loadError}</div>
@@ -884,7 +1565,7 @@ function FullScreenReader() {
     return (
       <div style={layoutStyle}>
         <div style={headerStyle}>
-          <DialogButton onClick={() => Router.NavigateBack()}>← Retour</DialogButton>
+          <DialogButton onClick={() => safeNavigateBack()}>← Retour</DialogButton>
           <div style={{ flex: 1, fontWeight: 700 }}>Chargement…</div>
         </div>
       </div>
@@ -898,7 +1579,7 @@ function FullScreenReader() {
   return (
     <div style={layoutStyle}>
       <div style={headerStyle}>
-        <DialogButton onClick={() => Router.NavigateBack()}>← Retour</DialogButton>
+        <DialogButton onClick={() => safeNavigateBack()}>← Retour</DialogButton>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: "0.95rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {guide.game.game_title || guide.title}
@@ -910,6 +1591,9 @@ function FullScreenReader() {
           </div>
         </div>
         <DialogButton onClick={() => setShowToc((v) => !v)}>{showToc ? "Masquer sommaire" : "📚 Sommaire"}</DialogButton>
+        <DialogButton onClick={() => setShowBookmarksPanel((v) => !v)}>
+          {showBookmarksPanel ? "Fermer 🔖" : `🔖 Marques (${guide.progress?.named_bookmarks?.length || 0})`}
+        </DialogButton>
         <DialogButton onClick={() => setFontScale((v) => Math.max(0.85, +(v - 0.1).toFixed(2)))}>A−</DialogButton>
         <DialogButton onClick={() => setFontScale((v) => Math.min(2.0, +(v + 0.1).toFixed(2)))}>A+</DialogButton>
         <DialogButton onClick={() => setShowSearch((v) => !v)}>{showSearch ? "Fermer 🔍" : "🔍"}</DialogButton>
@@ -917,53 +1601,102 @@ function FullScreenReader() {
 
       {showSearch ? (
         <div style={{ padding: "8px 16px", background: "rgba(0,0,0,0.25)", flexShrink: 0 }}>
-          <input
-            type="text"
+          <TextField
             value={searchPattern}
             onChange={(e: any) => setSearchPattern(e.target.value)}
             placeholder="Surligner dans la section…"
-            style={{
-              width: "100%",
-              padding: "8px 10px",
-              borderRadius: "6px",
-              border: `1px solid ${theme.borderColor}`,
-              background: "rgba(0,0,0,0.4)",
-              color: theme.textColor,
-              fontSize: "0.9rem",
-            }}
+            bShowClearAction
           />
         </div>
       ) : null}
 
       <div style={mainAreaStyle}>
         {showToc ? (
-          <Focusable style={sidebarStyle}>
-            {guide.sections.map((sec, idx) => {
-              const isCurrent = idx === sectionIndex;
-              const indent = Math.max(0, (sec.heading_level || 0) - 1) * 12;
-              return (
-                <Focusable
-                  key={idx}
-                  onActivate={() => setSectionIndex(idx)}
-                  style={{
-                    padding: "8px 10px",
-                    paddingLeft: `${10 + indent}px`,
-                    borderLeft: isCurrent ? "3px solid #ffd966" : "3px solid transparent",
-                    background: isCurrent ? "rgba(255, 217, 102, 0.18)" : "transparent",
-                    cursor: "pointer",
-                    fontSize: "0.85rem",
-                    fontWeight: isCurrent ? 700 : 400,
-                    color: theme.textColor,
-                  }}
-                >
-                  {preferences.numbered_sections ? `[${idx + 1}] ` : ""}{sec.title || "(sans titre)"}
-                </Focusable>
-              );
-            })}
-          </Focusable>
+          <TocSidebar
+            guide={guide}
+            preferences={preferences}
+            theme={theme}
+            sidebarStyle={sidebarStyle}
+            sectionIndex={sectionIndex}
+            setSectionIndex={setSectionIndex}
+            tocFilter={tocFilter}
+            setTocFilter={setTocFilter}
+            collapsedParents={collapsedParents}
+            setCollapsedParents={setCollapsedParents}
+            showHiddenSections={showHiddenSections}
+            setShowHiddenSections={setShowHiddenSections}
+          />
         ) : null}
 
         <div style={readerPaneStyle}>
+          {showBookmarksPanel ? (
+            <NamedBookmarksPanel
+              guide={guide}
+              currentSectionIndex={sectionIndex}
+              currentScrollFraction={lastScrollFractionRef.current}
+              busy={bookmarksBusy}
+              theme={theme}
+              onClose={() => setShowBookmarksPanel(false)}
+              onAdd={async () => {
+                if (!guide) return;
+                setBookmarksBusy(true);
+                try {
+                  const sec = guide.sections[sectionIndex];
+                  const secTitle = (sec?.title || "Début").slice(0, 40);
+                  const now = new Date();
+                  const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+                  const name = `${secTitle} — ${hhmm}`;
+                  const updated = await addNamedBookmark(guide.id, name, sectionIndex, lastScrollFractionRef.current);
+                  setGuide(updated);
+                  try { toaster.toast({ title: "Marque-page ajouté", body: name, duration: 2500 }); } catch {}
+                } catch (e: any) {
+                  try { toaster.toast({ title: "Ajout KO", body: String(e?.message || e), critical: true, duration: 4000 }); } catch {}
+                } finally {
+                  setBookmarksBusy(false);
+                }
+              }}
+              onDelete={async (bookmarkId: string) => {
+                if (!guide) return;
+                setBookmarksBusy(true);
+                try {
+                  const updated = await deleteNamedBookmark(guide.id, bookmarkId);
+                  setGuide(updated);
+                } catch (e: any) {
+                  try { toaster.toast({ title: "Suppression KO", body: String(e?.message || e), critical: true, duration: 3500 }); } catch {}
+                } finally {
+                  setBookmarksBusy(false);
+                }
+              }}
+              onGoTo={(bm) => {
+                restoreFractionRef.current = bm.scroll_fraction || 0;
+                intentionalRestoreRef.current = true;
+                setRestoreGeneration((g) => g + 1);
+                setSectionIndex(bm.section_index >= 0 ? bm.section_index : 0);
+                setShowBookmarksPanel(false); // auto-close so user sees content
+                try { toaster.toast({ title: bm.name, body: `Section ${(bm.section_index >= 0 ? bm.section_index : 0) + 1} · ${Math.round((bm.scroll_fraction || 0) * 100)}%`, duration: 1800 }); } catch {}
+              }}
+            />
+          ) : (
+            <>
+              {/* L4: thin progress bar at top of reader showing intra-section scroll % */}
+              <div style={{
+                height: "3px",
+                background: "rgba(255,255,255,0.08)",
+                borderRadius: "2px",
+                marginBottom: "6px",
+                overflow: "hidden",
+                flexShrink: 0,
+              }}>
+                <div style={{
+                  width: `${Math.round(displayScrollFraction * 100)}%`,
+                  height: "100%",
+                  background: "#ffd966",
+                  transition: "width 80ms linear",
+                }} />
+              </div>
+            </>
+          )}
+          {!showBookmarksPanel ? (
           <GuideReader
             guide={guide}
             sectionIndex={sectionIndex}
@@ -971,12 +1704,25 @@ function FullScreenReader() {
             preferences={preferences}
             searchPattern={searchPattern}
             scrollRestoreFraction={restoreFractionRef.current}
+            restoreGeneration={restoreGeneration}
             onScrollChange={(f) => {
               lastScrollFractionRef.current = f;
+              setDisplayScrollFraction(f);
               if (restoreFractionRef.current !== null) restoreFractionRef.current = null;
+              // v0.33: debounce-save 1.5s after scroll stops so position is persisted
+              // even if user exits without triggering the unmount cleanup.
+              if (scrollSaveTimerRef.current !== null) window.clearTimeout(scrollSaveTimerRef.current);
+              scrollSaveTimerRef.current = window.setTimeout(() => {
+                if (!guide) return;
+                const si = latestStateRef.current.sectionIndex;
+                const fs = latestStateRef.current.fontScale;
+                saveProgress(guide.id, si, fs, lastScrollFractionRef.current).catch(() => {});
+              }, 1500) as unknown as number;
             }}
-            maxHeight={showSearch ? "calc(100vh - 280px)" : "calc(100vh - 230px)"}
+            maxHeight={showSearch ? "calc(100vh - 290px)" : "calc(100vh - 240px)"}
+            onJumpToSection={(idx) => setSectionIndex(idx)}
           />
+          ) : null}
         </div>
       </div>
 
@@ -992,14 +1738,71 @@ function FullScreenReader() {
         </div>
         <DialogButton
           onClick={() => {
+            // v0.34: double-fire protection — ignore clicks within 800ms of last one
+            const now = Date.now();
+            if (now - lastBookmarkClickRef.current < 800) {
+              try { console.log("[Offline Soluce] bookmark click ignored (debounce)"); } catch {}
+              return;
+            }
+            lastBookmarkClickRef.current = now;
             if (!guide) return;
-            void setBookmark(guide.id, sectionIndex, lastScrollFractionRef.current)
-              .then((g) => setGuide(g))
-              .catch(() => {});
+            const sec = sectionIndex;
+            const frac = lastScrollFractionRef.current;
+            // Log with a stack trace fragment so we can identify accidental triggers
+            try {
+              const stack = new Error().stack?.split("\n").slice(1, 4).join(" → ") || "(no stack)";
+              console.log("[Offline Soluce] set bookmark click", { sec, frac, stack });
+            } catch {}
+            void setBookmark(guide.id, sec, frac)
+              .then((g) => {
+                setGuide(g);
+                try { toaster.toast({ title: "Marque-page posé", body: `Section ${sec + 1} · position ${Math.round(frac * 100)}%`, duration: 2500 }); } catch {}
+              })
+              .catch((err: any) => {
+                try { toaster.toast({ title: "Marque-page KO", body: String(err?.message || err), critical: true, duration: 4000 }); } catch {}
+              });
           }}
         >
-          🔖 Marque-page
+          🔖 Poser marque-page
         </DialogButton>
+        {guide.progress?.bookmark_set_at ? (
+          <DialogButton
+            onClick={() => {
+              const tgtSection = guide.progress?.bookmark_section_index ?? -1;
+              const tgtScroll = guide.progress?.bookmark_scroll_fraction ?? 0;
+              if (tgtSection < 0) return;
+              try { console.log("[Offline Soluce] go to bookmark", { tgtSection, tgtScroll, currentSection: sectionIndex }); } catch {}
+              // Set restore fraction + flag so the section-change effect doesn't wipe it
+              restoreFractionRef.current = tgtScroll;
+              intentionalRestoreRef.current = true;
+              // Bump generation FIRST so even if sectionIndex doesn't change (same section
+              // case), the GuideReader's effect re-fires and restores the scroll.
+              setRestoreGeneration((g) => g + 1);
+              setSectionIndex(tgtSection);
+              try { toaster.toast({ title: "Marque-page", body: `Section ${tgtSection + 1} · ${Math.round(tgtScroll * 100)}%`, duration: 2000 }); } catch {}
+            }}
+          >
+            📍 Aller au marque-page
+          </DialogButton>
+        ) : null}
+        {currentSection ? (() => {
+          const currentTitle = (currentSection.title || "").trim();
+          const currentIsHidden = currentTitle.length > 0
+            && (guide.progress?.hidden_section_titles || []).includes(currentTitle);
+          return (
+            <DialogButton
+              onClick={() => {
+                if (!currentTitle) return;
+                void toggleSectionHidden(guide.id, sectionIndex)
+                  .then((updated) => setGuide(updated))
+                  .catch(() => {});
+              }}
+              disabled={!currentTitle}
+            >
+              {currentIsHidden ? "👁 Afficher" : "🙈 Masquer"}
+            </DialogButton>
+          );
+        })() : null}
         <div style={{ flex: 1 }} />
         <DialogButton
           disabled={sectionCount === 0 || sectionIndex >= sectionCount - 1}
@@ -1015,41 +1818,51 @@ function FullScreenReader() {
 
 // ========== Global hotkey listener ==========
 
-/**
- * Invisible global component that listens for F8 keypresses anywhere in Steam UI.
- * On press: loads the most-recently-opened guide and navigates to the full-screen reader.
- *
- * The user maps a back paddle (L4/R4/L5/R5) to F8 in Steam Input — pressing the paddle
- * fires F8 → this handler triggers → reader opens at last position. No QAM detour.
- */
-function GlobalHotkeyListener() {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key !== "F8") return;
-      e.preventDefault();
-      void (async () => {
-        try {
-          const guides = await listGuides();
-          if (!guides.length) return;
-          // Pick most-recently-opened (highest last_opened_at, ISO strings sort lex correctly)
-          const sorted = [...guides].sort((a, b) =>
-            (b.progress?.last_opened_at || "").localeCompare(a.progress?.last_opened_at || "")
-          );
-          const target = sorted[0];
-          if (!target?.id) return;
-          requestFullScreenGuide(target.id);
-          Router.CloseSideMenus();
-          Router.Navigate(FULL_SCREEN_ROUTE);
-        } catch {
-          // Silent — nothing useful to show globally; user can still open via QAM.
-        }
-      })();
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, []);
-  return null;
+// Controller button indices the user can pick for the "open last guide" trigger.
+// Sourced from ControllerInputGamepadButton enum in @decky/ui Input.d.ts.
+// We focus on the back paddles + bumpers + special buttons — the analog/dpad/face
+// buttons are kept for Steam UI navigation so binding our action to them would
+// hijack the UI.
+const RESUME_BUTTON_CHOICES: { value: number; label: string }[] = [
+  { value: -1, label: "L4/L5 + R4/R5 (palettes, défaut)" },
+  { value: 32, label: "Palette gauche (LBACK = L4/L5)" },
+  { value: 33, label: "Palette droite (RBACK = R4/R5)" },
+  { value: 30, label: "L1 (LSHOULDER)" },
+  { value: 31, label: "R1 (RSHOULDER)" },
+  { value: 28, label: "L2 (LTRIGGER click)" },
+  { value: 29, label: "R2 (RTRIGGER click)" },
+  { value: 25, label: "L3 (LEFTSTICK click)" },
+];
+
+// Default buttons (LBACK + RBACK both trigger when prefs.resume_button === -1)
+const RESUME_BUTTON_DEFAULTS = new Set([32, 33]);
+
+// Module-level cache of the user's selected resume button. -1 means use defaults.
+// Updated by Content's prefs UI AND read by the controller listener. Plain mutable
+// because the listener mounts outside the QAM React tree.
+let _currentResumeButton: number = -1;
+function setCurrentResumeButton(btn: number): void {
+  _currentResumeButton = Number.isFinite(btn) ? btn : -1;
 }
+// v0.40: master enable/disable for the resume action. Same mirror pattern.
+let _currentResumeEnabled: boolean = true;
+function setCurrentResumeEnabled(enabled: boolean): void {
+  _currentResumeEnabled = !!enabled;
+}
+// v0.40: transient guard set while the QAM is in "capture a palette" mode.
+// Suppresses the main resume action so the captured press doesn't ALSO open
+// a guide. Not persisted — purely a runtime mute.
+let _captureInProgress: boolean = false;
+function setCaptureInProgress(active: boolean): void {
+  _captureInProgress = !!active;
+}
+
+// NOTE: previous versions had a GlobalHotkeyListener React component registered
+// via routerHook.addGlobalComponent. That approach failed because Decky only mounts
+// global components when the plugin's tab is opened in QAM. v0.35 moved the
+// SteamClient.Input registration into definePlugin's factory directly (see bottom
+// of file), so the listener registers at plugin frontend load (first time the user
+// opens our plugin tab after a Decky restart) and stays alive across QAM open/close.
 
 
 // ========== Main Content component ==========
@@ -1078,6 +1891,11 @@ function Content() {
   const [searchSiteIndex, setSearchSiteIndex] = useState<number>(0);
   const [languageIndex, setLanguageIndex] = useState<number>(0);
   const [searchResultIndex, setSearchResultIndex] = useState<number>(0);
+  // v0.27: free-text search input + multi-site filter
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  // Sites the user wants in the result list. Empty = no filter (= "all"). Filters CLIENT-SIDE
+  // after the backend returns up to ~12 results across all sites — no extra network calls.
+  const [searchSiteFilter, setSearchSiteFilter] = useState<Set<string>>(new Set());
   const [guideIndex, setGuideIndex] = useState<number>(0);
   const [relatedGuideIndex, setRelatedGuideIndex] = useState<number>(0);
   const [selectedSectionIndex, setSelectedSectionIndex] = useState<number>(-1);
@@ -1093,6 +1911,7 @@ function Content() {
   const [preferences, setPreferences] = useState<ReaderPreferences>({
     theme: "dark", font_family: "sans", line_height: "normal",
     max_width: "normal", highlight_keywords: true, numbered_sections: true,
+    resume_hotkey: "", resume_button: -1, resume_enabled: true,
   });
 
   // Reading features
@@ -1105,6 +1924,11 @@ function Content() {
   const [showBookmarks, setShowBookmarks] = useState<boolean>(false);
   const [bookmarkIndex, setBookmarkIndex] = useState<number>(0);
   const [exportFiles, setExportFiles] = useState<ExportEntry[]>([]);
+  const [backupConfig, setBackupConfigState] = useState<BackupConfig | null>(null);
+  // v0.30/v0.31: cycle through predefined hotkey choices + test mode (toast every controller button received)
+  const [hotkeyTestMode, setHotkeyTestMode] = useState<boolean>(false);
+  // v0.32: remember the last button pressed during test mode so user can bind it without knowing its index
+  const [lastTestButton, setLastTestButton] = useState<number | null>(null);
   const [exportIndex, setExportIndex] = useState<number>(0);
   const [showExports, setShowExports] = useState<boolean>(false);
 
@@ -1215,6 +2039,8 @@ function Content() {
   const selectedLanguage = LANGUAGE_CHOICES[languageIndex] || LANGUAGE_CHOICES[0];
   const selectedSearchResult = searchResults[searchResultIndex] || null;
   const selectedGuideSummary = guides[guideIndex] || null;
+  // A5: similar-guides suggestions for the currently selected guide
+  const similarGuides = useMemo(() => findSimilarGuides(selectedGuideSummary, guides), [selectedGuideSummary, guides]);
 
   // Most-recently-opened guide across the whole library (for the "Resume" banner)
   const lastOpenedGuide = useMemo(() => {
@@ -1257,6 +2083,9 @@ function Content() {
     try {
       const prefs = await getReaderPreferences();
       setPreferences(prefs);
+      // Sync the global controller listener with the loaded user preference
+      setCurrentResumeButton(typeof prefs.resume_button === "number" ? prefs.resume_button : -1);
+      setCurrentResumeEnabled(prefs.resume_enabled !== false);
     } catch {
       // keep defaults
     }
@@ -1269,11 +2098,63 @@ function Content() {
       } catch (e) {
         setError(e instanceof Error ? e.message : "Chargement initial impossible");
       }
+      // A2: load backup config (non-blocking, separate from loadAll because not all users use it)
+      try {
+        const cfg = await getBackupConfig();
+        setBackupConfigState(cfg);
+      } catch { /* silent — backup is optional */ }
     })();
     return () => {
       if (saveTimeoutRef.current !== null) window.clearTimeout(saveTimeoutRef.current);
     };
   }, []);
+
+  // v0.31 / v0.40: capture mode — listen for the next controller press and remember
+  // its raw button index so the user can bind a SPECIFIC palette (L4 vs L5, etc.),
+  // not just the LBACK/RBACK group exposed by the preset list. Sets the module-level
+  // `_captureInProgress` flag while active so the main resume listener stays muted
+  // (otherwise the captured press would ALSO trigger the resume action).
+  useEffect(() => {
+    if (!hotkeyTestMode) {
+      setCaptureInProgress(false);
+      return;
+    }
+    setCaptureInProgress(true);
+    const sc: any = (window as any).SteamClient;
+    const inputApi: any = sc?.Input;
+    if (!inputApi?.RegisterForControllerInputMessages) {
+      try { toaster.toast({ title: "Capture KO", body: "SteamClient.Input indisponible", duration: 3500, critical: true }); } catch {}
+      setCaptureInProgress(false);
+      return;
+    }
+    let lastToastAt = 0;
+    let active = true; // v0.33: guard against unregister failing to free the listener
+    const unregisterable = inputApi.RegisterForControllerInputMessages(
+      (idx: number, button: number, pressed: boolean) => {
+        if (!active) return;
+        if (!pressed) return;
+        // Remember the last button so user can confirm without typing.
+        setLastTestButton(button);
+        // Rate-limit toasts so a held paddle doesn't spam
+        const now = Date.now();
+        if (now - lastToastAt < 350) return;
+        lastToastAt = now;
+        try {
+          toaster.toast({
+            title: "Bouton capté",
+            body: `#${button} — confirme dans le QAM`,
+            duration: 2500,
+          });
+        } catch {}
+        try { console.log("[Offline Soluce] capture button:", { idx, button }); } catch {}
+      }
+    );
+    return () => {
+      active = false; // disable callback even if unregister doesn't work
+      try { unregisterable?.unregister?.(); } catch {}
+      setCaptureInProgress(false);
+    };
+  }, [hotkeyTestMode]);
 
   useEffect(() => { if (sourceIndex >= sources.length) setSourceIndex(0); }, [sourceIndex, sources.length]);
   useEffect(() => { if (libraryIndex >= filteredItems.length) setLibraryIndex(0); }, [libraryIndex, filteredItems.length]);
@@ -1445,17 +2326,23 @@ function Content() {
   };
 
   const handleSearch = async () => {
-    if (!selectedLibraryItem) {
-      setError("Aucun jeu sélectionné dans la bibliothèque locale.");
+    // v0.27: free-text query takes priority over library item
+    const fallbackQuery = selectedLibraryItem
+      ? (selectedLibraryItem.custom_title || selectedLibraryItem.title)
+      : "";
+    const effectiveQuery = (searchQuery.trim() || fallbackQuery).trim();
+    if (!effectiveQuery) {
+      setError("Tape un nom de jeu ou choisis un jeu dans la bibliothèque.");
       return;
     }
+    const effectivePlatform = selectedLibraryItem?.platform || "Autre";
     setIsBusy(true); setError("");
     try {
-      const searchTitle = selectedLibraryItem.custom_title || selectedLibraryItem.title;
-      const results = await searchGuides(searchTitle, selectedLibraryItem.platform, selectedSearchSite.value, selectedLanguage.value);
+      // Always pull "all" sites — multi-site filter is applied client-side from searchSiteFilter
+      const results = await searchGuides(effectiveQuery, effectivePlatform, "all", selectedLanguage.value);
       setSearchResults(results);
       setSearchResultIndex(0);
-      if (!results.length) setError("Aucun résultat. Change de site ou de langue, puis relance.");
+      if (!results.length) setError("Aucun résultat. Change de langue ou affine le titre, puis relance.");
     } catch (e) {
       setSearchResults([]);
       setError(e instanceof Error ? e.message : "Recherche impossible");
@@ -1465,18 +2352,40 @@ function Content() {
   };
 
   const handleImportSelectedResult = async () => {
-    if (!selectedLibraryItem || !selectedSearchResult) {
+    if (!selectedSearchResult) {
       setError("Aucun résultat sélectionné à importer.");
       return;
     }
+    return handleImportResultDirect(selectedSearchResult);
+  };
+
+  /** v0.27: import a specific search result. Uses the library item info if one is
+   * selected; otherwise falls back to the free-text query as game_title. */
+  const handleImportResultDirect = async (result: GuideSearchResult) => {
     setIsBusy(true); setError("");
     try {
-      const importTitle = selectedLibraryItem.custom_title || selectedLibraryItem.title;
+      let importTitle: string;
+      let importPlatform: string;
+      let importRomHint: string;
+      let importAliases: string;
+      let importEmulator: string;
+      if (selectedLibraryItem) {
+        importTitle = selectedLibraryItem.custom_title || selectedLibraryItem.title;
+        importPlatform = selectedLibraryItem.platform;
+        importRomHint = selectedLibraryItem.primary_path || importTitle;
+        importAliases = selectedLibraryItem.aliases.join("; ");
+        importEmulator = selectedLibraryItem.emulator || "";
+      } else {
+        // Free-text search import: use the query (or fallback to result title) as game_title.
+        importTitle = (searchQuery.trim() || result.title).slice(0, 120);
+        importPlatform = "Autre";
+        importRomHint = importTitle;
+        importAliases = "";
+        importEmulator = "";
+      }
       const detail = await saveGuide(
-        selectedSearchResult.url, importTitle, selectedLibraryItem.platform,
-        selectedLibraryItem.primary_path || importTitle,
-        selectedLibraryItem.aliases.join("; "),
-        selectedLibraryItem.emulator || "",
+        result.url, importTitle, importPlatform,
+        importRomHint, importAliases, importEmulator,
       );
       await loadAll();
       setGuideIndex(0);
@@ -1492,6 +2401,16 @@ function Content() {
     } finally {
       setIsBusy(false);
     }
+  };
+
+  /** v0.27: toggle a site in the multi-site filter */
+  const toggleSearchSite = (siteLabel: string) => {
+    setSearchSiteFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(siteLabel)) next.delete(siteLabel);
+      else next.add(siteLabel);
+      return next;
+    });
   };
 
   const handleDeleteSelectedGuide = async () => {
@@ -1772,10 +2691,15 @@ function Content() {
   // Preferences
   const savePrefs = async (next: ReaderPreferences) => {
     setPreferences(next);
+    // Sync the global controller listener immediately (no wait for backend round-trip)
+    setCurrentResumeButton(typeof next.resume_button === "number" ? next.resume_button : -1);
+    setCurrentResumeEnabled(next.resume_enabled !== false);
     try {
       await updateReaderPreferences(
         next.theme, next.font_family, next.line_height, next.max_width,
-        next.highlight_keywords, next.numbered_sections,
+        next.highlight_keywords, next.numbered_sections, next.resume_hotkey || "",
+        typeof next.resume_button === "number" ? next.resume_button : -1,
+        next.resume_enabled !== false,
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Sauvegarde préférences impossible");
@@ -1872,6 +2796,42 @@ function Content() {
     const summary = `Terminé : ${ok} OK / ${failed} échec(s) sur ${total} guide(s).`;
     setDebugOutput(failed > 0 ? `${summary}\n\nÉchecs :\n${errors.join("\n")}` : summary);
     setIsBusy(false);
+  };
+
+  // A2 auto-backup handlers
+  const handleToggleBackupEnabled = async () => {
+    if (!backupConfig) return;
+    try {
+      const next = await setBackupConfig(!backupConfig.enabled, backupConfig.interval_days);
+      setBackupConfigState(next);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Toggle backup impossible");
+    }
+  };
+  const handleCycleBackupInterval = async () => {
+    if (!backupConfig) return;
+    const i = BACKUP_INTERVAL_CHOICES.indexOf(backupConfig.interval_days);
+    const next_i = i < 0 ? 0 : (i + 1) % BACKUP_INTERVAL_CHOICES.length;
+    try {
+      const next = await setBackupConfig(backupConfig.enabled, BACKUP_INTERVAL_CHOICES[next_i]);
+      setBackupConfigState(next);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Changement intervalle impossible");
+    }
+  };
+  const handleRunBackupNow = async () => {
+    setIsBusy(true); setError("");
+    setDebugOutput("Backup en cours…");
+    try {
+      const result = await runBackupNow();
+      setBackupConfigState(result.config);
+      setDebugOutput(`Backup OK : ${result.path}\n${result.guide_count} guides, ${bytesToKo(result.size_bytes)}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Backup manuel impossible");
+      setDebugOutput("");
+    } finally {
+      setIsBusy(false);
+    }
   };
 
   const handleReconstructAllSections = async () => {
@@ -2051,6 +3011,158 @@ function Content() {
             {selectedSource?.enabled ? "Désactiver cette source" : "Activer cette source"}
           </ButtonItem>
         </PanelSectionRow>
+      </PanelSection>
+
+      <PanelSection title="Bouton manette pour reprise">
+        {preferences ? (() => {
+          const currentValue = typeof preferences.resume_button === "number" ? preferences.resume_button : -1;
+          const presetMatch = RESUME_BUTTON_CHOICES.find((c) => c.value === currentValue);
+          const currentLabel = presetMatch?.label || `Bouton custom #${currentValue}`;
+          const enabled = preferences.resume_enabled !== false;
+          const cycle = (dir: 1 | -1) => {
+            const n = RESUME_BUTTON_CHOICES.length;
+            // Start cycling from the current preset if any; else from index 0.
+            const currentIdx = presetMatch
+              ? RESUME_BUTTON_CHOICES.findIndex((c) => c.value === currentValue)
+              : 0;
+            const nextIdx = (currentIdx + dir + n) % n;
+            void savePrefs({ ...preferences, resume_button: RESUME_BUTTON_CHOICES[nextIdx].value });
+          };
+          return (
+            <>
+              <PanelSectionRow>
+                <div style={boxStyle}>
+                  <div>
+                    <strong>État :</strong>{" "}
+                    <span style={{ color: enabled ? "#7ee787" : "#ff8080" }}>
+                      {enabled ? "✅ Activé" : "⛔ Désactivé"}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: "4px" }}>
+                    <strong>Bouton :</strong> {currentLabel}
+                  </div>
+                  <div style={{ fontSize: "0.72rem", opacity: 0.75, marginTop: "6px" }}>
+                    Lecture directe de la manette (SteamClient.Input). Hors-jeu ou en jeu, la pression ouvre le dernier guide / le guide du jeu en cours.
+                  </div>
+                </div>
+              </PanelSectionRow>
+              <PanelSectionRow>
+                <ToggleField
+                  label={enabled ? "Reprise par palette activée" : "Reprise par palette désactivée"}
+                  description="Désactive temporairement quand tu veux garder ta palette libre pour le jeu."
+                  checked={enabled}
+                  onChange={(val: boolean) => {
+                    void savePrefs({ ...preferences, resume_enabled: !!val });
+                  }}
+                />
+              </PanelSectionRow>
+              <PanelSectionRow>
+                <ButtonItem
+                  layout="below"
+                  disabled={!enabled || hotkeyTestMode}
+                  onClick={() => { setLastTestButton(null); setHotkeyTestMode(true); }}
+                >
+                  🎯 Capturer une palette précise
+                </ButtonItem>
+              </PanelSectionRow>
+              {hotkeyTestMode ? (
+                <>
+                  <PanelSectionRow>
+                    <div style={{ fontSize: "0.78rem", padding: "4px 6px", color: "#ffd966" }}>
+                      <strong>Presse maintenant la palette voulue</strong> (L4, L5, R4, R5, ou tout autre bouton non utilisé par les jeux). Le bouton sera mémorisé automatiquement.
+                    </div>
+                  </PanelSectionRow>
+                  {lastTestButton !== null ? (
+                    <PanelSectionRow>
+                      <ButtonItem
+                        layout="below"
+                        onClick={() => {
+                          if (!preferences) return;
+                          void savePrefs({ ...preferences, resume_button: lastTestButton });
+                          setHotkeyTestMode(false);
+                          try { toaster.toast({ title: "Offline Soluce", body: `Bouton #${lastTestButton} enregistré`, duration: 2200 }); } catch {}
+                        }}
+                      >
+                        ✅ Confirmer : utiliser le bouton #{lastTestButton}
+                      </ButtonItem>
+                    </PanelSectionRow>
+                  ) : (
+                    <PanelSectionRow>
+                      <div style={{ fontSize: "0.7rem", opacity: 0.7, padding: "2px 6px" }}>
+                        En attente d'une pression…
+                      </div>
+                    </PanelSectionRow>
+                  )}
+                  <PanelSectionRow>
+                    <ButtonItem layout="below" onClick={() => { setHotkeyTestMode(false); setLastTestButton(null); }}>
+                      ✋ Annuler la capture
+                    </ButtonItem>
+                  </PanelSectionRow>
+                </>
+              ) : (
+                <>
+                  <PanelSectionRow>
+                    <ButtonItem layout="below" disabled={!enabled} onClick={() => cycle(1)}>
+                      → Preset suivant
+                    </ButtonItem>
+                  </PanelSectionRow>
+                  <PanelSectionRow>
+                    <ButtonItem layout="below" disabled={!enabled} onClick={() => cycle(-1)}>
+                      ← Preset précédent
+                    </ButtonItem>
+                  </PanelSectionRow>
+                </>
+              )}
+            </>
+          );
+        })() : (
+          <PanelSectionRow>
+            <div style={{ fontSize: "0.75rem", opacity: 0.7 }}>Chargement préférences…</div>
+          </PanelSectionRow>
+        )}
+      </PanelSection>
+
+      <PanelSection title="Auto-backup">
+        {backupConfig ? (
+          <>
+            <PanelSectionRow>
+              <div style={boxStyle}>
+                <div><strong>État :</strong> {backupConfig.enabled ? "✅ activé" : "❌ désactivé"}</div>
+                <div><strong>Intervalle :</strong> tous les {backupConfig.interval_days} jour(s)</div>
+                <div><strong>Dernier :</strong> {backupConfig.last_backup_at ? formatDate(backupConfig.last_backup_at) : "Jamais"}</div>
+                {backupConfig.last_backup_size_bytes > 0 ? (
+                  <div style={{ fontSize: "0.72rem", opacity: 0.78 }}>
+                    {bytesToKo(backupConfig.last_backup_size_bytes)} — {backupConfig.last_backup_path}
+                  </div>
+                ) : null}
+              </div>
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <ButtonItem layout="below" disabled={isBusy} onClick={() => void handleToggleBackupEnabled()}>
+                {backupConfig.enabled ? "Désactiver" : "Activer"} l'auto-backup
+              </ButtonItem>
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <ButtonItem layout="below" disabled={isBusy} onClick={() => void handleCycleBackupInterval()}>
+                Intervalle: {backupConfig.interval_days}j → suivant ({BACKUP_INTERVAL_CHOICES.join("/")})
+              </ButtonItem>
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <ButtonItem layout="below" disabled={isBusy || !guides.length} onClick={() => void handleRunBackupNow()}>
+                💾 Sauver maintenant
+              </ButtonItem>
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <div style={{ fontSize: "0.7rem", opacity: 0.65, padding: "4px 6px" }}>
+                Vérification 30s après chaque démarrage de Decky. Export vers ~/Documents/OfflineSoluce/exports/
+              </div>
+            </PanelSectionRow>
+          </>
+        ) : (
+          <PanelSectionRow>
+            <div style={{ fontSize: "0.75rem", opacity: 0.7 }}>Chargement config…</div>
+          </PanelSectionRow>
+        )}
       </PanelSection>
 
       <PanelSection title="Maintenance">
@@ -2365,81 +3477,136 @@ function Content() {
     );
   };
 
-  const renderSearchView = () => (
-    <>
-      <PanelSection title="Base de recherche">
-        <PanelSectionRow>
-          <div style={boxStyle}>
-            {selectedLibraryItem ? (
-              <>
-                <div style={{ fontWeight: 700, marginBottom: "6px" }}>{selectedLibraryItem.custom_title || selectedLibraryItem.title}</div>
-                <div>
-                  <span style={pillStyle}>{selectedLibraryItem.platform}</span>
-                  <span style={pillStyle}>{selectedSearchSite.label}</span>
-                  <span style={pillStyle}>Langue : {selectedLanguage.label}</span>
-                  {selectedLibraryItem.disc_code ? <span style={pillStyle}>{selectedLibraryItem.disc_code}</span> : null}
-                </div>
-                {selectedLibraryItem.custom_title ? fieldLine("Titre original", selectedLibraryItem.title) : null}
-              </>
-            ) : (
-              <div style={{ fontSize: "0.82rem", opacity: 0.86 }}>Choisis d'abord un jeu dans la vue bibliothèque.</div>
-            )}
-          </div>
-        </PanelSectionRow>
-        <PanelSectionRow>
-          <ButtonItem layout="below" disabled={isBusy} onClick={() => setSearchSiteIndex((v) => cycleIndex(v, SEARCH_SITE_CHOICES.length, 1))}>
-            Site : {selectedSearchSite.label} (suivant)
-          </ButtonItem>
-        </PanelSectionRow>
-        <PanelSectionRow>
-          <ButtonItem layout="below" disabled={isBusy} onClick={() => setLanguageIndex((v) => cycleIndex(v, LANGUAGE_CHOICES.length, 1))}>
-            Langue : {selectedLanguage.label} (suivant)
-          </ButtonItem>
-        </PanelSectionRow>
-        <PanelSectionRow>
-          <ButtonItem layout="below" disabled={isBusy || !selectedLibraryItem} onClick={() => void handleSearch()}>
-            {isBusy ? "Recherche en cours..." : "Lancer la recherche"}
-          </ButtonItem>
-        </PanelSectionRow>
-      </PanelSection>
-
-      {selectedSearchResult ? (
-        <PanelSection title={`Résultat ${searchResultIndex + 1}/${searchResults.length}`}>
+  const renderSearchView = () => {
+    // Compute distinct sites present in current results (for the multi-site filter chips)
+    const sitesInResults = Array.from(new Set(searchResults.map((r) => r.site).filter(Boolean)));
+    // Apply client-side multi-site filter (empty = no filter)
+    const filteredResults = searchSiteFilter.size === 0
+      ? searchResults
+      : searchResults.filter((r) => searchSiteFilter.has(r.site));
+    const queryInputStyle: React.CSSProperties = {
+      width: "100%",
+      padding: "8px 10px",
+      borderRadius: "6px",
+      border: "1px solid rgba(255,255,255,0.18)",
+      background: "rgba(0,0,0,0.4)",
+      color: "inherit",
+      fontSize: "0.92rem",
+      boxSizing: "border-box",
+    };
+    return (
+      <>
+        <PanelSection title="Recherche">
           <PanelSectionRow>
-            <div style={boxStyle}>
-              <div style={{ fontWeight: 700, marginBottom: "6px" }}>{selectedSearchResult.title}</div>
-              <div>
-                <span style={pillStyle}>{selectedSearchResult.site}</span>
-                <span style={pillStyle}>Score {selectedSearchResult.score}</span>
-              </div>
-              {fieldLine("URL", selectedSearchResult.url)}
-              {fieldLine("Extrait", selectedSearchResult.snippet)}
-            </div>
+            {/* v0.36 critical fix: TextField (Decky native) au lieu d'input HTML.
+               Au focus, le clavier virtuel Steam s'ouvre proprement; l'input HTML
+               brut fermait le QAM sur le Deck → impossible de saisir. */}
+            <TextField
+              value={searchQuery}
+              onChange={(e: any) => setSearchQuery(e.target.value)}
+              placeholder={selectedLibraryItem
+                ? `Cherche autre que « ${selectedLibraryItem.title.slice(0, 35)} »…`
+                : "Tape le nom du jeu (ex: Suikoden V)…"}
+              label="Recherche"
+              bShowClearAction
+            />
           </PanelSectionRow>
+          {selectedLibraryItem ? (
+            <PanelSectionRow>
+              <ButtonItem layout="below" disabled={isBusy} onClick={() => setSearchQuery(selectedLibraryItem.custom_title || selectedLibraryItem.title)}>
+                ↘ Remplir avec « {(selectedLibraryItem.custom_title || selectedLibraryItem.title).slice(0, 40)} »
+              </ButtonItem>
+            </PanelSectionRow>
+          ) : null}
           <PanelSectionRow>
-            <ButtonItem layout="below" disabled={isBusy || searchResults.length <= 1} onClick={() => setSearchResultIndex((v) => cycleIndex(v, searchResults.length, -1))}>
-              Résultat précédent
+            <ButtonItem layout="below" disabled={isBusy} onClick={() => setLanguageIndex((v) => cycleIndex(v, LANGUAGE_CHOICES.length, 1))}>
+              Langue : {selectedLanguage.label} (cycle)
             </ButtonItem>
           </PanelSectionRow>
           <PanelSectionRow>
-            <ButtonItem layout="below" disabled={isBusy || searchResults.length <= 1} onClick={() => setSearchResultIndex((v) => cycleIndex(v, searchResults.length, 1))}>
-              Résultat suivant
+            <ButtonItem layout="below" disabled={isBusy} onClick={() => void handleSearch()}>
+              {isBusy ? "Recherche en cours…" : "🔍 Lancer la recherche"}
             </ButtonItem>
           </PanelSectionRow>
-          <PanelSectionRow>
-            <ButtonItem layout="below" disabled={isBusy} onClick={() => void openUrlExternal(selectedSearchResult.url)}>
-              Ouvrir dans le navigateur
-            </ButtonItem>
-          </PanelSectionRow>
-          <PanelSectionRow>
-            <ButtonItem layout="below" disabled={isBusy || !selectedLibraryItem} onClick={() => void handleImportSelectedResult()}>
-              Importer ce résultat offline
-            </ButtonItem>
-          </PanelSectionRow>
+          {searchQuery ? (
+            <PanelSectionRow>
+              <ButtonItem layout="below" disabled={isBusy} onClick={() => setSearchQuery("")}>
+                Effacer le texte
+              </ButtonItem>
+            </PanelSectionRow>
+          ) : null}
         </PanelSection>
-      ) : null}
-    </>
-  );
+
+        {searchResults.length > 0 ? (
+          <PanelSection title={`Résultats (${filteredResults.length}${searchSiteFilter.size > 0 ? ` / ${searchResults.length}` : ""})`}>
+            {sitesInResults.length > 1 ? (
+              <>
+                <PanelSectionRow>
+                  <div style={{ fontSize: "0.72rem", opacity: 0.75, padding: "2px 6px" }}>
+                    Filtre par site (clic = toggle) :
+                  </div>
+                </PanelSectionRow>
+                {sitesInResults.map((siteLabel) => {
+                  const active = searchSiteFilter.has(siteLabel);
+                  const count = searchResults.filter((r) => r.site === siteLabel).length;
+                  return (
+                    <PanelSectionRow key={siteLabel}>
+                      <ButtonItem layout="below" disabled={isBusy} onClick={() => toggleSearchSite(siteLabel)}>
+                        {active ? "☑" : "☐"} {siteLabel} ({count})
+                      </ButtonItem>
+                    </PanelSectionRow>
+                  );
+                })}
+                {searchSiteFilter.size > 0 ? (
+                  <PanelSectionRow>
+                    <ButtonItem layout="below" disabled={isBusy} onClick={() => setSearchSiteFilter(new Set())}>
+                      Tout afficher (vide le filtre)
+                    </ButtonItem>
+                  </PanelSectionRow>
+                ) : null}
+              </>
+            ) : null}
+
+            {filteredResults.map((result, idx) => (
+              <div key={result.url + idx}>
+                <PanelSectionRow>
+                  <div style={{ ...boxStyle, padding: "8px 10px" }}>
+                    <div style={{ fontWeight: 700, marginBottom: "4px", fontSize: "0.86rem" }}>{result.title}</div>
+                    <div style={{ marginBottom: "4px" }}>
+                      <span style={pillStyle}>{result.site}</span>
+                      <span style={pillStyle}>Score {result.score}</span>
+                    </div>
+                    {result.snippet ? (
+                      <div style={{ fontSize: "0.72rem", opacity: 0.85, lineHeight: 1.3 }}>
+                        {result.snippet.length > 180 ? result.snippet.slice(0, 178) + "…" : result.snippet}
+                      </div>
+                    ) : null}
+                  </div>
+                </PanelSectionRow>
+                <PanelSectionRow>
+                  <ButtonItem layout="below" disabled={isBusy} onClick={() => void handleImportResultDirect(result)}>
+                    💾 Importer offline
+                  </ButtonItem>
+                </PanelSectionRow>
+                <PanelSectionRow>
+                  <ButtonItem layout="below" disabled={isBusy} onClick={() => void openUrlExternal(result.url)}>
+                    🌐 Ouvrir dans le navigateur
+                  </ButtonItem>
+                </PanelSectionRow>
+              </div>
+            ))}
+            {filteredResults.length === 0 && searchSiteFilter.size > 0 ? (
+              <PanelSectionRow>
+                <div style={{ fontSize: "0.75rem", opacity: 0.7, padding: "8px 6px", textAlign: "center" }}>
+                  Aucun résultat ne correspond aux sites filtrés.
+                </div>
+              </PanelSectionRow>
+            ) : null}
+          </PanelSection>
+        ) : null}
+      </>
+    );
+  };
 
   const renderReaderPreferences = () => (
     <PanelSection title="Préférences de lecture">
@@ -2566,6 +3733,23 @@ function Content() {
             </ButtonItem>
           </PanelSectionRow>
         </PanelSection>
+        ) : null}
+
+        {!expandedReader && selectedGuideSummary && similarGuides.length > 0 ? (
+          <PanelSection title={`Guides similaires (${similarGuides.length})`}>
+            <PanelSectionRow>
+              <div style={{ fontSize: "0.72rem", opacity: 0.7, padding: "2px 6px 6px" }}>
+                Basé sur titre / plateforme / site.
+              </div>
+            </PanelSectionRow>
+            {similarGuides.map((sg) => (
+              <PanelSectionRow key={sg.id}>
+                <ButtonItem layout="below" disabled={isBusy} onClick={() => void openGuideById(sg.id)}>
+                  → {sg.title} {sg.site ? `(${sg.site})` : ""}
+                </ButtonItem>
+              </PanelSectionRow>
+            ))}
+          </PanelSection>
         ) : null}
 
         {!expandedReader ? renderReaderPreferences() : null}
@@ -2960,14 +4144,128 @@ function Content() {
 
 export default definePlugin(() => {
   routerHook.addRoute(FULL_SCREEN_ROUTE, FullScreenReader, { exact: true });
-  routerHook.addGlobalComponent(HOTKEY_GLOBAL_NAME, GlobalHotkeyListener);
+
+  // v0.35 fix: register the controller listener AT PLUGIN LOAD (in the factory),
+  // not inside a React component via addGlobalComponent. Previously addGlobalComponent
+  // would only run when the global component actually mounted, which depended on
+  // the QAM being open. Now the listener stays alive regardless of QAM state.
+  let listenerActive = true;
+  let listenerHandle: any = null;
+  const setupListener = async () => {
+    try {
+      const prefs = await getReaderPreferences();
+      setCurrentResumeButton(typeof prefs.resume_button === "number" ? prefs.resume_button : -1);
+      setCurrentResumeEnabled(prefs.resume_enabled !== false);
+      try { console.log("[Offline Soluce] resume button at startup:", _currentResumeButton === -1 ? "(defaults LBACK/RBACK)" : _currentResumeButton, "enabled:", _currentResumeEnabled); } catch {}
+    } catch {}
+    const sc: any = (window as any).SteamClient;
+    const inputApi: any = sc?.Input;
+    if (!inputApi?.RegisterForControllerInputMessages) {
+      try { console.warn("[Offline Soluce] SteamClient.Input.RegisterForControllerInputMessages unavailable"); } catch {}
+      return;
+    }
+    try { console.log("[Offline Soluce] controller listener installed at plugin load"); } catch {}
+    listenerHandle = inputApi.RegisterForControllerInputMessages(
+      (_idx: number, gamepadButton: number, isButtonPressed: boolean) => {
+        if (!listenerActive) return;
+        if (!isButtonPressed) return;
+        if (!_currentResumeEnabled) return;
+        // v0.40: don't trigger the resume action while the user is capturing
+        // a button via the settings UI — otherwise the captured press would
+        // also open a guide.
+        if (_captureInProgress) return;
+        const wanted = _currentResumeButton;
+        const matches = wanted === -1
+          ? RESUME_BUTTON_DEFAULTS.has(gamepadButton)
+          : gamepadButton === wanted;
+        if (!matches) return;
+        void (async () => {
+          try {
+            const guides = await listGuides();
+            if (!guides.length) {
+              try { toaster.toast({ title: "Offline Soluce", body: "Aucun guide importé.", duration: 2500 }); } catch {}
+              return;
+            }
+
+            // A3: try to match the currently running Steam app first
+            let target: GuideSummary | null = null;
+            let matchedByGame = false;
+            try {
+              const runningApp: any = (Router as any).MainRunningApp;
+              const displayName = runningApp?.display_name || "";
+              if (displayName) {
+                const matched = findGuideForRunningApp(guides, displayName);
+                if (matched) {
+                  target = matched;
+                  matchedByGame = true;
+                  try { console.log("[Offline Soluce] matched running app:", displayName, "→", matched.title); } catch {}
+                }
+              }
+            } catch (e) {
+              try { console.warn("[Offline Soluce] running-app match failed:", e); } catch {}
+            }
+
+            // A3 ES-DE: if no Steam match, scan emulator processes (PCSX2, RetroArch, etc.)
+            // for the loaded ROM — covers games launched via EmulationStation DE.
+            if (!target) {
+              try {
+                const hint = await getRunningEmulatorGameHint();
+                if (hint?.hint) {
+                  const matched = findGuideForRunningApp(guides, hint.hint);
+                  if (matched) {
+                    target = matched;
+                    matchedByGame = true;
+                    try { console.log(`[Offline Soluce] matched emulator (${hint.emulator}) ROM "${hint.hint}" → ${matched.title}`); } catch {}
+                  } else {
+                    try { console.log(`[Offline Soluce] emulator hint "${hint.hint}" had no matching guide`); } catch {}
+                  }
+                }
+              } catch (e) {
+                try { console.warn("[Offline Soluce] emulator hint failed:", e); } catch {}
+              }
+            }
+
+            // Fallback: most-recently-opened guide
+            if (!target) {
+              const sorted = [...guides].sort((a, b) =>
+                (b.progress?.last_opened_at || "").localeCompare(a.progress?.last_opened_at || "")
+              );
+              target = sorted[0];
+            }
+            if (!target?.id) {
+              try { toaster.toast({ title: "Offline Soluce", body: "Pas de guide récent.", duration: 2500 }); } catch {}
+              return;
+            }
+
+            // Toast tells the user WHICH path matched — useful when game match vs fallback
+            try {
+              toaster.toast({
+                title: matchedByGame ? "Guide du jeu en cours" : "Dernier guide ouvert",
+                body: target.title,
+                duration: 2000,
+              });
+            } catch {}
+
+            requestFullScreenGuide(target.id);
+            try { Router.CloseSideMenus(); } catch {}
+            Router.Navigate(FULL_SCREEN_ROUTE);
+          } catch (err: any) {
+            try { toaster.toast({ title: "Offline Soluce", body: `Erreur reprise: ${err?.message || err}`, duration: 4000, critical: true }); } catch {}
+          }
+        })();
+      }
+    );
+  };
+  void setupListener();
+
   return {
     title: <div className="title">Offline Soluce</div>,
     content: <Content />,
     icon: <FaBookOpen />,
     onDismount() {
+      listenerActive = false;
+      try { listenerHandle?.unregister?.(); } catch {}
       routerHook.removeRoute(FULL_SCREEN_ROUTE);
-      routerHook.removeGlobalComponent(HOTKEY_GLOBAL_NAME);
     },
   };
 });
