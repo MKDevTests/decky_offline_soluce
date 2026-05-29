@@ -4108,6 +4108,10 @@ class Plugin:
         new_urls: list[str] = []
         if base_prefix:
             new_urls.extend(self._discover_related_urls(current_url, html_text, base_prefix))
+        # v0.42.7: site-specific custom link discovery for sites whose chapter
+        # URLs don't share a prefix with the TOC page (e.g. jeuxvideo.com where
+        # each chapter has its OWN numeric ID different from the wiki TOC ID).
+        new_urls.extend(self._discover_site_specific_chapter_links(current_url, html_text))
         next_url = self._find_next_page_url(current_url=current_url, html_text=html_text, extractor=extractor)
         if next_url:
             new_urls.append(next_url)
@@ -4116,6 +4120,53 @@ class Plugin:
                 continue
             queued.add(u)
             queue.append(u)
+
+    # v0.42.7: regex extractors for site-specific chapter link discovery.
+    # Each entry is (hostname_substring, url_path_regex, label).
+    # The path_regex captures internal links that point to chapter content
+    # but DON'T share the TOC URL's prefix (so prefix-based discovery misses).
+    _SITE_CHAPTER_LINK_RES = [
+        # jeuxvideo.com: /wikis-soluce-astuces/<chapter-slug>/<numeric_id>
+        # The TOC has its own ID (350892 for FFX) but chapter IDs are different
+        # (200156, 200157, ...). Pattern: any sub-slug followed by a 4-7 digit ID.
+        ("jeuxvideo.com",
+         re.compile(r'href="(/wikis-soluce-astuces/[a-z0-9\-]+/\d{4,7})(?:#[^"]*)?"', re.IGNORECASE),
+         "JV wiki chapter"),
+    ]
+
+    def _discover_site_specific_chapter_links(self, current_url: str, html_text: str) -> list[str]:
+        """v0.42.7: extract explicit chapter links from the page HTML when the
+        site uses non-prefix URL patterns (e.g. JV wikis). Returns absolute URLs.
+
+        Safe: returns [] for sites not matched by `_SITE_CHAPTER_LINK_RES`."""
+        parsed = urlparse(current_url)
+        host = (parsed.hostname or "").lower()
+        out: list[str] = []
+        seen: set[str] = set()
+        for host_match, link_re, _label in self._SITE_CHAPTER_LINK_RES:
+            if host_match not in host:
+                continue
+            for m in link_re.finditer(html_text):
+                path = m.group(1)
+                absolute = urljoin(current_url, path)
+                ap = urlparse(absolute)
+                if ap.scheme not in ALLOWED_SCHEMES:
+                    continue
+                if ap.hostname != parsed.hostname:
+                    continue
+                # Filter image / non-page extensions (reuse v0.41 constant)
+                path_lower = ap.path.lower()
+                if any(path_lower.endswith(ext) for ext in NON_PAGE_URL_EXTENSIONS):
+                    continue
+                canonical = ap._replace(fragment="").geturl()
+                if canonical in seen or canonical == current_url:
+                    continue
+                seen.add(canonical)
+                out.append(canonical)
+        if out:
+            try: self._debug_log(f"  site-specific link discovery: {len(out)} URLs for {host}")
+            except Exception: pass
+        return out
 
     def _compute_base_prefix(self, start_url: str) -> str:
         """Determine the URL path prefix used to discover sibling guide pages.
@@ -4298,7 +4349,20 @@ class Plugin:
                     "Upgrade-Insecure-Requests": "1",
                 },
             },
-            # Attempt 4: Wayback Machine fallback (for sites that hard-block bots like GameFAQs)
+            # Attempt 4 (v0.42.8): curl subprocess. The Decky backend is a
+            # long-running process whose urllib opener accumulates per-session
+            # state (connection reuse / cookies) that some WAFs (jeuxvideo.com)
+            # flag as a bot AFTER the first requests — even though an isolated
+            # urllib call with identical headers succeeds. curl is a FRESH
+            # process each time with no shared state and a different TLS stack,
+            # so it bypasses that flag. Proven to return 200 on JV from this Deck.
+            {
+                "name": "curl",
+                "url": url,
+                "use_curl": True,
+                "headers": {},
+            },
+            # Attempt 5: Wayback Machine fallback (for sites that hard-block bots like GameFAQs)
             {
                 "name": "wayback",
                 "url": "https://web.archive.org/web/2024/" + url,
@@ -4318,6 +4382,25 @@ class Plugin:
                 try:
                     if idx > 0 and not retried_429:
                         time.sleep(1.0)
+                    # v0.42.8: curl-subprocess attempt (fresh process, no shared
+                    # urllib opener state). Used to bypass WAFs that flag the
+                    # long-running backend's connection reuse.
+                    if attempt.get("use_curl"):
+                        data = self._download_via_curl(attempt["url"])
+                        if data is None:
+                            self._debug_log(f"  download [curl] unavailable or failed")
+                            last_error = ValueError("curl indisponible")
+                            break
+                        if len(data) > MAX_DOWNLOAD_BYTES:
+                            raise ValueError("Page trop lourde pour cette version")
+                        charset = self._detect_charset(data, None)
+                        try:
+                            text = data.decode(charset, errors="replace")
+                        except LookupError:
+                            charset = "utf-8"
+                            text = data.decode("utf-8", errors="replace")
+                        self._debug_log(f"  download [curl] {len(text)} chars charset={charset} from {attempt['url'][:80]}")
+                        return text, charset
                     request = urllib.request.Request(
                         attempt["url"],
                         headers=attempt["headers"],
@@ -4363,6 +4446,51 @@ class Plugin:
         if last_error:
             raise ValueError(f"Téléchargement impossible après toutes les tentatives : {last_error}")
         raise ValueError("Téléchargement impossible")
+
+    def _download_via_curl(self, url: str) -> bytes | None:
+        """v0.42.8: fetch a URL via the `curl` binary (fresh subprocess).
+
+        Returns response body bytes on HTTP 2xx, or None if curl is missing,
+        times out, or the server returns a non-success status. Used as a
+        download attempt to bypass WAFs that flag the long-running backend's
+        urllib connection state (e.g. jeuxvideo.com 403s the plugin but
+        serves curl with HTTP 200 from the same machine)."""
+        try:
+            import subprocess
+        except Exception:
+            return None
+        try:
+            # -s silent, -L follow redirects, --compressed accept gzip,
+            # -A browser UA, --max-time hard timeout, -w write final HTTP code
+            # to stderr-free location: we use --fail to make curl exit non-zero
+            # on >=400 so we don't capture an error page.
+            result = subprocess.run(
+                [
+                    "curl", "-sL", "--compressed", "--fail",
+                    "--max-time", "25",
+                    "-A", USER_AGENT,
+                    "-H", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "-H", "Accept-Language: fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+                    url,
+                ],
+                capture_output=True,
+                timeout=30,
+            )
+            if result.returncode != 0:
+                try: self._debug_log(f"  curl exit={result.returncode} for {url[:80]}")
+                except Exception: pass
+                return None
+            body = result.stdout
+            if not body or len(body) < 200:
+                return None
+            return body[:MAX_DOWNLOAD_BYTES + 1]
+        except FileNotFoundError:
+            # curl not installed
+            return None
+        except Exception as exc:
+            try: self._debug_log(f"  curl error: {type(exc).__name__}: {exc}")
+            except Exception: pass
+            return None
 
     def _detect_charset(self, data: bytes, header_charset: str | None) -> str:
         """Detect the correct charset by looking at HTML meta tag and scoring candidates."""
