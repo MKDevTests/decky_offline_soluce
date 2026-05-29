@@ -106,6 +106,66 @@ MULTI_DISC_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# v0.41: extensions skipped during URL discovery so the crawler doesn't follow
+# images / fonts / videos / archives as if they were content pages. Without
+# this filter, e.g. rpgsoluce.com FF9 walkthrough has links to
+# `images/01.jpg` that the crawler downloaded as HTML, then turned into
+# 25 sections of garbage at the tail of the guide.
+NON_PAGE_URL_EXTENSIONS: set[str] = {
+    # Images
+    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".ico", ".tif", ".tiff",
+    # Videos
+    ".mp4", ".webm", ".mov", ".avi", ".mkv",
+    # Audio
+    ".mp3", ".ogg", ".wav", ".flac",
+    # Archives / binaries
+    ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".pdf", ".exe", ".dmg", ".iso",
+    # Fonts / styles
+    ".woff", ".woff2", ".ttf", ".otf", ".css", ".js", ".map",
+}
+
+# ---------------------------------------------------------------------------
+# v0.41: rpgsoluce.com — site-specific noise patterns
+# These survive _html_to_text because rpgsoluce uses older HTML where the
+# generic content-region selectors (entry-content / article / main) don't
+# match, so the FULL page including nav menu and footer goes through.
+# ---------------------------------------------------------------------------
+
+# HTML comment leak: the rpgsoluce template has `<!-- recherche quand campagne -->`
+# inside the body. The HTML parser strips `<!--` but the closing `-->` leaks
+# through on its own line. This pattern is identical on every page of the site.
+_RPGSOLUCE_COMMENT_LEAK_RE = re.compile(
+    r"^[ \t]*recherche quand campagne[ \t]*-->[ \t]*$",
+    re.MULTILINE,
+)
+
+# Page footer: matches both the modern footer and the legacy one.
+# Modern: "© 2000-2025 Toute reproduction interdite ..."
+# Legacy: "© 2001 RPG Soluce ~ Delldongo ~"
+# Followed optionally by a "Partenariats : / Puissance Zelda | / ... / Régie pub" block.
+_RPGSOLUCE_FOOTER_RE = re.compile(
+    r"^[ \t]*©\s*\d{4}(?:[–—\-]\d{4})?\s+"
+    r"(?:Toute reproduction interdite|RPG Soluce)"
+    r"[^\n]*\n?"
+    r"(?:[ \t]*\n)*"                              # blank lines
+    r"(?:^[ \t]*Partenariats[ \t]*:[^\n]*\n"      # optional partner block start
+    r"(?:^[ \t]*[^\n\|]{1,80}\|[ \t]*\n)*"        # "Name |" lines
+    r"(?:^[ \t]*Régie pub[^\n]*\n)?)?",
+    re.MULTILINE,
+)
+
+# Random citation widget: "<quote> , <Author> , <GAME_CODE>"
+# Example: "On se croirait sur un plateau de cinéma , Margarete , SH"
+# Conservative: only line length <= 200 chars (avoid hitting prose with this shape).
+_RPGSOLUCE_CITATION_RE = re.compile(
+    r"^[ \t]*.+\s*,\s*[^,\n]+\s*,\s*[A-Z]{1,5}[ \t]*$",
+)
+
+# Sentence boundary detector: lowercase letter + period + space + uppercase letter.
+# Used by the menu-block heuristic to refuse stripping any block that contains
+# real prose. Menu items use digit-period (`1. Les Jeux`) which doesn't match.
+_RPGSOLUCE_SENTENCE_BOUNDARY_RE = re.compile(r"[a-zà-ÿ]\.[ \t]+[A-ZÀ-Ÿ]")
+
 STEAM_APPS_DIRS: list[Path] = [
     DECK_HOME / ".local/share/Steam/steamapps",
     Path("/run/media/deck/SD/steamapps"),
@@ -1265,16 +1325,29 @@ class Plugin:
                 raise ValueError("Site de recherche non supporté")
             allowed_sites = {preferred_key: cfg}
 
-        # Build ONE generic query (no site: filter, which trips anti-bot protection on Startpage/Google)
+        # Build query. v0.42: for SINGLE-site searches we prepend `site:DOMAIN`
+        # so search engines return only that site (otherwise IGN, Neoseeker etc.
+        # are systematically outranked by GameFAQs/Fandom/Reddit and the post-hoc
+        # domain filter finds zero matches in the top 20).
+        # For "all" mode we keep the generic query — multi-site filtering still
+        # works because dominant sites surface naturally.
         platform_token = "" if normalized_platform in {"", "Autre", "Tous"} else normalized_platform
-        query_parts = [normalized_query]
+        query_parts: list[str] = []
+        if preferred_key not in {"", "all", "tous"}:
+            cfg = SEARCH_SITES.get(preferred_key) or {}
+            domains = cfg.get("domains") or []
+            if domains:
+                # Prepend site: filter; rest of the query follows. Most search
+                # engines (Startpage, Brave, Google, Bing, DDG) honor this.
+                query_parts.append(f"site:{str(domains[0]).strip()}")
+        query_parts.append(normalized_query)
         if platform_token:
             query_parts.append(platform_token)
         if normalized_lang == "fr":
             query_parts.append("walkthrough guide soluce")
         else:
             query_parts.append("walkthrough guide faq")
-        combined_query = " ".join(query_parts).strip()
+        combined_query = " ".join(part for part in query_parts if part).strip()
         self._debug_log(f"  combined query: '{combined_query}' lang={normalized_lang}")
 
         # Check cache first
@@ -1427,6 +1500,10 @@ class Plugin:
             aliases_raw=aliases,
             emulator=emulator,
         )
+        # v0.42.3: pre-populate hidden_section_titles with auto-detected
+        # meta-FAQ sections (AUTEUR / Credits / Disclaimer / Version / TOC).
+        # User can unhide via the sidebar toggle if they want to read them.
+        auto_hidden = self._detect_meta_faq_section_titles(sections, content)
         record = GuideRecord(
             id=guide_id,
             title=title,
@@ -1443,7 +1520,7 @@ class Plugin:
             sections=sections,
             detection_method=detection_method,
             source_pages=list(collected["source_pages"]),
-            progress=GuideReadingProgress(),
+            progress=GuideReadingProgress(hidden_section_titles=auto_hidden),
         )
         self._write_record(record)
         self._debug_log(f"  save_guide SUCCESS: id={guide_id} title='{title}' sections={len(sections)} words={len(content.split())}")
@@ -1676,6 +1753,228 @@ class Plugin:
         record.progress.section_notes = remapped_notes
 
         self._write_record(record)
+        return self._record_to_payload(record)
+
+    async def polish_all_guides(self) -> dict[str, Any]:
+        """v0.42.2: batch reconstruct + polish for every stored guide.
+
+        For each guide:
+        1. Apply site-specific chrome strip via `clean_existing_guide`
+        2. Section detection runs through `_build_sections_with_method`
+           which now includes `_polish_section_titles`
+        3. Return per-guide stats so the frontend can show what changed.
+        """
+        self._switch_debug_file("polish_all.log")
+        self._debug_log("=== polish_all_guides called ===")
+        results = []
+        total_before_chars = 0
+        total_after_chars = 0
+        total_titles_changed = 0
+        for path in sorted(self._guides_dir.glob("*.json")):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                guide_id = payload.get("id") or path.stem
+                title = payload.get("title", "")
+                site = payload.get("site", "")
+                before_chars = len(payload.get("content", "") or "")
+                before_sections = payload.get("sections", []) or []
+                before_titles = [s.get("title", "") for s in before_sections]
+
+                self._debug_log(f"--- {path.name} ({title}) site={site}")
+                # Run the existing clean_existing_guide method
+                updated_payload = await self.clean_existing_guide(guide_id)
+                after_chars = len(updated_payload.get("content", "") or "")
+                after_sections = updated_payload.get("sections", []) or []
+                after_titles = [s.get("title", "") for s in after_sections]
+
+                # Count title changes (positional comparison, capped to min length)
+                titles_changed = 0
+                for b, a in zip(before_titles, after_titles):
+                    if b != a:
+                        titles_changed += 1
+                # If the section count changed, also count length delta
+                section_delta = len(after_sections) - len(before_sections)
+
+                total_before_chars += before_chars
+                total_after_chars += after_chars
+                total_titles_changed += titles_changed
+
+                results.append({
+                    "guide_id": guide_id,
+                    "title": title,
+                    "site": site,
+                    "before_chars": before_chars,
+                    "after_chars": after_chars,
+                    "chars_removed": before_chars - after_chars,
+                    "before_sections": len(before_sections),
+                    "after_sections": len(after_sections),
+                    "section_delta": section_delta,
+                    "titles_changed": titles_changed,
+                })
+                self._debug_log(
+                    f"  -> chars {before_chars}->{after_chars}, "
+                    f"sections {len(before_sections)}->{len(after_sections)}, "
+                    f"titles_changed={titles_changed}"
+                )
+            except Exception as exc:
+                self._debug_log(f"  FAIL {path.name}: {exc}")
+                results.append({
+                    "guide_id": path.stem,
+                    "title": "?",
+                    "site": "?",
+                    "error": str(exc)[:200],
+                })
+        summary = {
+            "guides_processed": len(results),
+            "total_chars_before": total_before_chars,
+            "total_chars_after": total_after_chars,
+            "total_chars_removed": total_before_chars - total_after_chars,
+            "total_titles_changed": total_titles_changed,
+            "per_guide": results,
+        }
+        self._debug_log(f"=== polish_all_guides done: {summary['guides_processed']} guides, "
+                       f"{summary['total_chars_removed']} chars removed, "
+                       f"{summary['total_titles_changed']} titles changed ===")
+        self._switch_debug_file("main.log")
+        return summary
+
+    async def clean_existing_guide(self, guide_id: str) -> dict[str, Any]:
+        """v0.41+: re-apply site-specific noise stripping to a stored guide.
+
+        Use case: a guide imported with an earlier version was polluted with
+        site-specific boilerplate that the new strippers handle. This endpoint
+        dispatches by `record.site`:
+
+        - **gamefaqs.gamespot.com**: drops the ~55-line UI noise block at the
+          top (sidebar widgets / nav tabs / button labels) by locating the
+          author attribution `Guide and Walkthrough (PLAT) by AUTHOR`.
+        - **vally8.free.fr**: strips the per-page nav menu (Accueil Vally8
+          → Forum) and footer (phpMyVisites, "Voir la suite", forum invite)
+          that repeat at every page boundary in multi-page crawls.
+        - **rpgsoluce.com**: strips HTML comment leak, sidebar TOC menu,
+          page footer, and citation widget. Also truncates content at the
+          first image-page section, and filters non-page URLs from
+          source_pages.
+
+        Always re-runs section detection on the cleaned content and saves
+        with progress/notes/bookmarks remap (mirrors reconstruct_sections).
+        For sites without a registered cleaner, this is equivalent to
+        reconstruct_sections."""
+        record = self._load_record_or_raise(guide_id)
+        original_length = len(record.content)
+        site = (record.site or "").lower()
+
+        if "gamefaqs" in site:
+            # v0.41.1: drop the GameFAQs UI noise (~55 lines per stored guide)
+            # that sits at the top before the author attribution.
+            record.content = self._strip_gamefaqs_chrome(record.content)
+        elif "vally8" in site:
+            # v0.41.1: strip per-page nav menu + footer that repeats at every
+            # page boundary in vally8 multi-page crawls.
+            record.content = self._strip_vally8_chrome(record.content)
+        elif "rpgsoluce" in site:
+            record.content = self._strip_rpgsoluce_chrome(record.content)
+            # Truncate at the first section whose title looks like an image-page
+            # leak (just the bare hostname). Find the line position of that section
+            # in the OLD section layout, then cut the content there.
+            image_section_re = re.compile(
+                r"^\s*rpgsoluce\.com\b.*$",
+                re.IGNORECASE,
+            )
+            for sec in record.sections:
+                if image_section_re.match(sec.title or ""):
+                    # Truncate the content above this section's start line.
+                    # Note: line numbers in sections refer to the pre-strip content;
+                    # we map roughly by counting lines because strip mostly removes
+                    # short menu/footer blocks. Worst case we under-truncate slightly.
+                    content_lines = record.content.split("\n")
+                    cut_at = max(0, min(sec.line_start - 1, len(content_lines)))
+                    record.content = "\n".join(content_lines[:cut_at]).rstrip() + "\n"
+                    self._debug_log(
+                        f"  clean_existing_guide: truncated at image-page section "
+                        f"'{sec.title}' line {sec.line_start} "
+                        f"({original_length} → {len(record.content)} chars)"
+                    )
+                    break
+
+            # Also filter source_pages: remove entries with non-page URL extensions
+            kept_pages: list[GuideSourcePage] = []
+            removed = 0
+            for sp in record.source_pages:
+                url_lower = (sp.url or "").lower()
+                # crude path-extension check
+                path = urlparse(url_lower).path
+                if any(path.endswith(ext) for ext in NON_PAGE_URL_EXTENSIONS):
+                    removed += 1
+                    continue
+                kept_pages.append(sp)
+            if removed:
+                record.source_pages = kept_pages
+                self._debug_log(f"  clean_existing_guide: dropped {removed} non-page URLs from source_pages")
+
+        # Re-build sections (mirrors reconstruct_sections logic)
+        old_sections = list(record.sections)
+        new_sections, new_method = self._build_sections_with_method(record.content)
+        record.sections = new_sections
+        record.detection_method = new_method
+
+        def remap(old_index: int) -> int:
+            if old_index < 0:
+                return -1
+            if not new_sections:
+                return -1
+            if not old_sections or old_index >= len(old_sections):
+                return min(old_index, len(new_sections) - 1)
+            old_title = old_sections[old_index].title.casefold().strip()
+            if old_title:
+                for i, s in enumerate(new_sections):
+                    if s.title.casefold().strip() == old_title:
+                        return i
+            old_start = old_sections[old_index].line_start
+            for i, s in enumerate(new_sections):
+                if s.line_start <= old_start <= s.line_end:
+                    return i
+            return min(old_index, len(new_sections) - 1)
+
+        record.progress.last_section_index = remap(record.progress.last_section_index)
+        record.progress.bookmark_section_index = remap(record.progress.bookmark_section_index)
+        for bm in record.progress.named_bookmarks:
+            bm.section_index = remap(bm.section_index)
+        remapped_notes: list[GuideSectionNote] = []
+        seen_idx: set[int] = set()
+        for note in record.progress.section_notes:
+            new_idx = remap(note.section_index)
+            if new_idx < 0 or new_idx in seen_idx:
+                continue
+            seen_idx.add(new_idx)
+            note.section_index = new_idx
+            remapped_notes.append(note)
+        record.progress.section_notes = remapped_notes
+
+        # v0.42.3: also augment hidden_section_titles with newly-detected
+        # meta-FAQ titles (idempotent — only adds, never removes user-set ones).
+        try:
+            auto_hidden = self._detect_meta_faq_section_titles(record.sections, record.content)
+            if auto_hidden:
+                existing = set(record.progress.hidden_section_titles or [])
+                added = 0
+                for t in auto_hidden:
+                    if t not in existing:
+                        record.progress.hidden_section_titles.append(t)
+                        existing.add(t)
+                        added += 1
+                if added:
+                    self._debug_log(f"  clean_existing_guide: auto-hid {added} meta-FAQ sections")
+        except Exception as exc:
+            try: self._debug_log(f"  clean_existing_guide: auto-hide failed: {exc}")
+            except Exception: pass
+
+        self._write_record(record)
+        self._debug_log(
+            f"clean_existing_guide done: id={guide_id} "
+            f"content {original_length}→{len(record.content)} chars, "
+            f"sections {len(old_sections)}→{len(new_sections)}"
+        )
         return self._record_to_payload(record)
 
     # ===================== A2: Auto-backup =====================
@@ -3738,6 +4037,15 @@ class Plugin:
 
             extractor, page_content = self._extract_text(current_url, html_text)
             self._debug_log(f"  extracted: extractor={extractor} content_len={len(page_content)}")
+            # v0.42.3: detect Wayback Machine's "Organization: Alexa Crawls"
+            # interstitial. Happens when the original URL is blocked (Cloudflare,
+            # 403, anti-bot) AND Wayback has no recent snapshot — Wayback returns
+            # the Alexa Crawls description page (211 chars) instead of failing.
+            # Without this check, the plugin saves the worthless interstitial as
+            # the guide content. Skip this page and try the next URL in queue.
+            if self._looks_like_wayback_alexa_interstitial(page_content):
+                self._debug_log(f"  Wayback Alexa interstitial detected for {current_url}, skipping")
+                continue
             page_content = self._remove_leading_duplicate_title(page_content, first_title or current_title)
             if extractor_name == "generic" and extractor != "generic":
                 extractor_name = extractor
@@ -3815,6 +4123,9 @@ class Plugin:
         Strategy per-site:
           - RPGSoluce: /soluces/<platform>/<game> — captures the whole game tree
             including /cheminement/, /etoiles/, /quetes/, /objets/, etc.
+          - Jeuxvideo: /wikis-soluce-astuces/<wiki_id> — captures all sub-pages
+            of a wiki (chapters, secrets, etc.) when user imports the TOC.
+          - Vally8: /jeux/<game> — captures soluce.php / soluce2.php / etc.
           - Others: empty (no prefix-based discovery — falls back to next-link chain).
 
         Returning "" disables prefix discovery for this crawl.
@@ -3828,7 +4139,24 @@ class Plugin:
             # Expected: soluces / <platform> / <game> [/ <subpage> ...]
             if len(parts) >= 3 and parts[0] == "soluces":
                 return "/" + "/".join(parts[:3])
-        # No prefix-based discovery for other sites yet.
+
+        # v0.42.5: jeuxvideo.com wiki structure.
+        # Pattern: /wikis-soluce-astuces/<numeric_wiki_id>/<page>.htm
+        # When the user imports a wiki TOC URL (e.g. wiki-de-final-fantasy-x.htm),
+        # the actual walkthrough content is in sibling pages under the same wiki_id
+        # (Solution complète : Partie 1, Partie 2, etc.). Using the wiki_id as
+        # prefix lets _discover_related_urls follow these chapter links.
+        if "jeuxvideo.com" in host:
+            parts = path.strip("/").split("/")
+            if len(parts) >= 2 and parts[0] in ("wikis-soluce-astuces", "wikis") and parts[1].isdigit():
+                return "/" + "/".join(parts[:2])
+
+        # v0.42.5: vally8.free.fr pattern: /jeux/<game>/<page>.php
+        if "vally8.free.fr" in host:
+            parts = path.strip("/").split("/")
+            if len(parts) >= 2 and parts[0] == "jeux":
+                return "/" + "/".join(parts[:2])
+
         return ""
 
     def _discover_related_urls(self, current_url: str, html_text: str, base_prefix: str) -> list[str]:
@@ -3867,6 +4195,13 @@ class Plugin:
             # Normalise to drop fragment+query for the prefix check
             path_only = parsed.path.rstrip("/")
             if not path_only.startswith(base_prefix):
+                continue
+            # v0.41: skip non-page URLs (images, fonts, archives, etc.).
+            # Without this, e.g. rpgsoluce FF9 has `<a href="images/01.jpg">`
+            # which the crawler downloaded as HTML, polluting the guide with
+            # 25 sections of duplicated homepage at the tail.
+            path_lower = path_only.lower()
+            if any(path_lower.endswith(ext) for ext in NON_PAGE_URL_EXTENSIONS):
                 continue
             # Build a canonical URL (no fragment) for dedup
             canonical = parsed._replace(fragment="").geturl()
@@ -4077,6 +4412,9 @@ class Plugin:
         if "rpgsoluce." in hostname:
             text = self._extract_rpgsoluce_text(html_text)
             return "rpgsoluce", text
+        if "vally8." in hostname:
+            text = self._extract_vally8_text(html_text)
+            return "vally8", text
         if "neoseeker." in hostname:
             text = self._extract_neoseeker_text(html_text)
             return "neoseeker", text
@@ -4099,10 +4437,19 @@ class Plugin:
         full_text = self._strip_wayback_chrome(full_text)
         full_text = self._crop_between_text_markers(
             full_text,
+            # v0.41.1: more specific start markers that skip the ~55-line block
+            # of GameFAQs UI widgets (Log in / Notify me / BOOKMARK / Message Sent / etc.)
+            # that sits BETWEEN the page H1 "Guide and Walkthrough" and the actual
+            # author-attributed FAQ. The attribution looks like:
+            #   "Guide and Walkthrough (PS) (French) by Seven_Heavens"
+            #   "Guide and Walkthrough (PS2) by dan_crenshaw"
+            # We match that and fall back to the version line, then bare keywords.
             start_markers=[
-                r"\bGuide and Walkthrough\b",
+                r"^Guide and Walkthrough\s*\([^\)\n]+\)(?:\s*\([^\)\n]+\))?\s+by\s+\S+",
+                r"^Version:\s*[\d.]+\s*\|\s*Updated:",
                 r"\bFAQ/Walkthrough\b",
                 r"\bGuide by\b",
+                r"\bGuide and Walkthrough\b",  # last-ditch fallback
             ],
             end_markers=[
                 r"\bView in:\s*Text Mode\b",
@@ -4143,6 +4490,10 @@ class Plugin:
                 r"\bNavigation des articles\b",
             ],
         )
+        # v0.41: strip site-specific chrome (nav menu, footer, citation widget,
+        # HTML comment leak). Must run BEFORE _strip_noise so the latter sees
+        # clean text and doesn't accidentally preserve menu blocks.
+        text = self._strip_rpgsoluce_chrome(text)
         text = self._strip_noise(text)
         return text
 
@@ -4238,20 +4589,79 @@ class Plugin:
         text = self._strip_noise(text)
         return text
 
-    def _extract_ign_text(self, html_text: str) -> str:
+    def _extract_vally8_text(self, html_text: str) -> str:
+        """v0.41.1: site-specific extractor for vally8.free.fr (old fan site).
+        Uses generic HTML region selectors then strips the per-page nav menu
+        and footer that the crawler concatenates across multi-page guides."""
         region = self._extract_html_region(
             html_text,
             selectors=[
-                r'<div[^>]+(?:data-cy="article-body"|class="[^"]*(?:article-body|article-page-content|wiki-content|main-body)[^"]*")[^>]*>(.*?)</div>\s*<(?:div|section|footer|aside)',
+                # vally8 uses very old HTML; try common wrapper patterns
+                r'<td[^>]*class="[^"]*content[^"]*"[^>]*>(.*?)</td>',
+                r'<div[^>]+id="content"[^>]*>(.*?)</div>',
                 r'<article[^>]*>(.*?)</article>',
-                r'<section[^>]+class="[^"]*wiki[^"]*"[^>]*>(.*?)</section>',
+                r'<main[^>]*>(.*?)</main>',
+            ],
+        )
+        text = self._html_to_text(region or html_text)
+        # Strip per-page menu+footer BEFORE the global crop, because the menu
+        # repeats at every page boundary across the multi-page concat.
+        text = self._strip_vally8_chrome(text)
+        text = self._crop_between_text_markers(
+            text,
+            start_markers=[
+                r"^La soluce de\b",
+                r"^Avant de commencer\b",
+                r"^Cheminement\b",
+            ],
+            end_markers=[
+                r"^phpMyVisites\b",
+                r"\bphpMyVisites\b",
+            ],
+        )
+        text = self._strip_noise(text)
+        return text
+
+    def _extract_ign_text(self, html_text: str) -> str:
+        # v0.42.4: IGN migrated to Next.js with JSX-generated class names. The
+        # old selectors (data-cy="article-body" / article-page-content /
+        # wiki-content / main-body) no longer exist. The new structure is:
+        #   <main data-cy="page-main-content" id="main-content">
+        #     <section class="jsx-... wiki-section wiki-html">  [×6 typically]
+        #       [walkthrough content]
+        #     </section>
+        #   </main>
+        # Strategy: prefer the wiki-section blocks (most precise), fall back to
+        # main-content (broader), then any <main>.
+        region = self._extract_html_region(
+            html_text,
+            selectors=[
+                # Prefer the main content container (the wiki page wrapper)
+                r'<main[^>]+(?:id="main-content"|data-cy="page-main-content")[^>]*>(.*?)</main>',
+                # Then the individual wiki-section blocks (concatenated) — useful
+                # when <main> isn't easily delimited
+                r'(<section[^>]+class="[^"]*\bwiki-section\b[^"]*"[^>]*>.*?</section>(?:\s*<section[^>]+class="[^"]*\bwiki-section\b[^"]*"[^>]*>.*?</section>)*)',
+                # Legacy IGN article structure (older URLs)
+                r'<div[^>]+(?:data-cy="article-body"|class="[^"]*(?:article-body|article-page-content|wiki-content|main-body)[^"]*")[^>]*>(.*?)</div>\s*<(?:div|section|footer|aside)',
+                # Generic fallback
+                r'<article[^>]*>(.*?)</article>',
                 r'<main[^>]*>(.*?)</main>',
             ],
         )
         if region:
-            # Remove related articles, ads, video embeds that pollute text
+            # Drop IGN-specific UI chrome that nests inside the wrappers
             region = re.sub(r'<aside[^>]*>.*?</aside>', "", region, flags=re.DOTALL | re.IGNORECASE)
-            region = re.sub(r'<div[^>]+class="[^"]*(?:related|advertisement|ad-slot|video-container|jw-player)[^"]*"[^>]*>.*?</div>', "", region, flags=re.DOTALL | re.IGNORECASE)
+            region = re.sub(r'<nav[^>]*>.*?</nav>', "", region, flags=re.DOTALL | re.IGNORECASE)
+            # Related / ads / video embeds / IGN player widgets
+            region = re.sub(
+                r'<div[^>]+class="[^"]*(?:related|advertisement|ad-slot|adunit|video-container|jw-player|pogo-slot|sticky-header)[^"]*"[^>]*>.*?</div>',
+                "", region, flags=re.DOTALL | re.IGNORECASE,
+            )
+            # Drop "In This Wiki Guide" sidebar (now sometimes inside main)
+            region = re.sub(
+                r'<section[^>]+class="[^"]*\b(?:wiki-header|in-this-wiki|related-pages|object-collection|featured-comments|comments-section)\b[^"]*"[^>]*>.*?</section>',
+                "", region, flags=re.DOTALL | re.IGNORECASE,
+            )
         text = self._html_to_text(region or html_text)
         text = self._crop_between_text_markers(
             text,
@@ -4265,6 +4675,8 @@ class Plugin:
                 r"\bTable of Contents\b",
                 r"\bWas this guide helpful\b",
                 r"\bRelated Guides\b",
+                r"\bComments?\b\s*\(\d+\)",
+                r"\bWritten by\b.*\bIGN[\-\s]Wiki",
             ],
         )
         text = self._strip_noise(text)
@@ -4306,6 +4718,34 @@ class Plugin:
                 return match.group(1)
         return None
 
+    def _looks_like_wayback_alexa_interstitial(self, text: str) -> bool:
+        """v0.42.3: detect the Wayback Machine "Organization: Alexa Crawls"
+        page that Wayback returns when there's NO snapshot of the requested
+        URL (or only an Alexa-crawled placeholder). Signature: very short
+        content (< 500 chars) starting with the Alexa attribution line.
+
+        When the plugin's _download falls back to Wayback for a Cloudflare-
+        blocked URL (e.g. Neoseeker, IGN), Wayback often returns this
+        interstitial instead of failing. Without this check the plugin saves
+        the meta-text as the guide content. Return True to instruct the
+        caller to skip this page."""
+        if not text:
+            return False
+        snippet = text[:600].strip()
+        if not snippet:
+            return False
+        # Strong signal
+        if snippet.startswith("Organization: Alexa Crawls"):
+            return True
+        # Looser: contains the Alexa Crawls signature AND mentions donating crawl data
+        if (
+            len(text.strip()) < 500
+            and "Alexa Crawls" in snippet
+            and ("donat" in snippet.lower() or "crawl data" in snippet.lower())
+        ):
+            return True
+        return False
+
     def _strip_wayback_chrome(self, text: str) -> str:
         """Strip Wayback Machine capture chrome that wraps the actual page.
 
@@ -4330,16 +4770,20 @@ class Plugin:
         return text[nl_pos + 1:].lstrip()
 
     def _crop_between_text_markers(self, text: str, start_markers: list[str], end_markers: list[str]) -> str:
+        # v0.41.1: MULTILINE so callers can use ^ / $ to anchor at line boundaries.
+        # Required by the GameFAQs extractor to match its "Guide and Walkthrough
+        # (PLATFORM) by AUTHOR" attribution line and skip the UI noise block above it.
+        flags = re.IGNORECASE | re.MULTILINE
         start_index = 0
         for pattern in start_markers:
-            match = re.search(pattern, text, flags=re.IGNORECASE)
+            match = re.search(pattern, text, flags=flags)
             if match:
                 start_index = match.start()
                 break
 
         end_index = len(text)
         for pattern in end_markers:
-            match = re.search(pattern, text[start_index:], flags=re.IGNORECASE)
+            match = re.search(pattern, text[start_index:], flags=flags)
             if match:
                 end_index = start_index + match.start()
                 break
@@ -4351,11 +4795,42 @@ class Plugin:
         lines = text.splitlines()
         cleaned_lines: list[str] = []
         in_pre = False
+        # v0.42.2: enriched patterns. The original only caught single-word UI
+        # widgets; lots of multi-word boilerplate from non-rpgsoluce/gamefaqs
+        # sites was leaking through. These now catch common header/footer/
+        # cookie/login/share/print/social UI patterns across English & French.
         noise_patterns = [
-            r"^(?:Menu|Navigation|Home|Accueil)$",
-            r"^(?:facebook|twitter|x\.com|instagram|youtube)$",
-            r"^(?:advertisement|publicité)$",
-            r"^(?:next|previous|suivant|précédent)$",
+            r"^(?:Menu|Navigation|Home|Accueil|Sommaire|Index)$",
+            r"^(?:facebook|twitter|x\.com|instagram|youtube|reddit|tiktok|discord|threads|mastodon)$",
+            r"^(?:advertisement|publicité|publicite|sponsored)$",
+            r"^(?:next|previous|suivant|précédent|precedent)$",
+            # Auth / account widgets
+            r"^(?:Log\s*in|Sign\s*in|Connexion|Connection|Se\s+connecter|Create\s+account|Cr[ée]er\s+un\s+compte|Register|S[''']?inscrire)\b",
+            r"^(?:Sign\s*up|Logout|Sign\s*out|Se\s+d[ée]connecter)\b",
+            # Cookie / GDPR / privacy banners
+            r"^(?:Accept\s+cookies?|Refuse|Refuser|Manage\s+preferences|G[ée]rer\s+(?:les\s+)?pr[ée]f[ée]rences)\b",
+            r"^(?:Cookie\s+policy|Politique\s+(?:des?\s+)?cookies?|GDPR|RGPD|Privacy\s+policy|Politique\s+de\s+confidentialit[ée])\b",
+            r"^(?:Terms\s+of\s+use|Conditions\s+(?:g[ée]n[ée]rales|d['']utilisation))\b",
+            # Newsletter / subscribe
+            r"^(?:Subscribe|S[''']?abonner|Newsletter|Inscription\s+(?:à\s+la\s+)?newsletter)\b",
+            # Action buttons (lone)
+            r"^(?:Submit|Soumettre|Envoyer|Send|Cancel|Annuler|Save|Sauvegarder|Reset|R[ée]initialiser)$",
+            r"^(?:Read\s+more|Lire\s+la\s+suite|Voir\s+plus|Show\s+more|Afficher\s+plus|Continue\s+reading)$",
+            # Share / print
+            r"^(?:Share|Partager|Tweet|Pin|Print|Imprimer|Email|E-?mail|Copy\s+link|Copier\s+le\s+lien)$",
+            # Search / find boxes
+            r"^(?:Search|Rechercher|Recherche|Search\s+the\s+site)$",
+            # Common single-word menu items (don't be too greedy)
+            r"^(?:About|Contact|Privacy|Terms|Help|Aide|FAQ|Forum|Blog|News|Actualit[ée]s?)$",
+            # Footer rights/copyright (catches "© <year> Site")
+            r"^\s*©\s*\d{4}",
+            # v0.42.2 B3: HTML residual fragments left by an imperfect parser
+            r"^(?:<!--|-->|<!\[CDATA\[|\]\]>)\s*$",
+            r"^</?[a-zA-Z][a-zA-Z0-9]*(?:\s+[^<>]*)?/?>$",
+            r"^\{\{[^}]*\}\}$",
+            r"^\[\[[^\]]*\]\]$",
+            # Hidden HTML artifacts
+            r"^(?:[ \s]*)$",  # truly blank including non-breaking spaces
         ]
         for raw_line in lines:
             stripped = raw_line.strip()
@@ -4398,6 +4873,156 @@ class Plugin:
 
     def _is_heading_marker_line(self, line: str) -> bool:
         return line.startswith("\x01H") and "\x01/H\x02" in line
+
+    # ------------------------------------------------------------------
+    # v0.41 — rpgsoluce.com specific chrome stripping
+    # ------------------------------------------------------------------
+
+    def _strip_rpgsoluce_chrome(self, text: str) -> str:
+        """Remove rpgsoluce.com boilerplate that the generic strippers miss.
+
+        Targets four distinct parasites observed in stored guides:
+        1. `recherche quand campagne -->` — leaked HTML comment closer
+        2. Page footer `© YYYY ... / Partenariats : / Puissance Zelda | ...`
+        3. Sidebar nav menu block (`Cheminement` + 5-9 flat-list lines)
+        4. Random author-attributed citation widget at page bottom
+
+        Safe-by-default: any regex failure or unexpected exception returns
+        the input unchanged. Each pattern is anchored and conservative."""
+        if not text:
+            return text
+        try:
+            text = _RPGSOLUCE_COMMENT_LEAK_RE.sub("", text)
+            text = _RPGSOLUCE_FOOTER_RE.sub("", text)
+            text = self._strip_rpgsoluce_menu_block(text)
+            # Citation widget: only on short lines (avoid eating prose that
+            # happens to end with ", X , YY").
+            cleaned_lines: list[str] = []
+            for line in text.split("\n"):
+                if len(line) <= 200 and _RPGSOLUCE_CITATION_RE.match(line.strip()):
+                    continue  # drop the citation line
+                cleaned_lines.append(line)
+            text = "\n".join(cleaned_lines)
+            # Collapse runs of blank lines produced by stripping
+            text = re.sub(r"\n{3,}", "\n\n", text)
+            return text
+        except Exception as exc:
+            try: self._debug_log(f"_strip_rpgsoluce_chrome failed: {exc}")
+            except Exception: pass
+            return text
+
+    def _strip_gamefaqs_chrome(self, text: str) -> str:
+        """v0.41.1: drop the GameFAQs sidebar/nav/widget noise (~55 lines)
+        that sits between the page H1 "Guide and Walkthrough" and the real
+        author-attributed FAQ content. Identifies the attribution line and
+        truncates everything above it.
+
+        Safe-by-default: returns input unchanged if attribution is not found."""
+        if not text:
+            return text
+        try:
+            attribution_re = re.compile(
+                r"^Guide and Walkthrough\s*\([^\)\n]+\)(?:\s*\([^\)\n]+\))?\s+by\s+\S+",
+                re.MULTILINE,
+            )
+            m = attribution_re.search(text)
+            if m:
+                return text[m.start():].lstrip()
+            return text
+        except Exception as exc:
+            try: self._debug_log(f"_strip_gamefaqs_chrome failed: {exc}")
+            except Exception: pass
+            return text
+
+    def _strip_vally8_chrome(self, text: str) -> str:
+        """v0.41.1: strip vally8.free.fr boilerplate that repeats at every
+        page boundary in multi-page crawls:
+        1. Nav menu block (Accueil Vally8 + items down to Forum)
+        2. "Voir la suite de la soluce" inter-page link
+        3. "Vous pouvez aussi vous rendre sur le forum" invite
+        4. "phpMyVisites | Open source web analytics" tracker line
+
+        Safe-by-default: any regex failure returns input unchanged."""
+        if not text:
+            return text
+        try:
+            # 1. Nav menu block — from "Accueil Vally8" through "Forum" line.
+            # The menu is a vertical list with blank lines between items.
+            text = re.sub(
+                r"^[ \t]*Accueil Vally8[ \t]*\n"
+                r"(?:[ \t]*={3,}[ \t]*\n)?"                # optional ==== underline
+                r"(?:[ \t]*\n)*"                            # leading blanks
+                r"(?:[^\n]{1,80}[ \t]*\n[ \t]*\n){1,30}"   # 1-30 short items + blank
+                r"[ \t]*Forum[ \t]*\n",
+                "",
+                text,
+                flags=re.MULTILINE,
+            )
+            # 2-4. Single-line footer parasites
+            text = re.sub(r"^[ \t]*phpMyVisites[^\n]*$", "", text, flags=re.MULTILINE)
+            text = re.sub(r"^[ \t]*Voir la suite de la soluce[ \t]*$", "", text, flags=re.MULTILINE)
+            text = re.sub(
+                r"^[ \t]*Voir la (?:première|deuxième|troisième|quatrième|cinquième|sixième|septième|huitième) partie[^\n]*$",
+                "",
+                text,
+                flags=re.MULTILINE,
+            )
+            text = re.sub(
+                r"^[ \t]*Vous pouvez aussi vous rendre sur le forum[^\n]*$",
+                "",
+                text,
+                flags=re.MULTILINE,
+            )
+            # Collapse runs of blanks left behind
+            text = re.sub(r"\n{3,}", "\n\n", text)
+            return text
+        except Exception as exc:
+            try: self._debug_log(f"_strip_vally8_chrome failed: {exc}")
+            except Exception: pass
+            return text
+
+    def _strip_rpgsoluce_menu_block(self, text: str) -> str:
+        """Detect and remove the rpgsoluce sidebar nav menu block.
+
+        Signature: a line containing only `Cheminement` followed by 2-12
+        non-empty lines forming a flat menu list (no internal sentence
+        boundaries). Block terminates at the first blank line.
+
+        Heuristic gates (all required to strip):
+        - Block has 2..12 lines
+        - At least one line is >= 40 chars (characteristic of dense menu)
+        - NO line contains a sentence boundary (lowercase + period + space + uppercase)
+
+        If any gate fails, the `Cheminement` line is left intact — it might
+        be a legitimate heading on a landing page."""
+        lines = text.split("\n")
+        out: list[str] = []
+        i = 0
+        while i < len(lines):
+            if lines[i].strip() == "Cheminement":
+                # Collect candidate block (non-empty lines until next blank or cap)
+                j = i + 1
+                block: list[str] = []
+                while j < len(lines):
+                    nxt = lines[j].strip()
+                    if not nxt:
+                        break
+                    block.append(nxt)
+                    j += 1
+                    if len(block) > 12:
+                        block = []  # abandon: too long to be a menu
+                        break
+                is_menu = (
+                    2 <= len(block) <= 12
+                    and any(len(b) >= 40 for b in block)
+                    and not any(_RPGSOLUCE_SENTENCE_BOUNDARY_RE.search(b) for b in block)
+                )
+                if is_menu:
+                    i = j  # skip "Cheminement" + the whole block
+                    continue
+            out.append(lines[i])
+            i += 1
+        return "\n".join(out)
 
     def _wrap_ascii_art_blocks(self, text: str) -> str:
         """Detect dense runs of non-prose lines (tables, ascii-art) and wrap them
@@ -4726,6 +5351,8 @@ class Plugin:
             sections = self._merge_small_sections(sections, lines)
             if len(sections) >= 2:
                 sections = self._split_large_sections(sections, lines)
+                # v0.42.0: polish titles before returning (all paths)
+                sections = self._polish_section_titles(sections)
                 return sections[:MAX_SECTION_COUNT], "headings"
 
         # --- PASS 2: GameFAQs-style TOC with [CODE] anchors ---
@@ -4734,6 +5361,7 @@ class Plugin:
             toc_sections = self._merge_small_sections(toc_sections, lines)
             if len(toc_sections) >= 2:
                 toc_sections = self._split_large_sections(toc_sections, lines)
+                toc_sections = self._polish_section_titles(toc_sections)
                 return toc_sections[:MAX_SECTION_COUNT], "toc_codes"
 
         # --- PASS 2b: numbered/lettered TOC without [CODE] markers ---
@@ -4744,6 +5372,7 @@ class Plugin:
             numbered_toc_sections = self._merge_small_sections(numbered_toc_sections, lines)
             if len(numbered_toc_sections) >= 2:
                 numbered_toc_sections = self._split_large_sections(numbered_toc_sections, lines)
+                numbered_toc_sections = self._polish_section_titles(numbered_toc_sections)
                 return numbered_toc_sections[:MAX_SECTION_COUNT], "numbered_toc"
 
         # --- PASS 3: ASCII banners ---
@@ -4752,6 +5381,7 @@ class Plugin:
             banner_sections = self._merge_small_sections(banner_sections, lines)
             if len(banner_sections) >= 2:
                 banner_sections = self._split_large_sections(banner_sections, lines)
+                banner_sections = self._polish_section_titles(banner_sections)
                 return banner_sections[:MAX_SECTION_COUNT], "banners"
 
         # --- PASS 4: heuristic fallback (stricter than before) ---
@@ -4759,7 +5389,280 @@ class Plugin:
         if heuristic_sections:
             heuristic_sections = self._merge_small_sections(heuristic_sections, lines)
             heuristic_sections = self._split_large_sections(heuristic_sections, lines)
-        return heuristic_sections[:MAX_SECTION_COUNT], ("heuristic" if heuristic_sections else "none")
+            heuristic_sections = self._polish_section_titles(heuristic_sections)
+            return heuristic_sections[:MAX_SECTION_COUNT], "heuristic"
+
+        # --- PASS 5 (v0.42.4): force-pagination fallback ---
+        # If NO method produced 2+ sections, the guide would render as one
+        # huge unstructured page. That's the case for prose-only guides like
+        # vally8 where sentences are NOT valid heading candidates (C3 rightly
+        # rejects them). Chunk the content into reasonable pages so the user
+        # can still navigate. Title format: "Page N/M".
+        if total > self.FORCED_PAGINATION_CHUNK * 2:
+            chunk = self.FORCED_PAGINATION_CHUNK
+            forced: list[GuideSection] = []
+            page_count = (total + chunk - 1) // chunk  # ceil
+            for page_num, chunk_start in enumerate(range(0, total, chunk), start=1):
+                chunk_end = min(chunk_start + chunk - 1, total - 1)
+                forced.append(GuideSection(
+                    title=f"Page {page_num}/{page_count}",
+                    line_start=chunk_start,
+                    line_end=chunk_end,
+                    heading_level=2,
+                ))
+            if len(forced) >= 2:
+                try: self._debug_log(f"  forced-pagination fallback: {len(forced)} pages of {chunk} lines")
+                except Exception: pass
+                return forced[:MAX_SECTION_COUNT], "forced-pages"
+        return [], "none"
+
+    # ==================================================================
+    # v0.42.0 — Section title polish (sidebar UX)
+    # ==================================================================
+
+    # Separators that mark a hierarchical title boundary ("Parent — Child").
+    # `—` (em-dash), `-`, and `:` all qualify when surrounded by whitespace.
+    _TITLE_SEPARATOR_RE = re.compile(r"(\s+[—–\-:]\s+)")
+    # ASCII decoration to trim from title ends.
+    _TITLE_TRAIL_DECOR_RE = re.compile(r"[\s\-=_~*#|]{3,}$")
+    # Existing (suite N) / (suite 2) suffix from _split_large_sections forced
+    # pagination — also catches "(1/3)" once we've numbered things.
+    _TITLE_SUITE_SUFFIX_RE = re.compile(r"\s*\((?:suite\s*)?\d+(?:/\d+)?\)\s*$", re.IGNORECASE)
+    # v0.42.2: title length cap. Anything over this in the sidebar becomes
+    # unreadable on Steam Deck. Lower than the 70 used by forced pagination
+    # because sidebar slots are narrower than the heading line itself.
+    TITLE_MAX_CHARS = 55
+
+    def _polish_section_titles(self, sections: list[GuideSection]) -> list[GuideSection]:
+        """v0.42.0: clean up section titles for sidebar readability.
+
+        Three transformations in order:
+        1. Trim trailing ASCII decoration: ``"Bataille à Lelcar---"`` → ``"Bataille à Lelcar"``
+        2. Strip inherited prefixes when 3+ consecutive sections share a long
+           parent prefix ending at a hierarchical separator: keep the leading
+           section's full title (as the parent), strip ``"Prefix — "`` from
+           all followers. Greatly shortens GameFAQs author-tabled prefixes.
+        3. Number consecutive same-title duplicates ``A`` ``A`` ``A`` →
+           ``A (1/3)`` ``A (2/3)`` ``A (3/3)``. Replaces the inconsistent
+           ``(suite N)`` from forced pagination with a clear position marker.
+
+        All transformations are best-effort: if a transformation would leave
+        a section with an empty title, the original is restored."""
+        if not sections:
+            return sections
+        try:
+            # Snapshot BEFORE so we can log how much each pass changed.
+            before = [s.title or "" for s in sections]
+            sections = self._trim_trailing_title_decoration(sections)
+            after_trim = [s.title or "" for s in sections]
+            sections = self._strip_inherited_prefixes(sections)
+            after_prefix = [s.title or "" for s in sections]
+            sections = self._number_consecutive_duplicates(sections)
+            after_number = [s.title or "" for s in sections]
+            # v0.42.2: 4th pass — truncate any title still over TITLE_MAX_CHARS.
+            # Necessary because prefix-strip helps SOME guides but not all
+            # (single titles with no shared prefix slip through). Length cap
+            # catches phrase-as-title pollution from heuristic detection too.
+            sections = self._truncate_long_titles(sections)
+            after_trunc = [s.title or "" for s in sections]
+            # Diagnostic: log how many titles each pass mutated.
+            ch_trim = sum(1 for b, a in zip(before, after_trim) if b != a)
+            ch_pref = sum(1 for b, a in zip(after_trim, after_prefix) if b != a)
+            ch_num = sum(1 for b, a in zip(after_prefix, after_number) if b != a)
+            ch_trunc = sum(1 for b, a in zip(after_number, after_trunc) if b != a)
+            total_changed = sum(1 for b, a in zip(before, after_trunc) if b != a)
+            try:
+                self._debug_log(
+                    f"  _polish_section_titles: {len(sections)} sections | "
+                    f"trim={ch_trim} prefix={ch_pref} number={ch_num} trunc={ch_trunc} total={total_changed}"
+                )
+                # If something changed, log a sample of the first few transformations
+                if total_changed:
+                    samples = 0
+                    for i, (b, a) in enumerate(zip(before, after_trunc)):
+                        if b != a:
+                            self._debug_log(f"    [{i}] {b[:60]!r} -> {a[:60]!r}")
+                            samples += 1
+                            if samples >= 5:
+                                break
+            except Exception: pass
+            return sections
+        except Exception as exc:
+            try: self._debug_log(f"_polish_section_titles failed: {exc}")
+            except Exception: pass
+            return sections
+
+    # v0.42.3: titles of FAQ meta-sections that pollute the sidebar without
+    # carrying walkthrough content. Pre-populated in hidden_section_titles
+    # at import time; user can unhide via the "Afficher masquées" toggle.
+    _META_FAQ_TITLE_RES = [
+        re.compile(r"^(?:AUTEUR|AUTHOR|AUTHORS?)\s*$", re.IGNORECASE),
+        re.compile(r"^(?:CR[ÉE]DITS?|CREDITS?|REMERCIEMENTS?|ACKNOWLEDG(?:E?MENTS?))\s*$", re.IGNORECASE),
+        re.compile(r"^(?:VERSION|VERSION\s+HISTORY|REVISION\s+HISTORY|CHANGELOG|HISTORIQUE)\s*$", re.IGNORECASE),
+        re.compile(r"^(?:DISCLAIMER|DISCLAIMERS?|MENTIONS?\s+L[ÉE]GALES?|D[ÉE]NI\s+DE\s+RESPONSABILIT[ÉE])\s*$", re.IGNORECASE),
+        re.compile(r"^(?:LICEN[CS]E|LICEN[CS]E\s+AGREEMENT|DROITS?(?:\s+D['']AUTEUR)?|COPYRIGHT)\s*$", re.IGNORECASE),
+        re.compile(r"^(?:INTRO|INTRODUCTION|PR[ÉE]FACE|PREAMBULE|PR[ÉE]AMBULE|FOREWORD|FOREWARD|AVANT[\-\s]PROPOS)\s*$", re.IGNORECASE),
+        re.compile(r"^(?:TABLE\s+(?:DES?\s+)?MATI[ÈE]RES?|TABLE\s+OF\s+CONTENTS?|TOC|CONTENTS?|SOMMAIRE|INDEX)\s*$", re.IGNORECASE),
+        re.compile(r"^(?:CONTACT|CONTACT\s+(?:INFO|ME)|FEEDBACK|EMAIL|E-?MAIL|COURRIEL)\s*$", re.IGNORECASE),
+        re.compile(r"^(?:FAQ\s*-?\s*INFO|FAQ\s+INFORMATIONS?|GUIDE\s+INFO)\s*$", re.IGNORECASE),
+        re.compile(r"^(?:LEGAL|LEGAL\s+(?:INFO|STUFF|NOTICE)|TERMS\s+(?:OF\s+USE)?)\s*$", re.IGNORECASE),
+        re.compile(r"^(?:UPDATES?\s+HISTORY|UPDATE\s+LOG)\s*$", re.IGNORECASE),
+    ]
+
+    def _detect_meta_faq_section_titles(
+        self, sections: list[GuideSection], content: str
+    ) -> list[str]:
+        """v0.42.3: identify section titles that look like FAQ meta-content
+        (author, credits, version, disclaimer, etc.) so they can be auto-hidden
+        in the sidebar by default. User can unhide via the toggle.
+
+        Returns a list of EXACT title strings (as currently in `sections`),
+        suitable for pre-populating `progress.hidden_section_titles`."""
+        if not sections:
+            return []
+        out: list[str] = []
+        seen: set[str] = set()
+        # Only consider the first ~8 sections AND the last ~5 sections — meta
+        # content typically lives at the top (intro, author info, TOC) or the
+        # bottom (credits, version history, disclaimer).
+        head_idx = list(range(min(8, len(sections))))
+        tail_idx = [i for i in range(max(0, len(sections) - 5), len(sections)) if i not in head_idx]
+        candidates = head_idx + tail_idx
+        for idx in candidates:
+            sec = sections[idx]
+            title = (sec.title or "").strip()
+            if not title or title in seen:
+                continue
+            for pattern in self._META_FAQ_TITLE_RES:
+                if pattern.match(title):
+                    out.append(title)
+                    seen.add(title)
+                    break
+        if out:
+            try: self._debug_log(f"  auto-hide meta-FAQ sections: {out}")
+            except Exception: pass
+        return out
+
+    def _truncate_long_titles(self, sections: list[GuideSection]) -> list[GuideSection]:
+        """v0.42.2: shorten titles > TITLE_MAX_CHARS by cutting at the nearest
+        word boundary and appending ellipsis. Keeps the start (the most
+        identifying part) and ensures the sidebar stays scannable."""
+        if not sections:
+            return sections
+        max_len = self.TITLE_MAX_CHARS
+        out: list[GuideSection] = []
+        for s in sections:
+            t = (s.title or "").strip()
+            if len(t) <= max_len:
+                out.append(s)
+                continue
+            # Cut at the last whitespace before max_len-1 so the ellipsis fits
+            cut = max_len - 1
+            slice_ = t[:cut]
+            ws = slice_.rfind(" ")
+            if ws >= int(max_len * 0.6):  # don't cut TOO short
+                slice_ = slice_[:ws]
+            new_title = slice_.rstrip(" -:—,.") + "…"
+            if new_title and new_title != t:
+                out.append(GuideSection(
+                    title=new_title,
+                    line_start=s.line_start,
+                    line_end=s.line_end,
+                    heading_level=s.heading_level,
+                    is_preformatted=s.is_preformatted,
+                ))
+            else:
+                out.append(s)
+        return out
+
+    def _trim_trailing_title_decoration(self, sections: list[GuideSection]) -> list[GuideSection]:
+        out: list[GuideSection] = []
+        for s in sections:
+            new_title = self._TITLE_TRAIL_DECOR_RE.sub("", s.title or "").strip()
+            if new_title and new_title != s.title:
+                out.append(GuideSection(
+                    title=new_title,
+                    line_start=s.line_start,
+                    line_end=s.line_end,
+                    heading_level=s.heading_level,
+                    is_preformatted=s.is_preformatted,
+                ))
+            else:
+                out.append(s)
+        return out
+
+    def _strip_inherited_prefixes(self, sections: list[GuideSection]) -> list[GuideSection]:
+        """When 3+ consecutive sections share a prefix of >= 25 chars ending at
+        a hierarchical separator, drop the prefix on followers (keep first)."""
+        if len(sections) < 3:
+            return sections
+        out = list(sections)
+        i = 0
+        while i < len(out) - 2:
+            title_i = out[i].title or ""
+            sep_match = self._TITLE_SEPARATOR_RE.search(title_i)
+            if not sep_match or sep_match.start() < 25:
+                i += 1
+                continue
+            prefix = title_i[:sep_match.start()]
+            sep_str = sep_match.group(1)
+            prefix_with_sep = prefix + sep_str
+            run_end = i + 1
+            while run_end < len(out):
+                t = out[run_end].title or ""
+                if t.startswith(prefix_with_sep) and len(t) > len(prefix_with_sep):
+                    run_end += 1
+                else:
+                    break
+            if run_end - i >= 3:
+                # Keep [i] (parent), strip prefix from [i+1..run_end).
+                for j in range(i + 1, run_end):
+                    suffix = (out[j].title or "")[len(prefix_with_sep):].strip()
+                    if suffix and len(suffix) >= 2:
+                        out[j] = GuideSection(
+                            title=suffix,
+                            line_start=out[j].line_start,
+                            line_end=out[j].line_end,
+                            heading_level=out[j].heading_level,
+                            is_preformatted=out[j].is_preformatted,
+                        )
+                i = run_end
+            else:
+                i += 1
+        return out
+
+    def _number_consecutive_duplicates(self, sections: list[GuideSection]) -> list[GuideSection]:
+        """When N+ consecutive sections share the same base title (ignoring any
+        ``(suite K)`` differentiator), rewrite as ``Title (k/N)`` so the user
+        sees progression in the sidebar instead of identical rows."""
+        if len(sections) < 2:
+            return sections
+        def base_title(t: str) -> str:
+            return self._TITLE_SUITE_SUFFIX_RE.sub("", t or "").strip()
+        out = list(sections)
+        i = 0
+        while i < len(out):
+            b = base_title(out[i].title or "")
+            if not b:
+                i += 1
+                continue
+            run_end = i + 1
+            while run_end < len(out) and base_title(out[run_end].title or "") == b:
+                run_end += 1
+            run_len = run_end - i
+            if run_len >= 2:
+                for k in range(run_len):
+                    idx = i + k
+                    new_title = f"{b} ({k+1}/{run_len})"
+                    out[idx] = GuideSection(
+                        title=new_title,
+                        line_start=out[idx].line_start,
+                        line_end=out[idx].line_end,
+                        heading_level=out[idx].heading_level,
+                        is_preformatted=out[idx].is_preformatted,
+                    )
+            i = run_end
+        return out
 
     SPLIT_LARGE_THRESHOLD = 350       # lines — sections beyond this get sub-segmented if possible
     SPLIT_MIN_SUB_LINES = 30          # don't create sub-sections shorter than this — avoids over-splitting
@@ -5306,6 +6209,40 @@ class Plugin:
 
             heading_like = False
             word_count = len([w for w in re.split(r"\s+", line) if w])
+
+            # v0.42.3 C3: reject sentence-like lines BEFORE evaluating other
+            # heading patterns. A heading is short and topical, NOT a sentence.
+            # Catches false positives like:
+            #   "Marina joins along with Belcoot."  (period as sentence end)
+            #   "Hugo Chapter 1 — Sgt. Joe, I suggest you put and keep your t" (mid-sentence)
+            #   "mission. When you're given the choice of wh"  (lowercase start, period in middle)
+            # Without this, the heuristic catches lots of prose fragments and
+            # pollutes the sidebar with phrase-as-title sections.
+            if line[0].islower():
+                # A heading doesn't start with a lowercase letter
+                continue
+            if re.search(r"[a-zà-ÿ]\.\s+[A-ZÀ-Ÿ]", line):
+                # Lowercase + period + space + UPPERCASE = sentence boundary
+                # in the middle of the line. Real headings don't contain that.
+                continue
+            # Ends with sentence-ending punctuation AND is "wordy" → likely prose
+            if line and line[-1] in ".!?" and word_count >= 6:
+                # Exception: keep "N. Title" patterns that legitimately end with period
+                # by checking the period is right after a digit.
+                if not re.match(r"^\d+\.\s+", line):
+                    continue
+            # Lots of common stopwords inside → prose, not heading
+            stopword_count = len(re.findall(
+                r"\b(?:the|and|with|that|this|your|you|are|was|were|will|from|into|"
+                r"have|has|had|been|being|but|not|all|any|some|when|which|who|whom|"
+                r"de|la|le|les|une|un|du|des|que|qui|quoi|dans|pour|avec|sur|sans|"
+                r"est|sont|été|être|avoir|fait|faire|on|nous|vous|ils|elles)\b",
+                line,
+                flags=re.IGNORECASE,
+            ))
+            if stopword_count >= 4:
+                # 4+ stopwords usually = prose. Skip.
+                continue
 
             # Explicit keyword prefix (strict)
             if re.match(

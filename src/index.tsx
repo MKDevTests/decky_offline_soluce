@@ -248,6 +248,33 @@ const setSectionNote = callable<[guideId: string, sectionIndex: number, done: bo
 const clearSectionNote = callable<[guideId: string, sectionIndex: number], GuideDetail>("clear_section_note");
 const reconstructSections = callable<[guideId: string], GuideDetail>("reconstruct_sections");
 const reloadGuideContent = callable<[guideId: string], GuideDetail>("reload_guide_content");
+// v0.41: strip site-specific chrome (rpgsoluce nav menu, footer, citation, HTML
+// comment leak) from an already-stored guide, then rebuild sections. Uses the
+// stored content as-is — no re-download. Auto-remaps progress/notes/bookmarks.
+const cleanExistingGuide = callable<[guideId: string], GuideDetail>("clean_existing_guide");
+// v0.42.2: batch operation — clean + rebuild sections (with polish) on EVERY
+// stored guide. Returns aggregate stats + per-guide changes for the UI.
+type PolishAllSummary = {
+  guides_processed: number;
+  total_chars_before: number;
+  total_chars_after: number;
+  total_chars_removed: number;
+  total_titles_changed: number;
+  per_guide: Array<{
+    guide_id: string;
+    title: string;
+    site: string;
+    before_chars?: number;
+    after_chars?: number;
+    chars_removed?: number;
+    before_sections?: number;
+    after_sections?: number;
+    section_delta?: number;
+    titles_changed?: number;
+    error?: string;
+  }>;
+};
+const polishAllGuides = callable<[], PolishAllSummary>("polish_all_guides");
 const toggleSectionHidden = callable<[guideId: string, sectionIndex: number], GuideDetail>("toggle_section_hidden");
 const showAllSections = callable<[guideId: string], GuideDetail>("show_all_sections");
 // A2 auto-backup
@@ -2338,8 +2365,10 @@ function Content() {
     const effectivePlatform = selectedLibraryItem?.platform || "Autre";
     setIsBusy(true); setError("");
     try {
-      // Always pull "all" sites — multi-site filter is applied client-side from searchSiteFilter
-      const results = await searchGuides(effectiveQuery, effectivePlatform, "all", selectedLanguage.value);
+      // v0.42.1: respect the selected site picker. When "all", backend does
+      // a generic search and filters post-hoc. When specific (e.g. "ign"),
+      // backend prepends site:DOMAIN so the engine returns only that site.
+      const results = await searchGuides(effectiveQuery, effectivePlatform, selectedSearchSite.value, selectedLanguage.value);
       setSearchResults(results);
       setSearchResultIndex(0);
       if (!results.length) setError("Aucun résultat. Change de langue ou affine le titre, puis relance.");
@@ -2360,7 +2389,14 @@ function Content() {
   };
 
   /** v0.27: import a specific search result. Uses the library item info if one is
-   * selected; otherwise falls back to the free-text query as game_title. */
+   * selected; otherwise falls back to the free-text query as game_title.
+   *
+   * v0.42.6 fix: previously when ANY library item was selected (e.g. "7 Sins"
+   * which is alphabetically first in PS2 ROMs), it silently overrode the user's
+   * search intent. If the user typed a query AND that query doesn't match the
+   * library item's title (case-insensitive substring either direction), respect
+   * the user's typed intent: use the query as game_title, NOT the library item.
+   */
   const handleImportResultDirect = async (result: GuideSearchResult) => {
     setIsBusy(true); setError("");
     try {
@@ -2369,15 +2405,28 @@ function Content() {
       let importRomHint: string;
       let importAliases: string;
       let importEmulator: string;
-      if (selectedLibraryItem) {
-        importTitle = selectedLibraryItem.custom_title || selectedLibraryItem.title;
+
+      // Determine if the user's typed query reflects intent that overrides
+      // the silently-selected library item.
+      const query = searchQuery.trim();
+      const libTitle = selectedLibraryItem
+        ? (selectedLibraryItem.custom_title || selectedLibraryItem.title)
+        : "";
+      const queryMatchesLib = query && libTitle && (
+        query.toLowerCase().includes(libTitle.toLowerCase()) ||
+        libTitle.toLowerCase().includes(query.toLowerCase())
+      );
+
+      if (selectedLibraryItem && (!query || queryMatchesLib)) {
+        // Library item is the intent (no query, or query aligns with it).
+        importTitle = libTitle;
         importPlatform = selectedLibraryItem.platform;
         importRomHint = selectedLibraryItem.primary_path || importTitle;
         importAliases = selectedLibraryItem.aliases.join("; ");
         importEmulator = selectedLibraryItem.emulator || "";
       } else {
         // Free-text search import: use the query (or fallback to result title) as game_title.
-        importTitle = (searchQuery.trim() || result.title).slice(0, 120);
+        importTitle = (query || result.title).slice(0, 120);
         importPlatform = "Autre";
         importRomHint = importTitle;
         importAliases = "";
@@ -2533,6 +2582,118 @@ function Content() {
       setSelectedSectionIndex(updated.progress.last_section_index ?? -1);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Reconstruction impossible");
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handlePolishAllGuides = async () => {
+    setIsBusy(true); setError("");
+    setDebugOutput("Nettoyage et reconstruction de tous les guides en cours…");
+    try {
+      const summary = await polishAllGuides();
+      // Reload guide list so the UI shows the freshly polished titles
+      try {
+        const fresh = await listGuides();
+        setGuides(fresh);
+        if (selectedGuide) {
+          const updated = fresh.find((g) => g.id === selectedGuide.id);
+          if (updated) {
+            const detail = await getGuide(updated.id);
+            setSelectedGuide(detail);
+            setSelectedSectionIndex(detail.progress.last_section_index ?? -1);
+          }
+        }
+      } catch {}
+      // Build a compact human-readable report for the debugOutput pane
+      const lines: string[] = [];
+      lines.push(
+        `Traités: ${summary.guides_processed} guides — ` +
+        `${summary.total_chars_removed.toLocaleString()} chars retirés, ` +
+        `${summary.total_titles_changed} titres modifiés`,
+      );
+      lines.push("");
+      for (const g of summary.per_guide) {
+        if (g.error) {
+          lines.push(`❌ ${g.title || g.guide_id} — ${g.error}`);
+          continue;
+        }
+        const cr = g.chars_removed ?? 0;
+        const tc = g.titles_changed ?? 0;
+        const sd = g.section_delta ?? 0;
+        const flag = (cr > 0 || tc > 0 || sd !== 0) ? "✓" : "·";
+        lines.push(
+          `${flag} ${(g.title || g.guide_id).slice(0, 35).padEnd(35)} ` +
+          `[${(g.site || "?").padEnd(20)}] ` +
+          `chars ${(g.before_chars || 0)}→${(g.after_chars || 0)} (-${cr.toLocaleString()}), ` +
+          `sect ${(g.before_sections || 0)}→${(g.after_sections || 0)}, ` +
+          `titles_changed=${tc}`,
+        );
+      }
+      setDebugOutput(lines.join("\n"));
+      try {
+        toaster.toast({
+          title: "Nettoyage terminé",
+          body: `${summary.guides_processed} guides traités, ${summary.total_titles_changed} titres modifiés, ${summary.total_chars_removed.toLocaleString()} chars retirés`,
+          duration: 5000,
+        });
+      } catch {}
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Nettoyage en lot impossible");
+      setDebugOutput("");
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleCleanExistingGuide = async () => {
+    if (!selectedGuide) return;
+    setIsBusy(true); setError("");
+    const beforeChars = selectedGuide.content?.length ?? 0;
+    const beforeSecs = selectedGuide.sections?.length ?? 0;
+    setDebugOutput("Nettoyage du contenu…");
+    try {
+      const updated = await cleanExistingGuide(selectedGuide.id);
+      setSelectedGuide(updated);
+      setGuides((c) => c.map((i) => (i.id === updated.id ? updated : i)));
+      setSelectedSectionIndex(updated.progress.last_section_index ?? -1);
+      const afterChars = updated.content?.length ?? 0;
+      const afterSecs = updated.sections?.length ?? 0;
+      const charsRemoved = beforeChars - afterChars;
+      const secsRemoved = beforeSecs - afterSecs;
+      const pctRaw = beforeChars ? (100 * charsRemoved) / beforeChars : 0;
+      // v0.41.2: GameFAQs strips ~500 chars (UI header) on a 500k-char guide =
+      // 0.1%, which Math.round → 0% and confused the user. Show absolute count
+      // when the percentage is small, and 2 decimals between 0 and 1%.
+      const pctDisplay =
+        pctRaw === 0
+          ? "0%"
+          : pctRaw < 1
+            ? `${pctRaw.toFixed(2)}%`
+            : pctRaw < 10
+              ? `${pctRaw.toFixed(1)}%`
+              : `${Math.round(pctRaw)}%`;
+      setDebugOutput(
+        `Nettoyé : ${beforeChars}→${afterChars} chars ` +
+        `(−${charsRemoved.toLocaleString()} = ${pctDisplay}), ` +
+        `${beforeSecs}→${afterSecs} sections.`,
+      );
+      let body: string;
+      if (charsRemoved > 0) {
+        body = `${charsRemoved.toLocaleString()} caractères retirés (${pctDisplay})`;
+        if (secsRemoved > 0) body += `, ${secsRemoved} sections fusionnées`;
+        else if (secsRemoved < 0) body += `, ${-secsRemoved} sections ajoutées`;
+      } else if (charsRemoved === 0 && secsRemoved !== 0) {
+        body = `Contenu déjà propre — ${beforeSecs}→${afterSecs} sections recalculées`;
+      } else {
+        body = `Aucun changement (déjà propre)`;
+      }
+      try {
+        toaster.toast({ title: "Guide nettoyé", body, duration: 3500 });
+      } catch {}
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Nettoyage impossible");
+      setDebugOutput("");
     } finally {
       setIsBusy(false);
     }
@@ -3253,6 +3414,11 @@ function Content() {
           </ButtonItem>
         </PanelSectionRow>
         <PanelSectionRow>
+          <ButtonItem layout="below" disabled={isBusy} onClick={() => void handlePolishAllGuides()}>
+            {isBusy ? "Nettoyage en cours…" : "🧹 Nettoyer + reconstruire TOUS les guides"}
+          </ButtonItem>
+        </PanelSectionRow>
+        <PanelSectionRow>
           <ButtonItem layout="below" disabled={isBusy} onClick={() => void handleClearDebug()}>
             Effacer le fichier debug
           </ButtonItem>
@@ -3521,6 +3687,15 @@ function Content() {
           <PanelSectionRow>
             <ButtonItem layout="below" disabled={isBusy} onClick={() => setLanguageIndex((v) => cycleIndex(v, LANGUAGE_CHOICES.length, 1))}>
               Langue : {selectedLanguage.label} (cycle)
+            </ButtonItem>
+          </PanelSectionRow>
+          <PanelSectionRow>
+            {/* v0.42.1: cycle de site cible. Quand != "Tous", la backend prefixe
+                site:DOMAIN à la query, ce qui force le moteur à ne retourner que
+                les URLs de ce site (utile pour IGN/Neoseeker/StrategyWiki qui
+                sont systématiquement déclassés dans les résultats génériques). */}
+            <ButtonItem layout="below" disabled={isBusy} onClick={() => setSearchSiteIndex((v) => cycleIndex(v, SEARCH_SITE_CHOICES.length, 1))}>
+              Site cible : {selectedSearchSite.label} (cycle)
             </ButtonItem>
           </PanelSectionRow>
           <PanelSectionRow>
@@ -4088,6 +4263,11 @@ function Content() {
               <PanelSectionRow>
                 <ButtonItem layout="below" disabled={isBusy} onClick={() => void handleReconstructSections()}>
                   🔧 Reconstruire le sommaire ({selectedGuide.sections.length} sections)
+                </ButtonItem>
+              </PanelSectionRow>
+              <PanelSectionRow>
+                <ButtonItem layout="below" disabled={isBusy} onClick={() => void handleCleanExistingGuide()}>
+                  🧹 Nettoyer le contenu (menu, footer, parasites)
                 </ButtonItem>
               </PanelSectionRow>
               <PanelSectionRow>

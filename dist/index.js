@@ -142,6 +142,11 @@ const setSectionNote = callable("set_section_note");
 const clearSectionNote = callable("clear_section_note");
 const reconstructSections = callable("reconstruct_sections");
 const reloadGuideContent = callable("reload_guide_content");
+// v0.41: strip site-specific chrome (rpgsoluce nav menu, footer, citation, HTML
+// comment leak) from an already-stored guide, then rebuild sections. Uses the
+// stored content as-is — no re-download. Auto-remaps progress/notes/bookmarks.
+const cleanExistingGuide = callable("clean_existing_guide");
+const polishAllGuides = callable("polish_all_guides");
 const toggleSectionHidden = callable("toggle_section_hidden");
 callable("show_all_sections");
 const getBackupConfig = callable("get_backup_config");
@@ -172,6 +177,17 @@ const testSearch = callable("test_search");
 const clearDebugLog = callable("clear_debug_log");
 // ========== Constants ==========
 const VIEW_SEQUENCE = ["sources", "library", "search", "guides"];
+const SEARCH_SITE_CHOICES = [
+    { value: "all", label: "Tous" },
+    { value: "gamefaqs", label: "GameFAQs" },
+    { value: "rpgsoluce", label: "RPGSoluce" },
+    { value: "ign", label: "IGN" },
+    { value: "jeuxvideo", label: "Jeuxvideo.com" },
+    { value: "vally8", label: "Vally8" },
+    { value: "darklevel", label: "Darklevel" },
+    { value: "neoseeker", label: "Neoseeker" },
+    { value: "strategywiki", label: "StrategyWiki" },
+];
 const LANGUAGE_CHOICES = [
     { value: "auto", label: "Auto" },
     { value: "fr", label: "Français" },
@@ -1406,7 +1422,7 @@ function Content() {
     const [storageIndex, setStorageIndex] = SP_REACT.useState(0);
     const [platformIndex, setPlatformIndex] = SP_REACT.useState(0);
     const [libraryIndex, setLibraryIndex] = SP_REACT.useState(0);
-    SP_REACT.useState(0);
+    const [searchSiteIndex, setSearchSiteIndex] = SP_REACT.useState(0);
     const [languageIndex, setLanguageIndex] = SP_REACT.useState(0);
     const [searchResultIndex, setSearchResultIndex] = SP_REACT.useState(0);
     // v0.27: free-text search input + multi-site filter
@@ -1561,6 +1577,7 @@ function Content() {
             candidates.add(dashSplit[0].trim());
         return Array.from(candidates).filter((c) => c.length >= 2);
     }, [selectedLibraryItem]);
+    const selectedSearchSite = SEARCH_SITE_CHOICES[searchSiteIndex] || SEARCH_SITE_CHOICES[0];
     const selectedLanguage = LANGUAGE_CHOICES[languageIndex] || LANGUAGE_CHOICES[0];
     const selectedGuideSummary = guides[guideIndex] || null;
     // A5: similar-guides suggestions for the currently selected guide
@@ -1893,8 +1910,10 @@ function Content() {
         setIsBusy(true);
         setError("");
         try {
-            // Always pull "all" sites — multi-site filter is applied client-side from searchSiteFilter
-            const results = await searchGuides(effectiveQuery, effectivePlatform, "all", selectedLanguage.value);
+            // v0.42.1: respect the selected site picker. When "all", backend does
+            // a generic search and filters post-hoc. When specific (e.g. "ign"),
+            // backend prepends site:DOMAIN so the engine returns only that site.
+            const results = await searchGuides(effectiveQuery, effectivePlatform, selectedSearchSite.value, selectedLanguage.value);
             setSearchResults(results);
             setSearchResultIndex(0);
             if (!results.length)
@@ -1909,7 +1928,14 @@ function Content() {
         }
     };
     /** v0.27: import a specific search result. Uses the library item info if one is
-     * selected; otherwise falls back to the free-text query as game_title. */
+     * selected; otherwise falls back to the free-text query as game_title.
+     *
+     * v0.42.6 fix: previously when ANY library item was selected (e.g. "7 Sins"
+     * which is alphabetically first in PS2 ROMs), it silently overrode the user's
+     * search intent. If the user typed a query AND that query doesn't match the
+     * library item's title (case-insensitive substring either direction), respect
+     * the user's typed intent: use the query as game_title, NOT the library item.
+     */
     const handleImportResultDirect = async (result) => {
         setIsBusy(true);
         setError("");
@@ -1919,8 +1945,17 @@ function Content() {
             let importRomHint;
             let importAliases;
             let importEmulator;
-            if (selectedLibraryItem) {
-                importTitle = selectedLibraryItem.custom_title || selectedLibraryItem.title;
+            // Determine if the user's typed query reflects intent that overrides
+            // the silently-selected library item.
+            const query = searchQuery.trim();
+            const libTitle = selectedLibraryItem
+                ? (selectedLibraryItem.custom_title || selectedLibraryItem.title)
+                : "";
+            const queryMatchesLib = query && libTitle && (query.toLowerCase().includes(libTitle.toLowerCase()) ||
+                libTitle.toLowerCase().includes(query.toLowerCase()));
+            if (selectedLibraryItem && (!query || queryMatchesLib)) {
+                // Library item is the intent (no query, or query aligns with it).
+                importTitle = libTitle;
                 importPlatform = selectedLibraryItem.platform;
                 importRomHint = selectedLibraryItem.primary_path || importTitle;
                 importAliases = selectedLibraryItem.aliases.join("; ");
@@ -1928,7 +1963,7 @@ function Content() {
             }
             else {
                 // Free-text search import: use the query (or fallback to result title) as game_title.
-                importTitle = (searchQuery.trim() || result.title).slice(0, 120);
+                importTitle = (query || result.title).slice(0, 120);
                 importPlatform = "Autre";
                 importRomHint = importTitle;
                 importAliases = "";
@@ -2103,6 +2138,123 @@ function Content() {
         }
         catch (e) {
             setError(e instanceof Error ? e.message : "Reconstruction impossible");
+        }
+        finally {
+            setIsBusy(false);
+        }
+    };
+    const handlePolishAllGuides = async () => {
+        setIsBusy(true);
+        setError("");
+        setDebugOutput("Nettoyage et reconstruction de tous les guides en cours…");
+        try {
+            const summary = await polishAllGuides();
+            // Reload guide list so the UI shows the freshly polished titles
+            try {
+                const fresh = await listGuides();
+                setGuides(fresh);
+                if (selectedGuide) {
+                    const updated = fresh.find((g) => g.id === selectedGuide.id);
+                    if (updated) {
+                        const detail = await getGuide(updated.id);
+                        setSelectedGuide(detail);
+                        setSelectedSectionIndex(detail.progress.last_section_index ?? -1);
+                    }
+                }
+            }
+            catch { }
+            // Build a compact human-readable report for the debugOutput pane
+            const lines = [];
+            lines.push(`Traités: ${summary.guides_processed} guides — ` +
+                `${summary.total_chars_removed.toLocaleString()} chars retirés, ` +
+                `${summary.total_titles_changed} titres modifiés`);
+            lines.push("");
+            for (const g of summary.per_guide) {
+                if (g.error) {
+                    lines.push(`❌ ${g.title || g.guide_id} — ${g.error}`);
+                    continue;
+                }
+                const cr = g.chars_removed ?? 0;
+                const tc = g.titles_changed ?? 0;
+                const sd = g.section_delta ?? 0;
+                const flag = (cr > 0 || tc > 0 || sd !== 0) ? "✓" : "·";
+                lines.push(`${flag} ${(g.title || g.guide_id).slice(0, 35).padEnd(35)} ` +
+                    `[${(g.site || "?").padEnd(20)}] ` +
+                    `chars ${(g.before_chars || 0)}→${(g.after_chars || 0)} (-${cr.toLocaleString()}), ` +
+                    `sect ${(g.before_sections || 0)}→${(g.after_sections || 0)}, ` +
+                    `titles_changed=${tc}`);
+            }
+            setDebugOutput(lines.join("\n"));
+            try {
+                toaster.toast({
+                    title: "Nettoyage terminé",
+                    body: `${summary.guides_processed} guides traités, ${summary.total_titles_changed} titres modifiés, ${summary.total_chars_removed.toLocaleString()} chars retirés`,
+                    duration: 5000,
+                });
+            }
+            catch { }
+        }
+        catch (e) {
+            setError(e instanceof Error ? e.message : "Nettoyage en lot impossible");
+            setDebugOutput("");
+        }
+        finally {
+            setIsBusy(false);
+        }
+    };
+    const handleCleanExistingGuide = async () => {
+        if (!selectedGuide)
+            return;
+        setIsBusy(true);
+        setError("");
+        const beforeChars = selectedGuide.content?.length ?? 0;
+        const beforeSecs = selectedGuide.sections?.length ?? 0;
+        setDebugOutput("Nettoyage du contenu…");
+        try {
+            const updated = await cleanExistingGuide(selectedGuide.id);
+            setSelectedGuide(updated);
+            setGuides((c) => c.map((i) => (i.id === updated.id ? updated : i)));
+            setSelectedSectionIndex(updated.progress.last_section_index ?? -1);
+            const afterChars = updated.content?.length ?? 0;
+            const afterSecs = updated.sections?.length ?? 0;
+            const charsRemoved = beforeChars - afterChars;
+            const secsRemoved = beforeSecs - afterSecs;
+            const pctRaw = beforeChars ? (100 * charsRemoved) / beforeChars : 0;
+            // v0.41.2: GameFAQs strips ~500 chars (UI header) on a 500k-char guide =
+            // 0.1%, which Math.round → 0% and confused the user. Show absolute count
+            // when the percentage is small, and 2 decimals between 0 and 1%.
+            const pctDisplay = pctRaw === 0
+                ? "0%"
+                : pctRaw < 1
+                    ? `${pctRaw.toFixed(2)}%`
+                    : pctRaw < 10
+                        ? `${pctRaw.toFixed(1)}%`
+                        : `${Math.round(pctRaw)}%`;
+            setDebugOutput(`Nettoyé : ${beforeChars}→${afterChars} chars ` +
+                `(−${charsRemoved.toLocaleString()} = ${pctDisplay}), ` +
+                `${beforeSecs}→${afterSecs} sections.`);
+            let body;
+            if (charsRemoved > 0) {
+                body = `${charsRemoved.toLocaleString()} caractères retirés (${pctDisplay})`;
+                if (secsRemoved > 0)
+                    body += `, ${secsRemoved} sections fusionnées`;
+                else if (secsRemoved < 0)
+                    body += `, ${-secsRemoved} sections ajoutées`;
+            }
+            else if (charsRemoved === 0 && secsRemoved !== 0) {
+                body = `Contenu déjà propre — ${beforeSecs}→${afterSecs} sections recalculées`;
+            }
+            else {
+                body = `Aucun changement (déjà propre)`;
+            }
+            try {
+                toaster.toast({ title: "Guide nettoyé", body, duration: 3500 });
+            }
+            catch { }
+        }
+        catch (e) {
+            setError(e instanceof Error ? e.message : "Nettoyage impossible");
+            setDebugOutput("");
         }
         finally {
             setIsBusy(false);
@@ -2524,7 +2676,7 @@ function Content() {
                                                 }
                                                 catch { }
                                             }, children: ["\u2705 Confirmer : utiliser le bouton #", lastTestButton] }) })) : (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.7rem", opacity: 0.7, padding: "2px 6px" }, children: "En attente d'une pression\u2026" }) })), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => { setHotkeyTestMode(false); setLastTestButton(null); }, children: "\u270B Annuler la capture" }) })] })) : (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: !enabled, onClick: () => cycle(1), children: "\u2192 Preset suivant" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: !enabled, onClick: () => cycle(-1), children: "\u2190 Preset pr\u00E9c\u00E9dent" }) })] }))] }));
-                })() : (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.75rem", opacity: 0.7 }, children: "Chargement pr\u00E9f\u00E9rences\u2026" }) })) }), SP_JSX.jsx(DFL.PanelSection, { title: "Auto-backup", children: backupConfig ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "\u00C9tat :" }), " ", backupConfig.enabled ? "✅ activé" : "❌ désactivé"] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Intervalle :" }), " tous les ", backupConfig.interval_days, " jour(s)"] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Dernier :" }), " ", backupConfig.last_backup_at ? formatDate(backupConfig.last_backup_at) : "Jamais"] }), backupConfig.last_backup_size_bytes > 0 ? (SP_JSX.jsxs("div", { style: { fontSize: "0.72rem", opacity: 0.78 }, children: [bytesToKo(backupConfig.last_backup_size_bytes), " \u2014 ", backupConfig.last_backup_path] })) : null] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleToggleBackupEnabled(), children: [backupConfig.enabled ? "Désactiver" : "Activer", " l'auto-backup"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleCycleBackupInterval(), children: ["Intervalle: ", backupConfig.interval_days, "j \u2192 suivant (", BACKUP_INTERVAL_CHOICES.join("/"), ")"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleRunBackupNow(), children: "\uD83D\uDCBE Sauver maintenant" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.7rem", opacity: 0.65, padding: "4px 6px" }, children: "V\u00E9rification 30s apr\u00E8s chaque d\u00E9marrage de Decky. Export vers ~/Documents/OfflineSoluce/exports/" }) })] })) : (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.75rem", opacity: 0.7 }, children: "Chargement config\u2026" }) })) }), SP_JSX.jsxs(DFL.PanelSection, { title: "Maintenance", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleReloadAllGuides(), children: ["\uD83D\uDD04 Re-t\u00E9l\u00E9charger TOUS les guides (", guides.length, ")"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.7, padding: "4px 6px" }, children: "Refait passer chaque guide par le crawler \u00E0 jour (multi-page, nouvelles strat\u00E9gies de d\u00E9coupage). R\u00E9seau + lent. Garde tes marque-pages/notes/progression." }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleReconstructAllSections(), children: ["\uD83D\uDD27 Reconstruire le sommaire de TOUS (", guides.length, ")"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.7, padding: "4px 6px" }, children: "Re-segmente tous les guides avec la derni\u00E8re logique (split-large-sections, banners, TOC). Pas de r\u00E9seau, rapide. Utile apr\u00E8s un update plugin sans changement de contenu." }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Sauvegarde / restauration", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleExportAll(), children: "Exporter tous les guides (bundle JSON)" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleListExports(), children: "Lister les exports disponibles" }) }), showExports && exportFiles.length ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { style: { fontWeight: 700, marginBottom: "4px" }, children: ["Export ", exportIndex + 1, "/", exportFiles.length] }), SP_JSX.jsx("div", { style: { fontSize: "0.85rem" }, children: exportFiles[exportIndex]?.name }), SP_JSX.jsxs("div", { style: { fontSize: "0.72rem", opacity: 0.75 }, children: [formatDate(exportFiles[exportIndex]?.modified_at || ""), " \u00B7 ", bytesToKo(exportFiles[exportIndex]?.size_bytes || 0)] })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || exportFiles.length <= 1, onClick: () => setExportIndex((v) => cycleIndex(v, exportFiles.length, -1)), children: "Export pr\u00E9c\u00E9dent" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || exportFiles.length <= 1, onClick: () => setExportIndex((v) => cycleIndex(v, exportFiles.length, 1)), children: "Export suivant" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !exportFiles[exportIndex], onClick: () => void handleImportSelectedExport(), children: "Importer cet export" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setShowExports(false), children: "Masquer la liste" }) })] })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Diagnostic", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleDebug(), children: isBusy ? "Diagnostic en cours..." : "Lancer le diagnostic" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleTestNetwork(), children: isBusy ? "Test réseau en cours..." : "Tester la connexion aux moteurs" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleTestSearch(), children: isBusy ? "Test recherche en cours..." : "Tester le parsing des résultats" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleClearDebug(), children: "Effacer le fichier debug" }) }), debugOutput ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: {
+                })() : (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.75rem", opacity: 0.7 }, children: "Chargement pr\u00E9f\u00E9rences\u2026" }) })) }), SP_JSX.jsx(DFL.PanelSection, { title: "Auto-backup", children: backupConfig ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "\u00C9tat :" }), " ", backupConfig.enabled ? "✅ activé" : "❌ désactivé"] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Intervalle :" }), " tous les ", backupConfig.interval_days, " jour(s)"] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Dernier :" }), " ", backupConfig.last_backup_at ? formatDate(backupConfig.last_backup_at) : "Jamais"] }), backupConfig.last_backup_size_bytes > 0 ? (SP_JSX.jsxs("div", { style: { fontSize: "0.72rem", opacity: 0.78 }, children: [bytesToKo(backupConfig.last_backup_size_bytes), " \u2014 ", backupConfig.last_backup_path] })) : null] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleToggleBackupEnabled(), children: [backupConfig.enabled ? "Désactiver" : "Activer", " l'auto-backup"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleCycleBackupInterval(), children: ["Intervalle: ", backupConfig.interval_days, "j \u2192 suivant (", BACKUP_INTERVAL_CHOICES.join("/"), ")"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleRunBackupNow(), children: "\uD83D\uDCBE Sauver maintenant" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.7rem", opacity: 0.65, padding: "4px 6px" }, children: "V\u00E9rification 30s apr\u00E8s chaque d\u00E9marrage de Decky. Export vers ~/Documents/OfflineSoluce/exports/" }) })] })) : (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.75rem", opacity: 0.7 }, children: "Chargement config\u2026" }) })) }), SP_JSX.jsxs(DFL.PanelSection, { title: "Maintenance", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleReloadAllGuides(), children: ["\uD83D\uDD04 Re-t\u00E9l\u00E9charger TOUS les guides (", guides.length, ")"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.7, padding: "4px 6px" }, children: "Refait passer chaque guide par le crawler \u00E0 jour (multi-page, nouvelles strat\u00E9gies de d\u00E9coupage). R\u00E9seau + lent. Garde tes marque-pages/notes/progression." }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleReconstructAllSections(), children: ["\uD83D\uDD27 Reconstruire le sommaire de TOUS (", guides.length, ")"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.7, padding: "4px 6px" }, children: "Re-segmente tous les guides avec la derni\u00E8re logique (split-large-sections, banners, TOC). Pas de r\u00E9seau, rapide. Utile apr\u00E8s un update plugin sans changement de contenu." }) })] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Sauvegarde / restauration", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => void handleExportAll(), children: "Exporter tous les guides (bundle JSON)" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleListExports(), children: "Lister les exports disponibles" }) }), showExports && exportFiles.length ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { style: { fontWeight: 700, marginBottom: "4px" }, children: ["Export ", exportIndex + 1, "/", exportFiles.length] }), SP_JSX.jsx("div", { style: { fontSize: "0.85rem" }, children: exportFiles[exportIndex]?.name }), SP_JSX.jsxs("div", { style: { fontSize: "0.72rem", opacity: 0.75 }, children: [formatDate(exportFiles[exportIndex]?.modified_at || ""), " \u00B7 ", bytesToKo(exportFiles[exportIndex]?.size_bytes || 0)] })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || exportFiles.length <= 1, onClick: () => setExportIndex((v) => cycleIndex(v, exportFiles.length, -1)), children: "Export pr\u00E9c\u00E9dent" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || exportFiles.length <= 1, onClick: () => setExportIndex((v) => cycleIndex(v, exportFiles.length, 1)), children: "Export suivant" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !exportFiles[exportIndex], onClick: () => void handleImportSelectedExport(), children: "Importer cet export" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setShowExports(false), children: "Masquer la liste" }) })] })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Diagnostic", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleDebug(), children: isBusy ? "Diagnostic en cours..." : "Lancer le diagnostic" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleTestNetwork(), children: isBusy ? "Test réseau en cours..." : "Tester la connexion aux moteurs" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleTestSearch(), children: isBusy ? "Test recherche en cours..." : "Tester le parsing des résultats" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handlePolishAllGuides(), children: isBusy ? "Nettoyage en cours…" : "🧹 Nettoyer + reconstruire TOUS les guides" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleClearDebug(), children: "Effacer le fichier debug" }) }), debugOutput ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: {
                                 whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: 0,
                                 padding: "10px 12px", borderRadius: "8px",
                                 border: "1px solid rgba(255,255,255,0.12)", background: "rgba(0,0,0,0.22)",
@@ -2556,7 +2708,7 @@ function Content() {
             : searchResults.filter((r) => searchSiteFilter.has(r.site));
         return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "Recherche", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.TextField, { value: searchQuery, onChange: (e) => setSearchQuery(e.target.value), placeholder: selectedLibraryItem
                                     ? `Cherche autre que « ${selectedLibraryItem.title.slice(0, 35)} »…`
-                                    : "Tape le nom du jeu (ex: Suikoden V)…", label: "Recherche", bShowClearAction: true }) }), selectedLibraryItem ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setSearchQuery(selectedLibraryItem.custom_title || selectedLibraryItem.title), children: ["\u2198 Remplir avec \u00AB ", (selectedLibraryItem.custom_title || selectedLibraryItem.title).slice(0, 40), " \u00BB"] }) })) : null, SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setLanguageIndex((v) => cycleIndex(v, LANGUAGE_CHOICES.length, 1)), children: ["Langue : ", selectedLanguage.label, " (cycle)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleSearch(), children: isBusy ? "Recherche en cours…" : "🔍 Lancer la recherche" }) }), searchQuery ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setSearchQuery(""), children: "Effacer le texte" }) })) : null] }), searchResults.length > 0 ? (SP_JSX.jsxs(DFL.PanelSection, { title: `Résultats (${filteredResults.length}${searchSiteFilter.size > 0 ? ` / ${searchResults.length}` : ""})`, children: [sitesInResults.length > 1 ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.75, padding: "2px 6px" }, children: "Filtre par site (clic = toggle) :" }) }), sitesInResults.map((siteLabel) => {
+                                    : "Tape le nom du jeu (ex: Suikoden V)…", label: "Recherche", bShowClearAction: true }) }), selectedLibraryItem ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setSearchQuery(selectedLibraryItem.custom_title || selectedLibraryItem.title), children: ["\u2198 Remplir avec \u00AB ", (selectedLibraryItem.custom_title || selectedLibraryItem.title).slice(0, 40), " \u00BB"] }) })) : null, SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setLanguageIndex((v) => cycleIndex(v, LANGUAGE_CHOICES.length, 1)), children: ["Langue : ", selectedLanguage.label, " (cycle)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setSearchSiteIndex((v) => cycleIndex(v, SEARCH_SITE_CHOICES.length, 1)), children: ["Site cible : ", selectedSearchSite.label, " (cycle)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleSearch(), children: isBusy ? "Recherche en cours…" : "🔍 Lancer la recherche" }) }), searchQuery ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setSearchQuery(""), children: "Effacer le texte" }) })) : null] }), searchResults.length > 0 ? (SP_JSX.jsxs(DFL.PanelSection, { title: `Résultats (${filteredResults.length}${searchSiteFilter.size > 0 ? ` / ${searchResults.length}` : ""})`, children: [sitesInResults.length > 1 ? (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.75, padding: "2px 6px" }, children: "Filtre par site (clic = toggle) :" }) }), sitesInResults.map((siteLabel) => {
                                     const active = searchSiteFilter.has(siteLabel);
                                     const count = searchResults.filter((r) => r.site === siteLabel).length;
                                     return (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => toggleSearchSite(siteLabel), children: [active ? "☑" : "☐", " ", siteLabel, " (", count, ")"] }) }, siteLabel));
@@ -2633,7 +2785,7 @@ function Content() {
                                                             const bm = selectedGuide.progress.named_bookmarks[bookmarkIndex];
                                                             if (bm)
                                                                 void handleDeleteNamedBookmark(bm.bookmark_id);
-                                                        }, children: "Supprimer ce marque-page" }) })] })) : null, SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || selectedSectionIndex < 0, onClick: () => void handleToggleDone(), children: currentSectionNote?.done ? "✅ Marquer NON faite" : "Marquer cette section comme faite" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || selectedSectionIndex < 0, onClick: () => void handleToggleFlag(), children: currentSectionNote?.flagged ? "⚐ Retirer le drapeau" : "⚐ Marquer à revoir" }) }), currentSectionNote ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleClearSectionNote(), children: "Retirer les marqueurs de cette section" }) })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Outils", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setFontScale((v) => Math.max(0.85, Math.round((v - 0.05) * 100) / 100)), children: ["A- R\u00E9duire le texte (", fontScale.toFixed(2), "x)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setFontScale((v) => Math.min(2.0, Math.round((v + 0.05) * 100) / 100)), children: ["A+ Agrandir le texte (", fontScale.toFixed(2), "x)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedGuide.url, onClick: () => void handleOpenExternal(), children: "\uD83C\uDF10 Ouvrir la source dans le navigateur" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleExportCurrent(), children: "\uD83D\uDCBE Exporter ce guide en JSON" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleReconstructSections(), children: ["\uD83D\uDD27 Reconstruire le sommaire (", selectedGuide.sections.length, " sections)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedGuide.url, onClick: () => void handleReloadGuideContent(), children: "\uD83D\uDD04 Re-t\u00E9l\u00E9charger le contenu (multi-page si dispo)" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleClearProgress(), children: "Effacer la reprise (garde marque-pages et notes)" }) }), selectedGuide.source_pages.length > 1 ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { style: { fontWeight: 700, marginBottom: "6px" }, children: ["Pages source (", selectedGuide.source_pages.length, ")"] }), selectedGuide.source_pages.slice(0, 6).map((page) => (SP_JSX.jsxs("div", { style: { fontSize: "0.78rem", opacity: 0.84, marginBottom: "4px" }, children: ["\u2022 ", page.title] }, `${page.url}-${page.title}`))), selectedGuide.source_pages.length > 6 ? (SP_JSX.jsxs("div", { style: { fontSize: "0.78rem", opacity: 0.74 }, children: ["\u2026 ", selectedGuide.source_pages.length - 6, " pages de plus"] })) : null] }) })) : null] })] })) : null] })) : null] }));
+                                                        }, children: "Supprimer ce marque-page" }) })] })) : null, SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || selectedSectionIndex < 0, onClick: () => void handleToggleDone(), children: currentSectionNote?.done ? "✅ Marquer NON faite" : "Marquer cette section comme faite" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || selectedSectionIndex < 0, onClick: () => void handleToggleFlag(), children: currentSectionNote?.flagged ? "⚐ Retirer le drapeau" : "⚐ Marquer à revoir" }) }), currentSectionNote ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleClearSectionNote(), children: "Retirer les marqueurs de cette section" }) })) : null] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Outils", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setFontScale((v) => Math.max(0.85, Math.round((v - 0.05) * 100) / 100)), children: ["A- R\u00E9duire le texte (", fontScale.toFixed(2), "x)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => setFontScale((v) => Math.min(2.0, Math.round((v + 0.05) * 100) / 100)), children: ["A+ Agrandir le texte (", fontScale.toFixed(2), "x)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedGuide.url, onClick: () => void handleOpenExternal(), children: "\uD83C\uDF10 Ouvrir la source dans le navigateur" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleExportCurrent(), children: "\uD83D\uDCBE Exporter ce guide en JSON" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleReconstructSections(), children: ["\uD83D\uDD27 Reconstruire le sommaire (", selectedGuide.sections.length, " sections)"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleCleanExistingGuide(), children: "\uD83E\uDDF9 Nettoyer le contenu (menu, footer, parasites)" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy || !selectedGuide.url, onClick: () => void handleReloadGuideContent(), children: "\uD83D\uDD04 Re-t\u00E9l\u00E9charger le contenu (multi-page si dispo)" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleClearProgress(), children: "Effacer la reprise (garde marque-pages et notes)" }) }), selectedGuide.source_pages.length > 1 ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { style: { fontWeight: 700, marginBottom: "6px" }, children: ["Pages source (", selectedGuide.source_pages.length, ")"] }), selectedGuide.source_pages.slice(0, 6).map((page) => (SP_JSX.jsxs("div", { style: { fontSize: "0.78rem", opacity: 0.84, marginBottom: "4px" }, children: ["\u2022 ", page.title] }, `${page.url}-${page.title}`))), selectedGuide.source_pages.length > 6 ? (SP_JSX.jsxs("div", { style: { fontSize: "0.78rem", opacity: 0.74 }, children: ["\u2026 ", selectedGuide.source_pages.length - 6, " pages de plus"] })) : null] }) })) : null] })] })) : null] })) : null] }));
     };
     return (SP_JSX.jsxs("div", { style: { width: "100%", boxSizing: "border-box", paddingBottom: "12px" }, children: [renderModeHeader(), error ? (SP_JSX.jsx(DFL.PanelSection, { title: "\u00C9tat", children: SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { ...boxStyle, borderColor: "rgba(255,100,100,0.35)" }, children: error }) }) })) : null, activeView === "sources" ? renderSourcesView() : null, activeView === "library" ? renderLibraryView() : null, activeView === "search" ? renderSearchView() : null, activeView === "guides" ? renderGuidesView() : null] }));
 }
