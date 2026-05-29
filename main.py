@@ -5561,6 +5561,117 @@ class Plugin:
     # because sidebar slots are narrower than the heading line itself.
     TITLE_MAX_CHARS = 55
 
+    # v0.42.9: stopwords (FR + EN) used to detect prose-as-heading.
+    _PROSE_STOPWORDS_RE = re.compile(
+        r"\b(?:the|and|with|that|this|your|you|are|was|were|will|from|into|have|has|had|"
+        r"been|but|not|all|when|which|who|whom|once|gets|get|"
+        r"de|la|le|les|une|un|des|du|que|qui|quoi|dans|pour|avec|sur|sans|"
+        r"est|sont|été|être|fait|faire|vous|nous|ils|elles|ainsi|aussi|"
+        r"plusieurs|quelques|voici|voilà)\b",
+        re.IGNORECASE,
+    )
+
+    def _is_prose_heading(self, title: str) -> bool:
+        """v0.42.9: True if `title` looks like a prose sentence / mid-content
+        fragment wrongly promoted to a section heading, rather than a real
+        topical heading.
+
+        CONSERVATIVE (high precision): protects structural headings (banners,
+        chapter markers, numbered, all-caps) and short noun-phrase labels.
+        Only flags clear prose — long sentences, multi-sentence fragments,
+        wordy colon lead-ins, truncated prose, embedded game-data lines, and
+        repeated-word colon junk. Tuned against the real guide dump so it does
+        NOT eat 'How to Recruit:', 'Personal Skills:', 'Mueller joins...' etc."""
+        t = (title or "").strip()
+        if not t:
+            return False
+        # --- Protect structural headings ---
+        if "|" in t:                                    # banner: | ALEXANDRIE |
+            return False
+        if t.startswith("->") or t.startswith("=") or t.startswith("*"):
+            return False
+        if re.match(r"^(?:chapter|chapitre|part|partie|section|episode|acte|disc|cd|prologue|epilogue|ending|fin)\b", t, re.IGNORECASE):
+            return False
+        if re.match(r"^[IVXLC]{1,5}[\.\)]\s", t):       # roman numeral list
+            return False
+        letters = [c for c in t if c.isalpha()]
+        if letters and sum(1 for c in letters if c.isupper()) >= 0.7 * len(letters) and len(t.split()) >= 3:
+            return False                                # spaced-caps banner / ALL CAPS heading
+        words = [w for w in re.split(r"\s+", t) if w]
+        wc = len(words)
+        # --- Flag prose ---
+        # 1. Repeated-word colon junk: "Talents : Talents :"
+        if re.match(r"^(.{2,30}?)\s*:\s*\1\s*:?\s*$", t):
+            return True
+        # 2. Internal sentence boundary (multi-sentence fragment)
+        if re.search(r"[a-zà-ÿ][.!?]\s+[A-ZÀ-Ÿ]", t):
+            return True
+        # 3. Ends with sentence punctuation AND wordy (>=6 words)
+        if t[-1] in ".!?" and wc >= 6:
+            return True
+        # 4. Ends with colon AND wordy (>=5 words) = prose lead-in
+        if t.rstrip().endswith(":") and wc >= 5:
+            return True
+        # 5. Truncated prose: ends with ellipsis AND wordy
+        if (t.endswith("…") or t.endswith("...")) and wc >= 5:
+            return True
+        # 6. Embedded game-data line: "(HP: 150)", "[33 Gil]"
+        if (re.search(r"\(\s*HP\s*:\s*\d+", t, re.IGNORECASE) or re.search(r"\[\s*\d+\s*(?:Gil|gil|PO|HP|MP)\b", t)) and wc >= 4:
+            return True
+        # 7. High stopword density = prose
+        if wc >= 6 and len(self._PROSE_STOPWORDS_RE.findall(t)) >= 3:
+            return True
+        return False
+
+    def _merge_prose_titled_sections(self, sections: list[GuideSection]) -> list[GuideSection]:
+        """v0.42.9: absorb prose-titled sections into their neighbor (previous,
+        or next if it's the first). Content is preserved — only the spurious
+        boundary is removed. Keeps the surviving section's title.
+
+        v0.42.10 SIZE GUARD: only merge if the result stays under
+        SPLIT_LARGE_THRESHOLD lines. Without this, a chain of consecutive
+        prose-titled sections (e.g. a 1800-line prose block that forced-
+        pagination chopped into 250-line pieces, all sharing the same prose
+        title) would re-fuse into a single 1000+ line monster — endless scroll
+        on the Deck, worse than the original. When merging would exceed the
+        cap, keep the prose section standalone: an ugly title is better than
+        an un-navigable blob."""
+        if len(sections) < 2:
+            return sections
+        cap = self.SPLIT_LARGE_THRESHOLD
+
+        def size(s: GuideSection) -> int:
+            return s.line_end - s.line_start + 1
+
+        out: list[GuideSection] = []
+        for sec in sections:
+            if self._is_prose_heading(sec.title or "") and out:
+                prev = out[-1]
+                if size(prev) + size(sec) <= cap:
+                    # Safe to absorb: result stays navigable.
+                    out[-1] = GuideSection(
+                        title=prev.title,
+                        line_start=prev.line_start,
+                        line_end=max(prev.line_end, sec.line_end),
+                        heading_level=prev.heading_level,
+                        is_preformatted=prev.is_preformatted,
+                    )
+                    continue
+                # else: too big to merge — keep standalone (no monster).
+            out.append(sec)
+        # Edge case: FIRST section prose — fold into next only if it stays small.
+        if len(out) >= 2 and self._is_prose_heading(out[0].title or ""):
+            if size(out[0]) + size(out[1]) <= cap:
+                merged_first = GuideSection(
+                    title=out[1].title,
+                    line_start=out[0].line_start,
+                    line_end=out[1].line_end,
+                    heading_level=out[1].heading_level,
+                    is_preformatted=out[1].is_preformatted,
+                )
+                out = [merged_first] + out[2:]
+        return out
+
     def _polish_section_titles(self, sections: list[GuideSection]) -> list[GuideSection]:
         """v0.42.0: clean up section titles for sidebar readability.
 
@@ -5579,6 +5690,15 @@ class Plugin:
         if not sections:
             return sections
         try:
+            # v0.42.9: STEP 0 — merge sections whose TITLE is prose/garbage
+            # (mid-content sentences wrongly promoted to headings by banners /
+            # numbered_toc / heuristic-during-split). Absorbs them into the
+            # previous section so no content is lost, just the bogus boundary.
+            n_before_merge = len(sections)
+            sections = self._merge_prose_titled_sections(sections)
+            if len(sections) != n_before_merge:
+                try: self._debug_log(f"  prose-merge: {n_before_merge} -> {len(sections)} sections")
+                except Exception: pass
             # Snapshot BEFORE so we can log how much each pass changed.
             before = [s.title or "" for s in sections]
             sections = self._trim_trailing_title_decoration(sections)
