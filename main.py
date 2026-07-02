@@ -91,7 +91,7 @@ MIN_SECTION_CONTENT_LINES = 15
 # Hard minimum span in raw lines between two consecutive section starts.
 MIN_SECTION_SPAN_LINES = 6
 ALLOWED_SCHEMES = {"http", "https"}
-SEARCH_RESULT_LIMIT = 12
+SEARCH_RESULT_LIMIT = 16
 SEARCH_RESULTS_PER_SITE = 4
 SEARCH_CACHE_TTL_SEC = 120
 EXPORT_ROOT = Path("/home/deck/Documents/OfflineSoluce/exports")
@@ -898,6 +898,10 @@ class Plugin:
         # A2 auto-backup config
         self._backup_config_path = self._runtime_dir / "backup_config.json"
         self._search_cache: dict[str, tuple[float, str, str]] = {}
+        # v0.43.14: background-import jobs. job_id -> {state, done, total, msg,
+        # guide_id, error, title, section_count}. Imports run in a thread pool so
+        # the asyncio loop stays free to answer get_import_status polls.
+        self._imports: dict[str, dict[str, Any]] = {}
         self._debug_dir = Path("/home/deck/Documents/Plugins/OfflineSoluce")
         try:
             self._debug_dir.mkdir(parents=True, exist_ok=True)
@@ -1374,16 +1378,64 @@ class Plugin:
             raise ValueError("Le moteur de recherche demande un CAPTCHA. Attends 1-2 minutes et réessaie.")
 
         # Parse all results (both stdlib and regex parsers)
-        all_parsed: list[GuideSearchResult] = []
-        if _HAS_HTML_PARSER:
+        all_parsed: list[GuideSearchResult] = self._parse_search_html(html_text)
+
+        # v0.43.9: FR discovery pass. In "all" mode with French requested, the
+        # generic SERP is English-dominated (GameFAQs/IGN) and French guide sites
+        # never surface — so the FR filter looked "broken". Run a supplementary
+        # search restricted to the French guide domains so French results enter
+        # the candidate pool; the language-aware scoring below then floats them
+        # to the top. Non-fatal: any failure just falls back to the general set.
+        if normalized_lang == "fr" and preferred_key in {"", "all", "tous"}:
+            fr_domains = ["rpgsoluce.com", "jeuxvideo.com", "vally8.free.fr", "darklevel.free.fr"]
+            fr_clause = " OR ".join(f"site:{d}" for d in fr_domains)
+            fr_query = re.sub(r"\s+", " ", f"({fr_clause}) {normalized_query} {platform_token} soluce").strip()
             try:
-                stdlib_parser = _DuckDuckGoSearchParser()
-                stdlib_parser.feed(html_text)
-                stdlib_parser.close()
-                all_parsed.extend(stdlib_parser.results)
-            except Exception:
-                pass
-        all_parsed.extend(_regex_parse_ddg_results(html_text))
+                fr_cache_key = f"fr-sites|{fr_query}"
+                fr_cached = self._get_cached_search(fr_cache_key)
+                if fr_cached is not None:
+                    fr_html, _fr_engine = fr_cached
+                    self._debug_log(f"  FR pass cache HIT ({len(fr_html)} chars)")
+                else:
+                    fr_html, _ = self._download_search_page(fr_query, "fr")
+                    self._set_cached_search(fr_cache_key, fr_html, getattr(self, "_last_search_engine", "?"))
+                    self._debug_log(f"  FR pass got {len(fr_html)} chars for '{fr_query}'")
+                if not self._looks_like_captcha(fr_html):
+                    fr_parsed = self._parse_search_html(fr_html)
+                    self._debug_log(f"  FR pass added {len(fr_parsed)} candidates")
+                    all_parsed.extend(fr_parsed)
+            except Exception as exc:
+                self._debug_log(f"  FR pass failed (non-fatal): {exc}")
+
+        # v0.43.15: single-site consistency + fuzz fallback. A `site:DOMAIN` query
+        # returns 0 on some engines (observed on neoseeker) even though the plain
+        # search finds the site's page — so "filter Neoseeker" gave nothing while
+        # "all" gave one result. When ONE site is chosen, ALSO pull the general
+        # (no site: prefix) query; the allowed-site filter below keeps only that
+        # site, so a filtered search never returns FEWER than all-mode would, and
+        # near-miss/typo results still surface (they rank lower, not dropped).
+        if preferred_key not in {"", "all", "tous"}:
+            gen_parts = [normalized_query]
+            if platform_token:
+                gen_parts.append(platform_token)
+            gen_parts.append("walkthrough guide soluce" if normalized_lang == "fr" else "walkthrough guide faq")
+            general_query = re.sub(r"\s+", " ", " ".join(p for p in gen_parts if p)).strip()
+            try:
+                gen_cache_key = f"gen|{normalized_lang}|{general_query}"
+                gen_cached = self._get_cached_search(gen_cache_key)
+                if gen_cached is not None:
+                    gen_html, _g = gen_cached
+                    self._debug_log(f"  single-site fallback cache HIT ({len(gen_html)} chars)")
+                else:
+                    gen_html, _ = self._download_search_page(general_query, normalized_lang)
+                    self._set_cached_search(gen_cache_key, gen_html, getattr(self, "_last_search_engine", "?"))
+                    self._debug_log(f"  single-site fallback got {len(gen_html)} chars for '{general_query}'")
+                if not self._looks_like_captcha(gen_html):
+                    gen_parsed = self._parse_search_html(gen_html)
+                    self._debug_log(f"  single-site fallback added {len(gen_parsed)} general candidates")
+                    all_parsed.extend(gen_parsed)
+            except Exception as exc:
+                self._debug_log(f"  single-site fallback failed (non-fatal): {exc}")
 
         # Dedupe by URL, prefer version with longer title
         by_url: dict[str, GuideSearchResult] = {}
@@ -1427,11 +1479,18 @@ class Plugin:
             final_seen.add(parsed.url)
 
             site_label = str(matched_site_config.get("label", matched_site_key))
-            score = self._score_search_result(matched_site_key, normalized_query, normalized_platform, parsed.title, parsed.url, parsed.snippet)
+            score = self._score_search_result(matched_site_key, normalized_query, normalized_platform, parsed.title, parsed.url, parsed.snippet, normalized_lang)
             final_results.append(GuideSearchResult(
                 title=parsed.title, url=parsed.url, site=site_label,
                 snippet=parsed.snippet, score=score,
             ))
+
+        # v0.43.10: collapse per-chapter fragments of the same guide (rpgsoluce/
+        # vally8/darklevel/jeuxvideo) to a single root result before ranking.
+        n_before_collapse = len(final_results)
+        final_results = self._collapse_guide_fragments(final_results)
+        if len(final_results) != n_before_collapse:
+            self._debug_log(f"  fragment-collapse: {n_before_collapse} -> {len(final_results)} results")
 
         final_results.sort(key=lambda item: (-item.score, item.site, item.title.casefold()))
         self._debug_log(f"search_guides: {len(final_results)} final results after filter")
@@ -1464,18 +1523,112 @@ class Plugin:
         aliases: str = "",
         emulator: str = "",
     ) -> dict[str, Any]:
+        """v0.43.14: run the (blocking, possibly multi-page) import in a thread
+        pool so the asyncio loop is NOT frozen for the whole crawl. Kept for
+        callers wanting a single awaited result; the UI uses start_import +
+        get_import_status for progress + background behaviour."""
         if not _HAS_URLLIB:
             raise ValueError("L'import de guides nécessite le module réseau (indisponible dans cette sandbox)")
+        import asyncio as _asyncio
+        loop = _asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, self._do_import_sync, url, game_title, platform, rom_hint, aliases, emulator, None,
+        )
+
+    async def start_import(
+        self,
+        url: str,
+        game_title: str = "",
+        platform: str = "Autre",
+        rom_hint: str = "",
+        aliases: str = "",
+        emulator: str = "",
+    ) -> dict[str, Any]:
+        """v0.43.14: kick off a background import, return a job_id immediately.
+        The crawl runs in a thread pool; poll get_import_status(job_id) for live
+        progress. Big multi-page guides (Neoseeker) no longer freeze the UI, and
+        the import keeps running even if the user closes the reader."""
+        if not _HAS_URLLIB:
+            raise ValueError("L'import de guides nécessite le module réseau (indisponible dans cette sandbox)")
+        import asyncio as _asyncio
+        import uuid as _uuid
+        if not hasattr(self, "_imports"):
+            self._imports = {}
+        job_id = _uuid.uuid4().hex[:12]
+        self._imports[job_id] = {
+            "state": "running", "done": 0, "total": 0, "msg": "Démarrage…",
+            "guide_id": None, "error": None, "title": game_title or url, "section_count": 0,
+        }
+        loop = _asyncio.get_event_loop()
+        fut = loop.run_in_executor(
+            None, self._do_import_sync, url, game_title, platform, rom_hint, aliases, emulator, job_id,
+        )
+
+        def _done(f: Any) -> None:
+            try:
+                res = f.result()
+                self._imports[job_id].update(
+                    state="done", guide_id=res.get("id"),
+                    section_count=int(res.get("section_count") or len(res.get("sections") or [])),
+                    msg="Terminé ✓",
+                )
+            except Exception as exc:
+                self._imports[job_id].update(state="error", error=str(exc), msg=f"Échec : {exc}")
+
+        fut.add_done_callback(_done)
+        return {"job_id": job_id}
+
+    async def get_import_status(self, job_id: str) -> dict[str, Any]:
+        """v0.43.14: poll target for the import-progress UI."""
+        if not hasattr(self, "_imports"):
+            return {"state": "unknown"}
+        return self._imports.get(job_id) or {"state": "unknown"}
+
+    async def list_imports(self) -> list[dict[str, Any]]:
+        """v0.43.18: all import jobs (running first, then recently finished), each
+        with its job_id, so the Home/Library can show ongoing background imports
+        even after the user leaves the search screen."""
+        if not hasattr(self, "_imports"):
+            return []
+        out = [{**job, "job_id": jid} for jid, job in self._imports.items()]
+        order = {"running": 0, "error": 1, "done": 2}
+        out.sort(key=lambda j: order.get(j.get("state", ""), 3))
+        return out
+
+    async def dismiss_import(self, job_id: str) -> bool:
+        """v0.43.18: forget a finished import job (clears it from the Home list)."""
+        if hasattr(self, "_imports"):
+            self._imports.pop(job_id, None)
+        return True
+
+    def _do_import_sync(
+        self,
+        url: str,
+        game_title: str = "",
+        platform: str = "Autre",
+        rom_hint: str = "",
+        aliases: str = "",
+        emulator: str = "",
+        job_id: "str | None" = None,
+    ) -> dict[str, Any]:
+        """v0.43.14: SYNC import body (validate → crawl → sections → save). Runs
+        in a thread. If job_id is given, reports per-page progress into
+        self._imports[job_id] through the crawl callback."""
         self._switch_debug_file("save_guide.log")
-        self._debug_log(f"save_guide: url='{url}' game='{game_title}' platform='{platform}'")
+        self._debug_log(f"_do_import_sync: url='{url}' game='{game_title}' platform='{platform}' job={job_id}")
         try:
             normalized_url = self._validate_url(url)
             self._debug_log(f"  validated url: {normalized_url}")
         except Exception as exc:
             self._debug_log(f"  validate_url FAILED: {exc}")
             raise
+
+        def progress_cb(done: int, total: int, current: str) -> None:
+            if job_id and job_id in self._imports:
+                self._imports[job_id].update(done=done, total=total, msg=f"Téléchargement page {done}/{total}…")
+
         try:
-            collected = self._collect_guide(normalized_url)
+            collected = self._collect_guide(normalized_url, progress_cb)
             self._debug_log(f"  collected: title='{collected.get('title','')}' extractor='{collected.get('extractor','')}' content_len={len(collected.get('content',''))}")
         except Exception as exc:
             self._debug_log(f"  collect_guide FAILED: {exc}")
@@ -1488,7 +1641,35 @@ class Plugin:
         if len(content) > MAX_CONTENT_CHARS:
             content = content[:MAX_CONTENT_CHARS] + "\n\n[... contenu tronqué ...]"
 
-        sections, detection_method = self._build_sections_with_method(content)
+        if job_id and job_id in self._imports:
+            self._imports[job_id].update(msg="Découpage en sections…")
+        # v0.43.17: MULTI-PAGE guides (Neoseeker, JV, rpgsoluce trees) are sectioned
+        # BY PAGE — one section per fetched chapter, titled by that page — instead of
+        # re-derived by banner/heading heuristics. That heuristic path ran
+        # _merge_small_sections, which fused small pages into a neighbour and left
+        # the content under the WRONG title (e.g. "Chapter 1 Ophilia" holding the
+        # "How the guide works" intro). Single-page guides keep the smart detection.
+        page_boundaries = collected.get("page_boundaries") or []
+        if len(page_boundaries) > 1:
+            lines = content.split("\n")
+            n = len(lines)
+            page_secs: list[GuideSection] = []
+            for i, pb in enumerate(page_boundaries):
+                start = min(int(pb.get("line_start", 0)), max(0, n - 1))
+                end = (int(page_boundaries[i + 1]["line_start"]) - 1) if i + 1 < len(page_boundaries) else n - 1
+                end = max(start, min(end, n - 1))
+                page_secs.append(GuideSection(title=str(pb.get("title") or f"Page {i + 1}"), line_start=start, line_end=end, heading_level=2))
+            # Split oversized chapters, then clean titles — but DO NOT merge (that's
+            # what broke attribution). Keep every page as its own navigable section.
+            page_secs = self._split_large_sections(page_secs, lines)
+            page_secs = self._trim_trailing_title_decoration(page_secs)
+            page_secs = self._normalize_gamefaqs_titles(page_secs)
+            page_secs = self._number_consecutive_duplicates(page_secs)
+            page_secs = self._truncate_long_titles(page_secs)
+            sections, detection_method = page_secs, "pages"
+            self._debug_log(f"  per-page sectioning: {len(page_boundaries)} pages -> {len(sections)} sections")
+        else:
+            sections, detection_method = self._build_sections_with_method(content)
         title = str(collected["title"])
         guide_id = self._make_id(title)
         snippet = self._make_snippet(content)
@@ -1502,7 +1683,6 @@ class Plugin:
         )
         # v0.42.3: pre-populate hidden_section_titles with auto-detected
         # meta-FAQ sections (AUTEUR / Credits / Disclaimer / Version / TOC).
-        # User can unhide via the sidebar toggle if they want to read them.
         auto_hidden = self._detect_meta_faq_section_titles(sections, content)
         record = GuideRecord(
             id=guide_id,
@@ -1523,7 +1703,7 @@ class Plugin:
             progress=GuideReadingProgress(hidden_section_titles=auto_hidden),
         )
         self._write_record(record)
-        self._debug_log(f"  save_guide SUCCESS: id={guide_id} title='{title}' sections={len(sections)} words={len(content.split())}")
+        self._debug_log(f"  _do_import_sync SUCCESS: id={guide_id} title='{title}' sections={len(sections)} words={len(content.split())}")
         self._switch_debug_file("main.log")
         return self._record_to_payload(record)
 
@@ -3916,6 +4096,134 @@ class Plugin:
                 return target
         return raw_value
 
+    def _parse_search_html(self, html_text: str) -> list[GuideSearchResult]:
+        """v0.43.9: parse a SERP HTML page with both the stdlib and the regex
+        parser, returning the union. Extracted so the general and the FR-discovery
+        passes share one code path."""
+        parsed: list[GuideSearchResult] = []
+        if _HAS_HTML_PARSER:
+            try:
+                stdlib_parser = _DuckDuckGoSearchParser()
+                stdlib_parser.feed(html_text)
+                stdlib_parser.close()
+                parsed.extend(stdlib_parser.results)
+            except Exception:
+                pass
+        parsed.extend(_regex_parse_ddg_results(html_text))
+        return parsed
+
+    # v0.43.10: French guide sites (rpgsoluce, vally8, darklevel) and jeuxvideo
+    # split ONE guide across many per-chapter pages (chapitre-1, chapitre-2,
+    # index…). A site:-restricted search surfaces ALL of them, cluttering the
+    # results with fragments of the same guide. These collapse fragment URLs back
+    # to their guide root (the page to import — the BFS crawl then pulls the rest).
+    _FRAGMENT_SITE_HOSTS = ("rpgsoluce.com", "vally8.free.fr", "darklevel.free.fr", "jeuxvideo.com")
+    _FRAGMENT_SEG_RE = re.compile(
+        r"^(?:chapit?res?|parties?|parts?|chapters?|pages?|sections?|episodes?|ep|"
+        r"soluces?|solutions?|walkthroughs?|etapes?|steps?|niveaux?|levels?|"
+        r"actes?|acts?|discs?|cd|index)[-_]?\d*(?:\.html?)?$"
+        r"|^\d{1,3}(?:\.html?)?$",
+        re.IGNORECASE,
+    )
+
+    def _guide_base_path(self, host: str, path: str) -> str:
+        """v0.43.10: map a guide URL path to its guide-root key so per-chapter
+        fragments of the same guide collapse together. Uses PER-SITE root rules
+        (verified against the real sites) — far more reliable than guessing which
+        trailing segment is a "chapter", because these guides nest arbitrarily
+        deep (/soluces/ps1/suikoden/runes/runes-magies.htm, /jeux/x/soluce7.php).
+          rpgsoluce  /soluces/<platform>/<game>/... -> /soluces/<platform>/<game>
+          vally8/dl  /jeux/<game>/soluce7.php       -> /jeux/<game>
+          jeuxvideo  /wikis-soluce-astuces/<id-game>/... -> /wikis-soluce-astuces/<id-game>
+        """
+        h = host.casefold()
+        segs = [s for s in path.split("/") if s]
+        if not segs:
+            return path
+        # rpgsoluce: root = soluces/platform/game (first 3 segments)
+        if "rpgsoluce.com" in h and segs[0].lower() == "soluces":
+            return "/" + "/".join(segs[:3])
+        # vally8 / darklevel: root = jeux/game (first 2 segments)
+        if ("vally8.free.fr" in h or "darklevel.free.fr" in h) and segs[0].lower() == "jeux":
+            return "/" + "/".join(segs[:2])
+        # jeuxvideo wiki: collapse every sub-page to .../wikis-soluce-astuces/<id-game>
+        if "wikis-soluce-astuces" in segs:
+            i = segs.index("wikis-soluce-astuces")
+            return "/" + "/".join(segs[: i + 2])
+        # generic fallback: strip ONE trailing chapter/page/index fragment
+        # (guarded so a top-level game slug is never stripped).
+        if len(segs) >= 2 and self._FRAGMENT_SEG_RE.match(segs[-1]):
+            segs = segs[:-1]
+        return "/" + "/".join(segs)
+
+    def _collapse_guide_fragments(self, results: list[GuideSearchResult]) -> list[GuideSearchResult]:
+        """v0.43.10: for the fragment-heavy French sites, keep ONE result per
+        guide (the root/index page) instead of one per chapter. Non-fragment
+        sites (GameFAQs, IGN, Neoseeker…) pass through untouched — each URL is
+        its own guide there. The kept representative is the shortest-path member
+        (closest to the root), carrying the group's best score so it ranks well."""
+        groups: dict[tuple[str, str], list[GuideSearchResult]] = {}
+        order: list[tuple[str, str]] = []
+        for r in results:
+            pu = urlparse(r.url)
+            host = (pu.hostname or "").casefold()
+            is_fragment_site = any(host == d or host.endswith(f".{d}") for d in self._FRAGMENT_SITE_HOSTS)
+            # Fragment sites group by guide root; others stay unique (full URL).
+            key = (host, self._guide_base_path(host, pu.path)) if is_fragment_site else (host, r.url)
+            if key not in groups:
+                groups[key] = []
+                order.append(key)
+            groups[key].append(r)
+
+        def nseg(u: str) -> int:
+            return len([s for s in urlparse(u).path.split("/") if s])
+
+        out: list[GuideSearchResult] = []
+        for key in order:
+            members = groups[key]
+            if len(members) == 1:
+                out.append(members[0])
+                continue
+            best_score = max(m.score for m in members)
+            host, base = key
+
+            def at_root(u: str) -> bool:
+                segs = [s for s in urlparse(u).path.split("/") if s]
+                if segs and re.match(r"^index(?:\.\w+)?$", segs[-1], re.IGNORECASE):
+                    segs = segs[:-1]  # an index.* page counts as the guide root
+                return ("/" + "/".join(segs)) == base
+
+            root_members = [m for m in members if at_root(m.url)]
+            if root_members:
+                # A real root/index URL was returned — keep it as-is.
+                rep = max(root_members, key=lambda r: r.score)
+                rep_url, rep_title = rep.url, rep.title
+            else:
+                # Only deep chapter pages were returned. Keep the shortest member
+                # as-is by default (safe, a real URL). ONLY jeuxvideo gets its root
+                # reconstructed: JV wiki roots are canonical/browsable and search
+                # often returns just sub-pages. rpgsoluce/vally8 dir roots aren't
+                # always browsable (.php/.htm indices), so don't synthesize those.
+                rep = min(members, key=lambda r: (nseg(r.url), -r.score))
+                if "jeuxvideo.com" in host:
+                    pu = urlparse(rep.url)
+                    rep_url = f"{pu.scheme}://{pu.netloc}{base}/" if pu.scheme and pu.netloc else rep.url
+                    rep_title = re.sub(
+                        r"\s*[-–—:|]?\s*(?:chapit?re|partie|chapter|part|page|[ée]tape|episode|ch)\s*\d+.*$",
+                        "", rep.title, flags=re.IGNORECASE,
+                    ).strip() or rep.title
+                else:
+                    rep_url, rep_title = rep.url, rep.title
+            out.append(GuideSearchResult(
+                title=rep_title, url=rep_url, site=rep.site, snippet=rep.snippet, score=best_score,
+            ))
+        return out
+
+    # v0.43.9: language buckets for search scoring/discovery. Mirrors the sets in
+    # _normalize_search_language; kept here so the scorer can bias by language.
+    _FRENCH_SITE_KEYS = {"rpgsoluce", "jeuxvideo", "vally8", "darklevel"}
+    _ENGLISH_SITE_KEYS = {"gamefaqs", "ign", "neoseeker", "strategywiki"}
+
     def _looks_like_guide_result(self, site_key: str, title: str, url: str, snippet: str) -> bool:
         haystack = f"{title} {url} {snippet}".casefold()
         if site_key == "gamefaqs":
@@ -3929,14 +4237,19 @@ class Plugin:
         if site_key == "ign":
             return any(token in haystack for token in ["walkthrough", "guide", "wiki", "/wikis/"])
         if site_key == "jeuxvideo":
-            return any(token in haystack for token in ["soluce", "wiki", "astuces", "/wikis/"])
+            # v0.42.12: JV walkthroughs live ONLY under /wikis-soluce-astuces/
+            # (or legacy /wikis/). News (/news/), forums (/forums/), tests, and
+            # videos all pollute results when we match "soluce"/"astuces" tokens
+            # in the snippet. Whitelist by URL PATH — the reliable signal.
+            u = url.casefold()
+            return "/wikis-soluce-astuces/" in u or "/wikis/" in u
         if site_key == "vally8":
             return any(token in haystack for token in ["soluce", "solution", "jeux/"])
         if site_key == "darklevel":
             return any(token in haystack for token in ["soluce", "solution"])
         return True
 
-    def _score_search_result(self, site_key: str, query: str, platform: str, title: str, url: str, snippet: str) -> int:
+    def _score_search_result(self, site_key: str, query: str, platform: str, title: str, url: str, snippet: str, lang: str = "auto") -> int:
         score = 0
         title_cf = title.casefold()
         url_cf = url.casefold()
@@ -3967,7 +4280,7 @@ class Plugin:
             score += 30
         if site_key == "ign" and ("/wikis/" in url_cf or "walkthrough" in url_cf or "/guides/" in url_cf):
             score += 45
-        if site_key == "jeuxvideo" and ("/wikis/" in url_cf or "soluce" in url_cf):
+        if site_key == "jeuxvideo" and ("/wikis-soluce-astuces/" in url_cf or "/wikis/" in url_cf):
             score += 45
         if site_key == "vally8" and "jeux/" in url_cf:
             score += 40
@@ -3978,9 +4291,26 @@ class Plugin:
             score += 20
         if len(snippet.strip()) >= 80:
             score += 8
+
+        # v0.43.9: language bias. When a language is explicitly requested, push
+        # matching-language sites to the top and demote the other language, so
+        # "FR" actually yields French results first (the site-type bonuses above,
+        # e.g. GameFAQs +60 vs RPGSoluce +55, otherwise let English win). The
+        # boost (+90) dominates the site-type spread so any in-language result
+        # outranks every out-of-language one, while ties still respect site type.
+        if lang == "fr":
+            if site_key in self._FRENCH_SITE_KEYS:
+                score += 90
+            elif site_key in self._ENGLISH_SITE_KEYS:
+                score -= 15
+        elif lang == "en":
+            if site_key in self._ENGLISH_SITE_KEYS:
+                score += 90
+            elif site_key in self._FRENCH_SITE_KEYS:
+                score -= 15
         return score
 
-    def _collect_guide(self, start_url: str) -> dict[str, Any]:
+    def _collect_guide(self, start_url: str, progress_cb: "Any | None" = None) -> dict[str, Any]:
         """Fetch a guide and all related pages.
 
         BFS queue strategy:
@@ -3999,11 +4329,17 @@ class Plugin:
         them as "banners" — one section per page.
         """
         self._debug_log(f"  _collect_guide: start_url={start_url}")
+        # v0.42.15: per-crawl map of chapter URL → clean title from the TOC link
+        # text (populated by JV chapter discovery). Lets _derive_page_display_title
+        # use the sommaire's clean chapter name instead of the page's own long
+        # news headline (which shares a redundant game-name prefix across pages).
+        self._chapter_title_hints: dict[str, str] = {}
         visited: set[str] = set()
         queued: set[str] = {start_url}
         queue: list[str] = [start_url]
         source_pages: list[GuideSourcePage] = []
         combined_parts: list[str] = []
+        page_titles: list[str] = []  # v0.43.17: title per appended page block (aligned with combined_parts)
         seen_signatures: set[str] = set()
         first_title = ""
         extractor_name = "generic"
@@ -4022,6 +4358,14 @@ class Plugin:
             visited.add(current_url)
 
             self._debug_log(f"  fetching page {len(visited)}/{MAX_FETCHED_PAGES}: {current_url}")
+            # v0.43.14: report progress (done, moving total-estimate) so the
+            # background-import UI can show "page X/Y" instead of a frozen spinner.
+            if progress_cb is not None:
+                try:
+                    est_total = min(MAX_FETCHED_PAGES, len(visited) + len(queue))
+                    progress_cb(len(visited), max(est_total, len(visited)), current_url)
+                except Exception:
+                    pass
             try:
                 html_text, charset = self._download(current_url)
             except Exception as exc:
@@ -4030,6 +4374,18 @@ class Plugin:
                 continue
             if charset not in charsets:
                 charsets.append(charset)
+
+            # v0.42.13 TEMP DEBUG: dump the raw HTML of the first 2 fetched pages
+            # so we can inspect the real structure (chapter links, content div)
+            # for sites the plugin fetches but the user's shell can't reliably
+            # (jeuxvideo.com anti-bot serves stubs to shell curl). Remove later.
+            if len(visited) <= 2:
+                try:
+                    dump_path = self._debug_dir / f"raw_fetch_{len(visited)}.html"
+                    dump_path.write_text(html_text, encoding="utf-8", errors="replace")
+                    self._debug_log(f"  [debug] raw HTML saved: {dump_path} ({len(html_text)} chars)")
+                except Exception as _e:
+                    self._debug_log(f"  [debug] raw HTML save failed: {_e}")
 
             current_title = self._extract_title(html_text, current_url)
             if not first_title:
@@ -4059,6 +4415,9 @@ class Plugin:
             seen_signatures.add(signature)
 
             if page_content.strip():
+                # v0.43.17: drop standalone "- Advertisement -" noise lines that
+                # Neoseeker (and others) sprinkle through the body.
+                page_content = re.sub(r"(?im)^\s*-?\s*advertisement\s*-?\s*$", "", page_content)
                 display_title = self._derive_page_display_title(
                     page_index=len(source_pages),
                     page_title=current_title,
@@ -4066,13 +4425,18 @@ class Plugin:
                     page_content=page_content,
                     page_url=current_url,
                 )
+                # v0.43.17: never let an ad / empty line become the page title.
+                if not display_title.strip() or re.match(r"^[-\s]*advertis\w*[-\s]*$", display_title, re.IGNORECASE):
+                    display_title = (first_title if not combined_parts else f"Page {len(source_pages) + 1}")
                 source_pages.append(GuideSourcePage(title=display_title, url=current_url))
                 if not combined_parts:
                     combined_parts.append(page_content.strip())
+                    page_titles.append(first_title or display_title or "Introduction")
                 else:
                     divider = "=" * min(max(len(display_title), 8), 80)
                     page_block_content = self._remove_leading_duplicate_title(page_content, display_title)
                     combined_parts.append(f"{display_title}\n{divider}\n{page_block_content.strip()}")
+                    page_titles.append(display_title)
                 total_content_chars += len(page_content)
                 if total_content_chars >= MAX_CONTENT_CHARS:
                     self._debug_log(f"  reached MAX_CONTENT_CHARS, stopping crawl")
@@ -4081,10 +4445,23 @@ class Plugin:
             # Discover more URLs to fetch (siblings under prefix + next-link chain)
             self._enqueue_related(current_url, html_text, base_prefix, extractor, queue, queued, visited)
 
-        content = "\n\n".join(part for part in combined_parts if part).strip()
+        used_parts = [part for part in combined_parts if part]
+        content = "\n\n".join(used_parts).strip()
         self._debug_log(f"  _collect_guide done: {len(source_pages)} pages, {len(content)} chars content")
         if not content:
             raise ValueError("Aucun contenu exploitable n'a été extrait")
+
+        # v0.43.17: line boundaries of each fetched page in the joined content, so
+        # multi-page guides can be sectioned BY PAGE (one clean section per chapter)
+        # instead of re-derived by banner/heading heuristics that then merge small
+        # pages and mis-attribute their content under a neighbour's title.
+        page_boundaries: list[dict[str, Any]] = []
+        cursor = 0
+        for idx, part in enumerate(used_parts):
+            title = page_titles[idx] if idx < len(page_titles) else f"Page {idx + 1}"
+            page_boundaries.append({"line_start": cursor, "title": title})
+            cursor += part.count("\n") + 1  # lines in this part
+            cursor += 1                      # blank line from the "\n\n" separator
 
         return {
             "title": first_title or self._site_name(start_url),
@@ -4092,6 +4469,7 @@ class Plugin:
             "content": content,
             "source_charset": charsets[0] if len(charsets) == 1 else "mixed",
             "source_pages": source_pages or [GuideSourcePage(title=first_title or "Page 1", url=start_url)],
+            "page_boundaries": page_boundaries,
         }
 
     def _enqueue_related(
@@ -4141,6 +4519,12 @@ class Plugin:
         Safe: returns [] for sites not matched by `_SITE_CHAPTER_LINK_RES`."""
         parsed = urlparse(current_url)
         host = (parsed.hostname or "").lower()
+        # v0.42.14: jeuxvideo.com — chapters live inside the TOC accordion, and
+        # point to a MIX of /news/ and /wikis-soluce-astuces/ pages. Handled by
+        # a dedicated parser (the generic regex approach can't express "only
+        # links inside contenu-asl blocks").
+        if "jeuxvideo.com" in host:
+            return self._discover_jeuxvideo_chapter_links(current_url, html_text)
         out: list[str] = []
         seen: set[str] = set()
         for host_match, link_re, _label in self._SITE_CHAPTER_LINK_RES:
@@ -4165,6 +4549,68 @@ class Plugin:
                 out.append(canonical)
         if out:
             try: self._debug_log(f"  site-specific link discovery: {len(out)} URLs for {host}")
+            except Exception: pass
+        return out
+
+    def _discover_jeuxvideo_chapter_links(self, current_url: str, html_text: str) -> list[str]:
+        """v0.42.14: extract JV guide chapter links. The 'guide complet' landing
+        page has a TOC accordion where each section is:
+            <div class="contenu-asl" ...>
+              <ul class="liste-default-jv">
+                <li><a href="/news/<id>/...">Chapter title</a></li>
+                <li><a href="/wikis-soluce-astuces/<id>/....htm">...</a></li>
+              </ul>
+            </div>
+        Chapter content lives on a MIX of /news/ and /wikis-soluce-astuces/
+        pages. We extract <a href> ONLY from inside contenu-asl blocks (so we
+        don't follow unrelated sidebar/footer news links), accept both path
+        types on the same host, and return absolute URLs."""
+        out: list[str] = []
+        seen: set[str] = set()
+        try:
+            # Each contenu-asl block holds one accordion section's chapter list.
+            for block in re.finditer(
+                r'<div[^>]+class="[^"]*\bcontenu-asl\b[^"]*"[^>]*>(.*?)</div>',
+                html_text, flags=re.DOTALL | re.IGNORECASE,
+            ):
+                inner = block.group(1)
+                # Capture <a href="...">link text</a> so we can use the clean
+                # sommaire text as the chapter's section title.
+                for m in re.finditer(r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', inner, flags=re.DOTALL | re.IGNORECASE):
+                    href = m.group(1).strip()
+                    link_text = self._clean_inline_text(re.sub(r"<[^>]+>", " ", m.group(2)))
+                    if not href or href.startswith("#") or href.lower().startswith("javascript:"):
+                        continue
+                    absolute = urljoin(current_url, href)
+                    ap = urlparse(absolute)
+                    if ap.scheme not in ALLOWED_SCHEMES:
+                        continue
+                    ahost = (ap.hostname or "").lower()
+                    if "jeuxvideo.com" not in ahost:
+                        continue
+                    path = ap.path.lower()
+                    # Only real chapter pages: news articles or wiki sub-pages.
+                    if not (path.startswith("/news/") or path.startswith("/wikis-soluce-astuces/")):
+                        continue
+                    if any(path.endswith(ext) for ext in NON_PAGE_URL_EXTENSIONS):
+                        continue
+                    canonical = ap._replace(fragment="").geturl()
+                    if canonical in seen or canonical == current_url:
+                        continue
+                    seen.add(canonical)
+                    out.append(canonical)
+                    # Store the clean TOC link text for this chapter (used as the
+                    # section title instead of the page's long news headline).
+                    if link_text and len(link_text) >= 3:
+                        try:
+                            self._chapter_title_hints[canonical] = link_text[:100]
+                        except Exception:
+                            pass
+        except Exception as exc:
+            try: self._debug_log(f"  JV chapter discovery failed: {exc}")
+            except Exception: pass
+        if out:
+            try: self._debug_log(f"  JV chapter discovery: {len(out)} chapter URLs")
             except Exception: pass
         return out
 
@@ -4206,6 +4652,17 @@ class Plugin:
         if "vally8.free.fr" in host:
             parts = path.strip("/").split("/")
             if len(parts) >= 2 and parts[0] == "jeux":
+                return "/" + "/".join(parts[:2])
+
+        # v0.43.13: Neoseeker wiki walkthroughs. Structure:
+        #   /<game>/walkthrough                      (TOC landing)
+        #   /<game>/walkthrough/<Chapter_Name>       (chapter pages)
+        # Prefixing on /<game>/<section> lets the BFS follow every chapter linked
+        # from the TOC table — Neoseeker guides are split one page per chapter,
+        # which is exactly what makes them clean to section.
+        if "neoseeker.com" in host:
+            parts = path.strip("/").split("/")
+            if len(parts) >= 2 and parts[1].lower() in ("walkthrough", "walkthroughs", "guide", "guides", "faq", "faqs"):
                 return "/" + "/".join(parts[:2])
 
         return ""
@@ -4457,13 +4914,24 @@ class Plugin:
         serves curl with HTTP 200 from the same machine)."""
         try:
             import subprocess
+            import os as _os
         except Exception:
             return None
         try:
+            # v0.42.11 CRITICAL FIX: the Decky backend runs with LD_LIBRARY_PATH
+            # (and possibly LD_PRELOAD) pointing at Decky's bundled runtime libs.
+            # When we launch the system `curl` as a subprocess, it INHERITS that
+            # env and loads an incompatible libcurl/libssl → its HTTPS handler
+            # breaks → curl exits 1 (CURLE_UNSUPPORTED_PROTOCOL). The exact same
+            # curl command works from a normal shell. Strip the LD_* vars so
+            # curl loads the system libraries it was built against.
+            clean_env = {
+                k: v for k, v in _os.environ.items()
+                if k not in ("LD_LIBRARY_PATH", "LD_PRELOAD")
+            }
+            clean_env.setdefault("PATH", "/usr/bin:/bin:/usr/local/bin")
             # -s silent, -L follow redirects, --compressed accept gzip,
-            # -A browser UA, --max-time hard timeout, -w write final HTTP code
-            # to stderr-free location: we use --fail to make curl exit non-zero
-            # on >=400 so we don't capture an error page.
+            # -A browser UA, --max-time hard timeout, --fail => non-zero on >=400.
             result = subprocess.run(
                 [
                     "curl", "-sL", "--compressed", "--fail",
@@ -4475,9 +4943,11 @@ class Plugin:
                 ],
                 capture_output=True,
                 timeout=30,
+                env=clean_env,
             )
             if result.returncode != 0:
-                try: self._debug_log(f"  curl exit={result.returncode} for {url[:80]}")
+                stderr_tail = (result.stderr or b"")[-200:].decode("utf-8", errors="replace")
+                try: self._debug_log(f"  curl exit={result.returncode} for {url[:80]} stderr={stderr_tail!r}")
                 except Exception: pass
                 return None
             body = result.stdout
@@ -4629,12 +5099,23 @@ class Plugin:
         region = self._extract_html_region(
             html_text,
             selectors=[
+                # v0.43.13: the real container is <article id="wiki-content"> (an
+                # ARTICLE with an ID, not a div.class). The old div/class selectors
+                # never matched, so extraction silently fell back to the generic
+                # <article> grab. Target it explicitly first.
+                r'<article[^>]+id="wiki-content"[^>]*>(.*?)</article>',
                 r'<div[^>]+class="[^"]*(?:page-contents|wiki-content|guide-content|nsec_content)[^"]*"[^>]*>(.*?)</div>\s*<(?:div|section|footer|aside)',
                 r'<div[^>]+id="[^"]*(?:wiki_content|content)[^"]*"[^>]*>(.*?)</div>\s*<(?:div|section|footer|aside)',
                 r'<article[^>]*>(.*?)</article>',
                 r'<main[^>]*>(.*?)</main>',
             ],
         )
+        # v0.43.13: drop Neoseeker chrome sitting inside the article: the
+        # prev/next nav bar, MediaWiki edit links, and the file/image thumb
+        # tables (controller-button icon galleries) that add no textual value.
+        if region:
+            region = re.sub(r'<div[^>]+id="nav_prev_next"[^>]*>.*?</div>\s*(?=<div|<section|$)', "", region, flags=re.DOTALL | re.IGNORECASE)
+            region = re.sub(r'<span[^>]+class="[^"]*mw-editsection[^"]*"[^>]*>.*?</span>', "", region, flags=re.DOTALL | re.IGNORECASE)
         text = self._html_to_text(region or html_text)
         text = self._crop_between_text_markers(
             text,
@@ -4686,12 +5167,24 @@ class Plugin:
         return text
 
     def _extract_jeuxvideo_text(self, html_text: str) -> str:
+        # v0.42.14: modern JV (Webedia) wiki structure. The article body is in
+        #   <article class="js-content-article"> ... <div class="...js-main-content">
+        # with structured chapter content under group-asl / contenu-asl blocks.
+        # News-article chapters (JV puts some walkthrough content under /news/)
+        # use a different wrapper, handled by the broader fallbacks.
         region = self._extract_html_region(
             html_text,
             selectors=[
-                r'<div[^>]+class="[^"]*(?:wiki-content|content-wiki|contentPaginator)[^"]*"[^>]*>(.*?)</div>\s*<(?:div|section|footer|aside)[^>]+class',
-                r'<div[^>]+id="(?:content|jv-wiki-content|wiki-content)"[^>]*>(.*?)</div>\s*<(?:div|section|footer|aside)',
-                r'<article[^>]+class="[^"]*(?:wiki|soluce|article)[^"]*"[^>]*>(.*?)</article>',
+                # v0.42.14: prefer js-main-content — it's the CLEAN article body
+                # on both news (corps-news) and wiki pages, WITHOUT the header
+                # chrome ("News astuce · Publié le · Partager · Rédaction") that
+                # js-content-article includes. `corps-news` is the news variant.
+                r'<div[^>]+class="[^"]*corps-news[^"]*js-main-content[^"]*"[^>]*>(.*?)</div>\s*<(?:div|section|footer|aside)',
+                r'<div[^>]+class="[^"]*js-main-content[^"]*"[^>]*>(.*?)</div>\s*<(?:div|section|footer|aside)',
+                r'<article[^>]+class="[^"]*js-content-article[^"]*"[^>]*>(.*?)</article>',
+                r'<div[^>]+class="[^"]*(?:group-asl|contenu-asl)[^"]*"[^>]*>(.*?)</div>\s*<(?:div|section|footer|aside)',
+                r'<div[^>]+class="[^"]*(?:content-wiki|wiki-content|newsContent|article-content)[^"]*"[^>]*>(.*?)</div>\s*<(?:div|section|footer|aside)',
+                r'<article[^>]*>(.*?)</article>',
                 r'<main[^>]*>(.*?)</main>',
             ],
         )
@@ -5244,6 +5737,14 @@ class Plugin:
         page_content: str,
         page_url: str,
     ) -> str:
+        # v0.42.15: prefer the clean TOC link text captured during discovery
+        # (e.g. JV sommaire chapter names) over the page's own long headline.
+        hint = getattr(self, "_chapter_title_hints", {}).get(page_url)
+        if hint:
+            cleaned_hint = self._clean_inline_text(hint)
+            if cleaned_hint and len(cleaned_hint) >= 3:
+                return cleaned_hint
+
         candidate = self._clean_inline_text(page_title)
         root_clean = self._clean_inline_text(root_title)
 
@@ -5556,6 +6057,12 @@ class Plugin:
     # Existing (suite N) / (suite 2) suffix from _split_large_sections forced
     # pagination — also catches "(1/3)" once we've numbered things.
     _TITLE_SUITE_SUFFIX_RE = re.compile(r"\s*\((?:suite\s*)?\d+(?:/\d+)?\)\s*$", re.IGNORECASE)
+    # v0.43.8: GameFAQs "search code" FAQs put a dotted-leader TOC tail on titles
+    # ("Sidequest: The Gargoyle .............… — CHARACTER…") and a trailing
+    # search code ("....................*INTRO"). Cut from the first run of 4+
+    # dots (or a leading unicode ellipsis) onward.
+    _TITLE_LEADER_RE = re.compile(r"\s*\.{4,}.*$")
+    _TITLE_TRAIL_ELLIPSIS_RE = re.compile(r"\s*….*$")
     # v0.42.2: title length cap. Anything over this in the sidebar becomes
     # unreadable on Steam Deck. Lower than the 70 used by forced pagination
     # because sidebar slots are narrower than the heading line itself.
@@ -5618,9 +6125,15 @@ class Plugin:
         # 6. Embedded game-data line: "(HP: 150)", "[33 Gil]"
         if (re.search(r"\(\s*HP\s*:\s*\d+", t, re.IGNORECASE) or re.search(r"\[\s*\d+\s*(?:Gil|gil|PO|HP|MP)\b", t)) and wc >= 4:
             return True
-        # 7. High stopword density = prose
+        # 7. High stopword density = prose — BUT only when the line ALSO looks
+        # sentence-shaped (ends in sentence punctuation OR starts lowercase).
+        # v0.42.15: French chapter titles are noun phrases full of articles
+        # ("Les services de la taverne et les bibliothèques Menzzoriennes") and
+        # would be false-flagged by stopword count alone. Requiring a
+        # sentence-like shape preserves them while still catching real prose.
         if wc >= 6 and len(self._PROSE_STOPWORDS_RE.findall(t)) >= 3:
-            return True
+            if t[-1] in ".!?:" or t[0].islower():
+                return True
         return False
 
     def _merge_prose_titled_sections(self, sections: list[GuideSection]) -> list[GuideSection]:
@@ -5672,6 +6185,78 @@ class Plugin:
                 out = [merged_first] + out[2:]
         return out
 
+    def _looks_letter_spaced(self, title: str) -> bool:
+        """v0.43.8: True if `title` is a GameFAQs-style letter-spaced ALL-CAPS
+        banner ("E N D  O F  D I S C  O N E") — i.e. mostly single-character
+        tokens. Conservative: needs >=4 single-char tokens AND >=60% of tokens
+        being single chars, so normal titles ("A1. Getting out of the Attic")
+        never trigger."""
+        toks = [t for t in title.split(" ") if t]
+        if len(toks) < 5:
+            return False
+        singles = sum(1 for t in toks if len(t) == 1 and t.isalpha())
+        return singles >= 4 and singles >= 0.6 * len(toks)
+
+    def _unspace_title(self, title: str) -> str:
+        """v0.43.8: rebuild a letter-spaced banner into words. Word boundaries
+        survive extraction as DOUBLE spaces ("D U N G E O N  T O  S H R I N E"),
+        so split on 2+ spaces to get words. Inside each word, merge runs of
+        single-character tokens into one word but keep multi-char tokens (like a
+        "2E." / "vi." prefix) separate so their trailing space is preserved.
+          "E N D  O F  D I S C  O N E" -> "END OF DISC ONE"
+          "2E.  D U N G E O N  T O  S H R I N E" -> "2E. DUNGEON TO SHRINE"
+          "vi. S A V E  L O C A T I O N S" -> "vi. SAVE LOCATIONS"
+        """
+        out_words: list[str] = []
+        for chunk in re.split(r" {2,}", title.strip()):
+            parts: list[str] = []
+            buf = ""
+            for tok in (t for t in chunk.split(" ") if t):
+                if len(tok) == 1:
+                    buf += tok
+                else:
+                    if buf:
+                        parts.append(buf); buf = ""
+                    parts.append(tok)
+            if buf:
+                parts.append(buf)
+            joined = " ".join(parts)
+            if joined:
+                out_words.append(joined)
+        return " ".join(out_words)
+
+    def _clean_spaced_and_leader_title(self, title: str) -> str:
+        """v0.43.8: drop the dotted-leader TOC tail, then un-space if the title
+        is a letter-spaced banner. Best-effort — falls back to the original if
+        the result would be empty."""
+        t = title or ""
+        t = self._TITLE_LEADER_RE.sub("", t)          # kill "....CODE" / "....… — X" tail
+        t = self._TITLE_TRAIL_ELLIPSIS_RE.sub("", t)  # kill a bare trailing "…"
+        t = t.strip()
+        if self._looks_letter_spaced(t):
+            t = self._unspace_title(t)
+        t = re.sub(r"\s{2,}", " ", t).strip()
+        return t or (title or "").strip()
+
+    def _normalize_gamefaqs_titles(self, sections: list[GuideSection]) -> list[GuideSection]:
+        """v0.43.8: STEP 0 of title polishing — clean dotted-leader tails and
+        un-space letter-spaced banners so the sidebar is readable and the later
+        prose/duplicate passes see the real title text."""
+        out: list[GuideSection] = []
+        for s in sections:
+            nt = self._clean_spaced_and_leader_title(s.title or "")
+            if nt and nt != (s.title or ""):
+                out.append(GuideSection(
+                    title=nt,
+                    line_start=s.line_start,
+                    line_end=s.line_end,
+                    heading_level=s.heading_level,
+                    is_preformatted=s.is_preformatted,
+                ))
+            else:
+                out.append(s)
+        return out
+
     def _polish_section_titles(self, sections: list[GuideSection]) -> list[GuideSection]:
         """v0.42.0: clean up section titles for sidebar readability.
 
@@ -5704,6 +6289,13 @@ class Plugin:
             sections = self._trim_trailing_title_decoration(sections)
             after_trim = [s.title or "" for s in sections]
             sections = self._strip_inherited_prefixes(sections)
+            # v0.43.8: NOW that inherited "parent …leader… — " prefixes are
+            # stripped (leaving the real child title), clean any residual
+            # dotted-leader tail and un-space letter-spaced banners
+            # ("E N D  O F  D I S C  O N E" -> "END OF DISC ONE"). Placed AFTER
+            # prefix-strip on purpose: running it earlier would eat the "— child"
+            # part that prefix-strip needs to recover the real title.
+            sections = self._normalize_gamefaqs_titles(sections)
             after_prefix = [s.title or "" for s in sections]
             sections = self._number_consecutive_duplicates(sections)
             after_number = [s.title or "" for s in sections]
@@ -5918,6 +6510,19 @@ class Plugin:
     # Previously 800 left a "no-man's land" (sections 350-800 with no inner banners stayed huge).
     FORCED_PAGINATION_THRESHOLD = 350
     FORCED_PAGINATION_CHUNK = 250     # forced page size in lines (UX sweet spot for Steam Deck reader)
+    # v0.42.18: char-based thresholds. Some sources (jeuxvideo.com news articles)
+    # are char-heavy but line-light — long paragraphs, few line breaks — so the
+    # line-based pagination never triggers and a single section holds 8000+ chars
+    # (endless scroll on the Deck). A section is ALSO "large" if it exceeds
+    # CHAR_SPLIT_THRESHOLD, and forced pagination caps each page at both a char
+    # budget and the line budget above.
+    # v0.42.20: tuned smaller for finer cuts on prose sources (JV). Guarded so
+    # it only fires on PROSE sections (high avg line length) — line-heavy FAQ
+    # guides (GameFAQs/rpgsoluce, ~70 chars/line hard-wrapped) are NOT char-split
+    # even when their char count is high, since they're already line-paginated.
+    CHAR_SPLIT_THRESHOLD = 2000       # chars — prose sections beyond this get paginated
+    CHAR_PAGINATION_CHUNK = 1200      # target chars per forced page (≈ one Deck screen)
+    CHAR_SPLIT_MIN_AVG_LINE = 130     # only char-split when avg line length exceeds this (prose, not FAQ)
 
     SPLIT_MAX_PASSES = 5  # safety cap against infinite recursion when split can't shrink further
 
@@ -5941,10 +6546,39 @@ class Plugin:
         # Did anything actually change? If not, abort to avoid infinite loops.
         if len(pass_result) == len(sections):
             return pass_result
-        # Still any oversized section? If so, recurse.
-        if any((s.line_end - s.line_start) > self.SPLIT_LARGE_THRESHOLD for s in pass_result):
+        # Still any oversized section (line- OR char-heavy prose)? If so, recurse.
+        def _oversized(s: GuideSection) -> bool:
+            span = s.line_end - s.line_start
+            if span > self.SPLIT_LARGE_THRESHOLD:
+                return True
+            char_len = sum(len(lines[i]) for i in range(s.line_start, min(s.line_end + 1, len(lines))))
+            avg_line = char_len / max(1, span + 1)
+            return char_len > self.CHAR_SPLIT_THRESHOLD and avg_line >= self.CHAR_SPLIT_MIN_AVG_LINE
+        if any(_oversized(s) for s in pass_result):
             return self._split_large_sections(pass_result, lines, depth=depth + 1)
         return pass_result
+
+    def _char_chunk_boundaries(self, lines: list[str], start: int, end: int) -> list[tuple[int, int]]:
+        """v0.42.18: split a line range into (start, end) chunks, each capped at
+        BOTH CHAR_PAGINATION_CHUNK chars and FORCED_PAGINATION_CHUNK lines. This
+        paginates char-heavy prose (JV, long paragraphs) and line-heavy FAQs
+        uniformly — whichever budget is hit first ends the chunk."""
+        out: list[tuple[int, int]] = []
+        end = min(end, len(lines) - 1)
+        i = start
+        while i <= end:
+            chunk_chars = 0
+            chunk_lines = 0
+            j = i
+            while j <= end:
+                chunk_chars += len(lines[j]) + 1
+                chunk_lines += 1
+                j += 1
+                if chunk_chars >= self.CHAR_PAGINATION_CHUNK or chunk_lines >= self.FORCED_PAGINATION_CHUNK:
+                    break
+            out.append((i, j - 1))
+            i = j
+        return out or [(start, end)]
 
     def _split_large_sections_once(
         self,
@@ -5970,7 +6604,13 @@ class Plugin:
         result: list[GuideSection] = []
         for sec in sections:
             span = sec.line_end - sec.line_start
-            if span <= self.SPLIT_LARGE_THRESHOLD:
+            char_len = sum(len(lines[i]) for i in range(sec.line_start, min(sec.line_end + 1, len(lines))))
+            # v0.42.20: char-heavy is only "large" for PROSE (high avg line len),
+            # so FAQ guides (short hard-wrapped lines) aren't over-split.
+            line_count = max(1, span + 1)
+            avg_line = char_len / line_count
+            char_heavy = char_len > self.CHAR_SPLIT_THRESHOLD and avg_line >= self.CHAR_SPLIT_MIN_AVG_LINE
+            if span <= self.SPLIT_LARGE_THRESHOLD and not char_heavy:
                 result.append(sec)
                 continue
 
@@ -6014,19 +6654,17 @@ class Plugin:
                         ))
 
             # --- Tier 2: forced pagination fallback for huge sections with no semantic break ---
-            if len(translated) < 2 and span >= self.FORCED_PAGINATION_THRESHOLD:
+            # v0.42.20: trigger on line threshold OR char-heavy-prose.
+            if len(translated) < 2 and (span >= self.FORCED_PAGINATION_THRESHOLD or char_heavy):
                 translated = []
-                chunk = self.FORCED_PAGINATION_CHUNK
-                page_num = 0
                 base_title = (sec.title or "Section").strip()
                 if len(base_title) > 70:
                     base_title = base_title[:67] + "…"
-                for chunk_start_local in range(0, span + 1, chunk):
-                    global_start = sec.line_start + chunk_start_local
-                    global_end = min(global_start + chunk - 1, sec.line_end)
-                    if global_end <= global_start:
+                for page_num, (global_start, global_end) in enumerate(
+                    self._char_chunk_boundaries(lines, sec.line_start, sec.line_end), start=1
+                ):
+                    if global_end < global_start:
                         continue
-                    page_num += 1
                     title = base_title if page_num == 1 else f"{base_title} (suite {page_num})"
                     translated.append(GuideSection(
                         title=title,

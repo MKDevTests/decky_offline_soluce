@@ -42,8 +42,22 @@ function consumeFullScreenGuideId(): string | null {
   pendingFullScreenGuideId = null;
   return id;
 }
+// v0.43.2: handoff for "search guides for this game" — the full-screen game
+// library requests a search; the QAM Content picks it up and opens the search
+// view pre-filled. (The QAM is always mounted, just not visible during full-screen.)
+let pendingSearchQuery: string | null = null;
+function requestSearch(q: string): void { pendingSearchQuery = q; }
+function consumeSearch(): string | null {
+  const q = pendingSearchQuery;
+  pendingSearchQuery = null;
+  return q;
+}
 
 const FULL_SCREEN_ROUTE = "/decky-offline-soluce/reader";
+const LIBRARY_ROUTE = "/decky-offline-soluce/library";  // v0.42.17: full-screen guide browser (Levier D)
+const GAME_LIBRARY_ROUTE = "/decky-offline-soluce/games";  // v0.43.1: full-screen installed-games browser
+const SEARCH_ROUTE = "/decky-offline-soluce/search";  // v0.43.3: full-screen search + import
+const SEARCH_PAGE_SIZE = 8;  // v0.43.12: initial results shown; "charger plus" reveals +8
 // Steam Big Picture overlays at top (status / battery / time ~40px) and bottom (back
 // hint / system shortcuts ~40px). Pad full-screen routes so our header & footer
 // aren't covered. Tuned for SteamOS 3.8.x — bump if Steam changes the chrome height.
@@ -222,7 +236,7 @@ type ExportEntry = {
   modified_at: string;
 };
 
-type ViewMode = "sources" | "library" | "search" | "guides";
+type ViewMode = "home" | "sources" | "library" | "search" | "guides";
 
 // ========== Backend callables ==========
 
@@ -237,6 +251,19 @@ const saveGuide = callable<[
   aliases: string,
   emulator: string,
 ], GuideDetail>("save_guide");
+// v0.43.14: background import (non-blocking) + progress polling.
+type ImportStatus = {
+  state: "running" | "done" | "error" | "unknown";
+  done: number; total: number; msg: string;
+  guide_id: string | null; error: string | null; title: string; section_count: number;
+};
+const startImport = callable<[
+  url: string, gameTitle: string, platform: string, romHint: string, aliases: string, emulator: string,
+], { job_id: string }>("start_import");
+const getImportStatus = callable<[jobId: string], ImportStatus>("get_import_status");
+type ImportJob = ImportStatus & { job_id: string };
+const listImports = callable<[], ImportJob[]>("list_imports");
+const dismissImport = callable<[jobId: string], boolean>("dismiss_import");
 const deleteGuide = callable<[guideId: string], boolean>("delete_guide");
 const saveProgress = callable<[guideId: string, lastSectionIndex: number, fontScale: number, scrollFraction: number], GuideDetail>("save_progress");
 const setBookmark = callable<[guideId: string, sectionIndex: number, scrollFraction: number], GuideDetail>("set_bookmark");
@@ -325,6 +352,9 @@ const clearDebugLog = callable<[], Record<string, unknown>>("clear_debug_log");
 // ========== Constants ==========
 
 const VIEW_SEQUENCE: ViewMode[] = ["sources", "library", "search", "guides"];
+const VIEW_LABELS: Record<string, string> = {
+  home: "Accueil", sources: "Réglages", library: "Bibliothèque de jeux", search: "Recherche", guides: "Guides",
+};
 const SEARCH_SITE_CHOICES = [
   { value: "all", label: "Tous" },
   { value: "gamefaqs", label: "GameFAQs" },
@@ -432,8 +462,10 @@ function lineHeightValue(level: ReaderPreferences["line_height"]): number {
 }
 
 function maxWidthValue(level: ReaderPreferences["max_width"]): string {
-  if (level === "narrow") return "62ch";
-  if (level === "normal") return "82ch";
+  // v0.43.5: "normal" calibrated to ~72ch — the typographic sweet spot for
+  // comfortable reading (66-80 chars/line). The column is centered by the reader.
+  if (level === "narrow") return "58ch";
+  if (level === "normal") return "72ch";
   return "100%";
 }
 
@@ -896,6 +928,9 @@ type GuideReaderProps = {
    * even when sectionIndex doesn't change (e.g. "Aller au marque-page" while
    * already in the bookmark's section). */
   restoreGeneration?: number;
+  /** v0.43.6: page-scroll pulse. When `.n` increments, scroll ~80% of a screen
+   * in `.dir` (+1 down, -1 up). Driven by the reader's L1/R1 shortcuts. */
+  scrollPulse?: { n: number; dir: 1 | -1 };
 };
 
 /**
@@ -907,6 +942,7 @@ function GuideReader(props: GuideReaderProps) {
     guide, sectionIndex, fontScale, preferences,
     searchPattern, scrollRestoreFraction, onScrollChange,
     maxHeight, onJumpToSection, restoreGeneration,
+    scrollPulse,
   } = props;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const raw = useMemo(() => getSectionText(guide, sectionIndex), [guide, sectionIndex]);
@@ -956,6 +992,20 @@ function GuideReader(props: GuideReaderProps) {
     return () => { cancelled = true; window.cancelAnimationFrame(rafId); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sectionIndex, guide.id, restoreGeneration]);
+
+  // v0.43.6: page scroll (L1/R1) — jump ~80% of a screen when the pulse changes.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !scrollPulse || scrollPulse.n === 0) return;
+    el.scrollBy({ top: Math.round(el.clientHeight * 0.8) * scrollPulse.dir, behavior: "smooth" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollPulse?.n]);
+
+  // v0.43.18: right-stick continuous scroll REMOVED — all three controller APIs
+  // failed on this Steam build (RegisterForControllerStateChanges absent;
+  // RegisterForControllerAnalogInputMessages → "unknown method"; the browser
+  // Gamepad API reports no pad because Steam Input captures the controller first).
+  // L1/R1 (page scroll ~80%) and L2/R2 (prev/next section) cover navigation.
 
   const containerStyle: React.CSSProperties = {
     overflowY: "auto",
@@ -1388,6 +1438,651 @@ function NamedBookmarksPanel(props: {
 
 
 /**
+ * v0.43.3: full-screen search + import. Reachable from the launcher and from a
+ * game fiche ("Rechercher des guides pour ce jeu" — pre-fills the query). Keeps
+ * the whole search→import flow in the full-screen context instead of bouncing
+ * back to the cramped QAM.
+ */
+function FullScreenSearch() {
+  const [query, setQuery] = useState<string>("");
+  const [langIndex, setLangIndex] = useState<number>(0);
+  const [siteIndex, setSiteIndex] = useState<number>(0);
+  const [results, setResults] = useState<GuideSearchResult[]>([]);
+  const [preferences, setPreferences] = useState<ReaderPreferences | null>(null);
+  const [busy, setBusy] = useState<boolean>(false);
+  const [msg, setMsg] = useState<string>("");
+  const [imported, setImported] = useState<GuideSummary[]>([]);  // v0.43.7: for anti-duplicate
+  const [zeroSecGuide, setZeroSecGuide] = useState<GuideDetail | null>(null);  // v0.43.7: 0-section delete prompt
+  const [visibleCount, setVisibleCount] = useState<number>(SEARCH_PAGE_SIZE);  // v0.43.12: show 8, "charger plus"
+  const ranInitial = useRef<boolean>(false);
+
+  const lang = LANGUAGE_CHOICES[langIndex] || LANGUAGE_CHOICES[0];
+  const site = SEARCH_SITE_CHOICES[siteIndex] || SEARCH_SITE_CHOICES[0];
+
+  // v0.43.7: normalize a URL for duplicate matching (strip scheme, www, trailing /).
+  const normUrl = (u: string) => (u || "").toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "").replace(/#.*$/, "");
+  const importedByUrl = useMemo(() => {
+    const m = new Map<string, GuideSummary>();
+    for (const g of imported) if (g.url) m.set(normUrl(g.url), g);
+    return m;
+  }, [imported]);
+  const findImported = (url: string) => importedByUrl.get(normUrl(url)) || null;
+
+  const runSearch = async (q: string) => {
+    const query2 = q.trim();
+    if (!query2) { setMsg("Tape un nom de jeu."); return; }
+    setBusy(true); setMsg("Recherche…"); setResults([]); setVisibleCount(SEARCH_PAGE_SIZE);
+    try {
+      const r = await searchGuides(query2, "Autre", site.value, lang.value);
+      setResults(r);
+      setMsg(r.length ? `${r.length} résultat(s)` : "Aucun résultat. Change de langue/site et réessaie.");
+    } catch (e) {
+      setMsg(`Échec : ${e instanceof Error ? e.message : e}`);
+    } finally { setBusy(false); }
+  };
+
+  useEffect(() => {
+    (async () => {
+      try { setPreferences(await getReaderPreferences()); } catch {}
+      try { setImported(await listGuides()); } catch {}
+      const q = consumeSearch();
+      if (q && !ranInitial.current) { ranInitial.current = true; setQuery(q); runSearch(q); }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openGuideId = (id: string) => { requestFullScreenGuide(id); try { Router.Navigate(FULL_SCREEN_ROUTE); } catch {} };
+
+  const importResult = async (r: GuideSearchResult) => {
+    if (busy) return;
+    // v0.43.7 anti-duplicate: if this URL is already imported, open it instead.
+    const existing = findImported(r.url);
+    if (existing) { openGuideId(existing.id); return; }
+    // v0.43.14: background import — the backend crawls (up to 60 pages) in a
+    // thread and we poll for progress. No more frozen UI on big Neoseeker guides;
+    // the import even keeps running if you leave this screen.
+    setBusy(true); setMsg(`Démarrage de l'import de « ${r.title.slice(0, 40)} »…`);
+    try {
+      const { job_id } = await startImport(r.url, query.trim() || r.title, "Autre", query.trim() || r.title, "", "");
+      let status: ImportStatus | null = null;
+      for (let i = 0; i < 600; i++) {  // ~15 min ceiling at 1.5s/poll
+        await new Promise((res) => setTimeout(res, 1500));
+        try { status = await getImportStatus(job_id); } catch { continue; }
+        if (!status || status.state === "unknown") continue;
+        if (status.state === "running") {
+          const prog = status.total > 0 ? ` — ${status.done}/${status.total} pages` : "";
+          setMsg(`⏳ ${status.msg || "Import en cours"}${prog}  ·  (tu peux quitter, l'import continue en arrière-plan)`);
+          continue;
+        }
+        break;  // done | error
+      }
+      try { setImported(await listGuides()); } catch {}
+      if (!status || status.state !== "done" || !status.guide_id) {
+        setMsg(`Import échoué : ${status?.error || "délai dépassé"}`);
+        return;
+      }
+      // v0.43.7: 0 sections = failed extraction — propose immediate delete.
+      if ((status.section_count || 0) === 0) {
+        try { setZeroSecGuide(await getGuide(status.guide_id)); setMsg(""); return; } catch {}
+      }
+      setMsg(`✓ Importé : ${status.section_count} section(s). Ouverture…`);
+      openGuideId(status.guide_id);
+    } catch (e) {
+      setMsg(`Import échoué : ${e instanceof Error ? e.message : e}`);
+    } finally { setBusy(false); }
+  };
+
+  const theme = preferences ? themeStyle(preferences.theme)
+    : { background: "#111", textColor: "#eee", borderColor: "rgba(255,255,255,0.1)", headingColor: "#ffd966", preBg: "rgba(0,0,0,0.3)", preText: "#ddd" };
+  const layoutStyle: React.CSSProperties = {
+    width: "100vw", height: "100vh",
+    paddingTop: `${STEAM_UI_TOP_BAR_PX}px`, paddingBottom: `${STEAM_UI_BOTTOM_BAR_PX}px`,
+    boxSizing: "border-box", display: "flex", flexDirection: "column",
+    background: theme.background, color: theme.textColor,
+    fontFamily: preferences ? fontFamily(preferences.font_family) : undefined,
+  };
+  const headerStyle: React.CSSProperties = {
+    display: "flex", alignItems: "center", gap: "10px", padding: "10px 16px",
+    borderBottom: `1px solid ${theme.borderColor}`, background: "rgba(0,0,0,0.35)", flexShrink: 0,
+  };
+
+  return (
+    <div style={layoutStyle}>
+      <div style={headerStyle}>
+        <DialogButton onClick={() => safeNavigateBack()} style={{ minWidth: "auto", width: "auto" }}>← Retour</DialogButton>
+        <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>🔍 Rechercher un guide</div>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
+        <div style={{ maxWidth: "640px" }}>
+          {zeroSecGuide ? (
+            <div style={{ border: "1px solid rgba(255,100,100,0.4)", borderRadius: "8px", padding: "14px", marginBottom: "14px", background: "rgba(255,100,100,0.08)" }}>
+              <div style={{ fontWeight: 700, marginBottom: "6px" }}>⚠ Extraction ratée</div>
+              <div style={{ fontSize: "0.85rem", opacity: 0.9, marginBottom: "12px" }}>
+                « {zeroSecGuide.title} » a été importé mais ne contient <strong>aucune section</strong> (le site n'a pas fourni de contenu exploitable). Inutile de le garder.
+              </div>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={() => void (async () => {
+                  try { await deleteGuide(zeroSecGuide.id); setImported(await listGuides()); } catch {}
+                  setZeroSecGuide(null); setMsg("Guide supprimé.");
+                })()}>🗑 Supprimer</DialogButton>
+                <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={() => { const g = zeroSecGuide; setZeroSecGuide(null); openGuideId(g.id); }}>Garder quand même</DialogButton>
+              </div>
+            </div>
+          ) : null}
+          <div style={{ marginBottom: "10px" }}>
+            <TextField value={query} onChange={(e: any) => setQuery(e.target.value)} placeholder="Nom du jeu (ex : Suikoden V)…" bShowClearAction />
+          </div>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "14px" }}>
+            <DialogButton style={{ minWidth: "auto", width: "auto" }} disabled={busy} onClick={() => setLangIndex((v) => (v + 1) % LANGUAGE_CHOICES.length)}>Langue : {lang.label}</DialogButton>
+            <DialogButton style={{ minWidth: "auto", width: "auto" }} disabled={busy} onClick={() => setSiteIndex((v) => (v + 1) % SEARCH_SITE_CHOICES.length)}>Site : {site.label}</DialogButton>
+            <DialogButton style={{ minWidth: "auto", width: "auto" }} disabled={busy} onClick={() => void runSearch(query)}>🔍 Lancer</DialogButton>
+          </div>
+          {msg ? <div style={{ fontSize: "0.85rem", color: theme.headingColor, marginBottom: "12px" }}>{msg}</div> : null}
+          <Focusable style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            {results.slice(0, visibleCount).map((r, i) => {
+              const dup = findImported(r.url);
+              return (
+                <Focusable key={`${r.url}-${i}`} onActivate={() => void importResult(r)} style={{
+                  background: dup ? "rgba(139,224,139,0.12)" : "rgba(255,255,255,0.05)",
+                  border: `1px solid ${dup ? "rgba(139,224,139,0.5)" : theme.borderColor}`,
+                  borderRadius: "8px", padding: "12px 14px", display: "flex", flexDirection: "column", gap: "4px", cursor: "pointer",
+                }}>
+                  <div style={{ fontSize: "0.72rem", fontWeight: 700, color: dup ? "#8be08b" : theme.headingColor }}>
+                    {dup ? "✓ Déjà importé — ouvrir" : "▶ Importer"}
+                  </div>
+                  {/* v0.43.16: full title WRAPS (was nowrap → overflowed the card, unreadable) */}
+                  <div style={{ fontWeight: 700, color: theme.textColor, whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.25 }}>
+                    {r.title}
+                  </div>
+                  <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>{r.site}</div>
+                  {r.snippet ? <div style={{ fontSize: "0.78rem", opacity: 0.85, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{r.snippet}</div> : null}
+                </Focusable>
+              );
+            })}
+            {results.length > visibleCount ? (
+              <DialogButton disabled={busy} onClick={() => setVisibleCount((v) => v + SEARCH_PAGE_SIZE)}>
+                ⬇ Charger plus de guides ({results.length - visibleCount} restant{results.length - visibleCount > 1 ? "s" : ""})
+              </DialogButton>
+            ) : null}
+          </Focusable>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * v0.43.1 (Phase 2b): full-screen browser for SCANNED INSTALLED GAMES.
+ * Mirrors FullScreenLibrary but for the ROM/game library scan. Grid of games
+ * with filter/sort/favorites; clicking a game shows its detail with the guides
+ * already imported for it (open) + favorite toggle.
+ */
+function FullScreenGameLibrary() {
+  const [items, setItems] = useState<LibraryItem[]>([]);
+  const [guides, setGuides] = useState<GuideSummary[]>([]);
+  const [preferences, setPreferences] = useState<ReaderPreferences | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [textFilter, setTextFilter] = useState<string>("");
+  const [letterFilter, setLetterFilter] = useState<string>("");
+  const [platformFilter, setPlatformFilter] = useState<string>("");  // v0.43.2
+  const [sortMode, setSortMode] = useState<"name" | "platform">("name");
+  const [favOnly, setFavOnly] = useState<boolean>(false);
+  const [groupByPlatform, setGroupByPlatform] = useState<boolean>(false);  // v0.43.2
+  const [fiche, setFiche] = useState<LibraryItem | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [its, gs, prefs] = await Promise.all([listLibraryItems(), listGuides(), getReaderPreferences()]);
+        setItems(its); setGuides(gs); setPreferences(prefs);
+      } catch { /* keep empty */ }
+      finally { setLoading(false); }
+    })();
+  }, []);
+
+  const titleOf = (it: LibraryItem) => (it.custom_title || it.title || "").trim();
+
+  const availableLetters = useMemo(() => {
+    const set = new Set<string>();
+    for (const it of items) {
+      const c = (titleOf(it)[0] || "").toUpperCase();
+      set.add(/[A-Z]/.test(c) ? c : "#");
+    }
+    return ["", ...Array.from(set).sort()];
+  }, [items]);
+
+  const availablePlatforms = useMemo(() => {
+    const set = new Set<string>();
+    for (const it of items) { const p = (it.platform || "").trim(); if (p) set.add(p); }
+    return ["", ...Array.from(set).sort()];
+  }, [items]);
+
+  const filtered = useMemo(() => {
+    const needle = textFilter.trim().toLowerCase();
+    let list = items.filter((it) => {
+      if (favOnly && !it.is_favorite) return false;
+      if (needle && !`${it.title} ${it.custom_title} ${it.platform}`.toLowerCase().includes(needle)) return false;
+      if (platformFilter && (it.platform || "") !== platformFilter) return false;
+      if (letterFilter) {
+        const c = (titleOf(it)[0] || "").toUpperCase();
+        if (letterFilter === "#") { if (/[A-Z]/.test(c)) return false; }
+        else if (c !== letterFilter) return false;
+      }
+      return true;
+    });
+    if (sortMode === "platform") list = list.slice().sort((a, b) => (a.platform || "zzz").localeCompare(b.platform || "zzz") || titleOf(a).localeCompare(titleOf(b)));
+    else list = list.slice().sort((a, b) => titleOf(a).localeCompare(titleOf(b)));
+    return list;
+  }, [items, textFilter, letterFilter, platformFilter, sortMode, favOnly]);
+
+  // v0.43.2: group filtered games by platform (for the group-by-platform mode).
+  const groupedByPlatform = useMemo(() => {
+    const map = new Map<string, LibraryItem[]>();
+    for (const it of filtered) {
+      const key = (it.platform || "Autre").trim() || "Autre";
+      (map.get(key) || map.set(key, []).get(key)!).push(it);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filtered]);
+
+  // v0.43.2: B/back closes the game fiche instead of exiting the route.
+  useEffect(() => {
+    if (!fiche) return;
+    try { window.history.pushState({ osFiche: true }, ""); } catch {}
+    const onPop = () => setFiche(null);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [fiche?.id]);
+
+  const guidesForItem = (it: LibraryItem) => guides.filter((g) => guideMatchesLibraryItem(g, it));
+
+  const theme = preferences ? themeStyle(preferences.theme)
+    : { background: "#111", textColor: "#eee", borderColor: "rgba(255,255,255,0.1)", headingColor: "#ffd966", preBg: "rgba(0,0,0,0.3)", preText: "#ddd" };
+  const layoutStyle: React.CSSProperties = {
+    width: "100vw", height: "100vh",
+    paddingTop: `${STEAM_UI_TOP_BAR_PX}px`, paddingBottom: `${STEAM_UI_BOTTOM_BAR_PX}px`,
+    boxSizing: "border-box", display: "flex", flexDirection: "column",
+    background: theme.background, color: theme.textColor,
+    fontFamily: preferences ? fontFamily(preferences.font_family) : undefined,
+  };
+  const headerStyle: React.CSSProperties = {
+    display: "flex", alignItems: "center", gap: "10px", padding: "10px 16px",
+    borderBottom: `1px solid ${theme.borderColor}`, background: "rgba(0,0,0,0.35)", flexShrink: 0,
+  };
+  const openGuide = (id: string) => { requestFullScreenGuide(id); try { Router.Navigate(FULL_SCREEN_ROUTE); } catch {} };
+  const letterLabel = letterFilter === "" ? "Toutes" : letterFilter === "#" ? "#" : letterFilter;
+  const letterIdx = Math.max(0, availableLetters.indexOf(letterFilter));
+
+  // Game detail fiche.
+  if (fiche) {
+    const rel = guidesForItem(fiche);
+    return (
+      <div style={layoutStyle}>
+        <div style={headerStyle}>
+          <DialogButton onClick={() => setFiche(null)} style={{ minWidth: "auto", width: "auto" }}>← Liste</DialogButton>
+          <div style={{ fontWeight: 700, fontSize: "1.1rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{titleOf(fiche)}</div>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px", maxWidth: "640px" }}>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", fontSize: "0.8rem", opacity: 0.9, marginBottom: "12px" }}>
+            {fiche.platform ? <span style={{ background: "rgba(255,255,255,0.1)", borderRadius: "4px", padding: "2px 8px" }}>{fiche.platform}</span> : null}
+            {fiche.emulator ? <span style={{ background: "rgba(255,255,255,0.1)", borderRadius: "4px", padding: "2px 8px" }}>{fiche.emulator}</span> : null}
+            <span style={{ background: "rgba(255,255,255,0.1)", borderRadius: "4px", padding: "2px 8px" }}>{fiche.instance_count} copie(s)</span>
+            {fiche.is_favorite ? <span style={{ background: "rgba(255,217,102,0.2)", borderRadius: "4px", padding: "2px 8px" }}>★ Favori</span> : null}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxWidth: "420px", marginBottom: "18px" }}>
+            <DialogButton style={{ minWidth: "auto", width: "100%", justifyContent: "flex-start" }}
+              onClick={() => { requestSearch(titleOf(fiche)); try { Router.Navigate(SEARCH_ROUTE); } catch {} }}>
+              🔍 Rechercher des guides pour ce jeu
+            </DialogButton>
+            <DialogButton style={{ minWidth: "auto", width: "100%", justifyContent: "flex-start" }}
+              onClick={() => void (async () => { try { await toggleLibraryFavorite(fiche.id); const its = await listLibraryItems(); setItems(its); setFiche(its.find((x) => x.id === fiche.id) || null); } catch {} })()}>
+              {fiche.is_favorite ? "☆ Retirer des favoris" : "★ Ajouter aux favoris"}
+            </DialogButton>
+          </div>
+          <div style={{ fontWeight: 700, color: theme.headingColor, marginBottom: "8px" }}>Guides pour ce jeu ({rel.length})</div>
+          {rel.length === 0 ? (
+            <div style={{ opacity: 0.75, fontSize: "0.85rem" }}>Aucun guide importé pour ce jeu. Utilise 🔍 Rechercher depuis le menu Decky pour en importer un.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxWidth: "520px" }}>
+              {rel.map((g) => (
+                <DialogButton key={g.id} style={{ minWidth: "auto", width: "100%", justifyContent: "flex-start" }} onClick={() => openGuide(g.id)}>
+                  ▶ {g.title} {g.site ? `· ${g.site}` : ""}
+                </DialogButton>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const gameGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "12px" };
+  const renderGameCard = (it: LibraryItem) => {
+    const nGuides = guidesForItem(it).length;
+    return (
+      <Focusable key={it.id} onActivate={() => setFiche(it)} style={{
+        background: "rgba(255,255,255,0.05)", border: `1px solid ${theme.borderColor}`,
+        borderRadius: "8px", padding: "12px 14px", display: "flex", flexDirection: "column", gap: "6px", cursor: "pointer",
+      }}>
+        <div style={{ fontWeight: 700, fontSize: "1rem", color: theme.headingColor, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {it.is_favorite ? "★ " : ""}{titleOf(it)}
+        </div>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", fontSize: "0.72rem", opacity: 0.85 }}>
+          {it.platform ? <span style={{ background: "rgba(255,255,255,0.1)", borderRadius: "4px", padding: "1px 6px" }}>{it.platform}</span> : null}
+          <span style={{ background: nGuides > 0 ? "rgba(139,224,139,0.2)" : "rgba(255,255,255,0.1)", borderRadius: "4px", padding: "1px 6px" }}>
+            {nGuides > 0 ? `${nGuides} guide(s)` : "aucun guide"}
+          </span>
+        </div>
+      </Focusable>
+    );
+  };
+
+  return (
+    <div style={layoutStyle}>
+      <div style={headerStyle}>
+        <DialogButton onClick={() => safeNavigateBack()} style={{ minWidth: "auto", width: "auto" }}>← Retour</DialogButton>
+        <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>🎮 Mes jeux ({filtered.length}/{items.length})</div>
+        <div style={{ flex: 1 }} />
+        <div style={{ width: "200px" }}>
+          <TextField value={textFilter} onChange={(e: any) => setTextFilter(e.target.value)} placeholder="Filtrer…" bShowClearAction />
+        </div>
+        <DialogButton style={{ minWidth: "auto", width: "auto" }} disabled={availablePlatforms.length <= 1}
+          onClick={() => { const i = Math.max(0, availablePlatforms.indexOf(platformFilter)); setPlatformFilter(availablePlatforms[(i + 1) % availablePlatforms.length]); }}>
+          {platformFilter ? `▸ ${platformFilter}` : "▸ Plateforme"}
+        </DialogButton>
+        <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={() => setGroupByPlatform((v) => !v)}>{groupByPlatform ? "🗂 Groupé" : "🗂 Grouper"}</DialogButton>
+        <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={() => setFavOnly((v) => !v)}>{favOnly ? "★" : "☆"}</DialogButton>
+        <DialogButton style={{ minWidth: "auto", width: "auto" }} disabled={availableLetters.length <= 1}
+          onClick={() => setLetterFilter(availableLetters[(letterIdx + 1) % availableLetters.length])}>{letterLabel}</DialogButton>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
+        {loading ? (
+          <div style={{ padding: "24px", opacity: 0.8 }}>Chargement…</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: "24px", opacity: 0.8 }}>{items.length === 0 ? "Aucun jeu scanné. Configure les sources dans Réglages puis rescanne." : "Aucun jeu ne correspond au filtre."}</div>
+        ) : groupByPlatform ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
+            {groupedByPlatform.map(([plat, its]) => (
+              <div key={plat}>
+                <div style={{ fontWeight: 700, fontSize: "1.05rem", color: theme.headingColor, marginBottom: "8px", borderBottom: `1px solid ${theme.borderColor}`, paddingBottom: "4px" }}>
+                  {plat} <span style={{ opacity: 0.6, fontWeight: 400 }}>({its.length})</span>
+                </div>
+                <Focusable style={gameGridStyle}>{its.map(renderGameCard)}</Focusable>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Focusable style={gameGridStyle}>{filtered.map(renderGameCard)}</Focusable>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * v0.42.17 (Levier D): full-screen guide browser. A comfortable library
+ * screen mounted on `/decky-offline-soluce/library` — full-width grid of guide
+ * cards with text/letter filter + sort, so 20-30+ guides are easy to browse
+ * (the cramped QAM prev/next cycling doesn't scale). Clicking a card opens that
+ * guide in the reader route.
+ */
+function FullScreenLibrary() {
+  const [guides, setGuides] = useState<GuideSummary[]>([]);
+  const [preferences, setPreferences] = useState<ReaderPreferences | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [textFilter, setTextFilter] = useState<string>("");
+  const [letterFilter, setLetterFilter] = useState<string>("");
+  const [platformFilter, setPlatformFilter] = useState<string>("");  // v0.43.2
+  const [sortMode, setSortMode] = useState<"recent" | "name" | "platform">("recent");
+  const [groupByGame, setGroupByGame] = useState<boolean>(false);
+  // v0.43.1 (Phase 2a): guide fiche — clicking a card opens a detail panel with
+  // Ouvrir + per-guide actions (re-download, reconstruct, clean, delete).
+  const [ficheGuide, setFicheGuide] = useState<GuideSummary | null>(null);
+  const [ficheBusy, setFicheBusy] = useState<boolean>(false);
+  const [ficheMsg, setFicheMsg] = useState<string>("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [gs, prefs] = await Promise.all([listGuides(), getReaderPreferences()]);
+        setGuides(gs);
+        setPreferences(prefs);
+      } catch { /* keep empty */ }
+      finally { setLoading(false); }
+    })();
+  }, []);
+
+  // Refresh the guides list after an action (keeps the fiche in sync).
+  const refreshGuides = async () => {
+    try { const gs = await listGuides(); setGuides(gs); return gs; } catch { return guides; }
+  };
+  const ficheAction = async (
+    label: string,
+    fn: (id: string) => Promise<unknown>,
+  ) => {
+    if (!ficheGuide) return;
+    setFicheBusy(true); setFicheMsg(`${label}…`);
+    try {
+      await fn(ficheGuide.id);
+      const gs = await refreshGuides();
+      const updated = gs.find((g) => g.id === ficheGuide.id) || null;
+      setFicheGuide(updated);
+      setFicheMsg(updated ? `${label} : OK` : `${label} : terminé`);
+    } catch (e) {
+      setFicheMsg(`${label} : échec — ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setFicheBusy(false);
+    }
+  };
+
+  // v0.43.2: B/back closes the fiche (returns to the list) instead of exiting the
+  // whole full-screen route. When the fiche opens we push a history entry; the
+  // Deck's B maps to history-back → popstate → we close the fiche and swallow it.
+  useEffect(() => {
+    if (!ficheGuide) return;
+    try { window.history.pushState({ osFiche: true }, ""); } catch {}
+    const onPop = () => setFicheGuide(null);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [ficheGuide?.id]);
+
+  const titleOf = (g: GuideSummary) => (g.game.game_title || g.title || "").trim();
+
+  const availableLetters = useMemo(() => {
+    const set = new Set<string>();
+    for (const g of guides) {
+      const c = (titleOf(g)[0] || "").toUpperCase();
+      set.add(/[A-Z]/.test(c) ? c : "#");
+    }
+    return ["", ...Array.from(set).sort()];
+  }, [guides]);
+
+  // v0.43.2: platforms actually present among the guides (for the platform filter).
+  const availablePlatforms = useMemo(() => {
+    const set = new Set<string>();
+    for (const g of guides) { const p = (g.game.platform || "").trim(); if (p) set.add(p); }
+    return ["", ...Array.from(set).sort()];
+  }, [guides]);
+
+  const filtered = useMemo(() => {
+    const needle = textFilter.trim().toLowerCase();
+    let list = guides.filter((g) => {
+      if (needle) {
+        const hay = `${g.title} ${g.game.game_title || ""} ${g.site || ""}`.toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      if (platformFilter && (g.game.platform || "") !== platformFilter) return false;
+      if (letterFilter) {
+        const c = (titleOf(g)[0] || "").toUpperCase();
+        if (letterFilter === "#") { if (/[A-Z]/.test(c)) return false; }
+        else if (c !== letterFilter) return false;
+      }
+      return true;
+    });
+    if (sortMode === "name") list = list.slice().sort((a, b) => titleOf(a).localeCompare(titleOf(b)));
+    else if (sortMode === "platform") list = list.slice().sort((a, b) => (a.game.platform || "zzz").localeCompare(b.game.platform || "zzz") || titleOf(a).localeCompare(titleOf(b)));
+    else list = list.slice().sort((a, b) => (b.progress?.last_opened_at || "").localeCompare(a.progress?.last_opened_at || "") || titleOf(a).localeCompare(titleOf(b)));
+    return list;
+  }, [guides, textFilter, letterFilter, platformFilter, sortMode]);
+
+  const theme = preferences ? themeStyle(preferences.theme)
+    : { background: "#111", textColor: "#eee", borderColor: "rgba(255,255,255,0.1)", headingColor: "#ffd966", preBg: "rgba(0,0,0,0.3)", preText: "#ddd" };
+
+  const layoutStyle: React.CSSProperties = {
+    width: "100vw", height: "100vh",
+    paddingTop: `${STEAM_UI_TOP_BAR_PX}px`, paddingBottom: `${STEAM_UI_BOTTOM_BAR_PX}px`,
+    boxSizing: "border-box", display: "flex", flexDirection: "column",
+    background: theme.background, color: theme.textColor,
+    fontFamily: preferences ? fontFamily(preferences.font_family) : undefined,
+  };
+  const headerStyle: React.CSSProperties = {
+    display: "flex", alignItems: "center", gap: "10px", padding: "10px 16px",
+    borderBottom: `1px solid ${theme.borderColor}`, background: "rgba(0,0,0,0.35)", flexShrink: 0,
+  };
+
+  const openGuide = (id: string) => {
+    requestFullScreenGuide(id);
+    try { Router.Navigate(FULL_SCREEN_ROUTE); } catch {}
+  };
+
+  const sortLabel = sortMode === "recent" ? "Récemment ouvert" : sortMode === "name" ? "Nom A→Z" : "Plateforme";
+  const letterLabel = letterFilter === "" ? "Toutes" : letterFilter === "#" ? "#" : letterFilter;
+  const letterIdx = Math.max(0, availableLetters.indexOf(letterFilter));
+
+  const renderCard = (g: GuideSummary) => {
+    const pct = g.section_count > 0 && (g.progress?.last_section_index ?? -1) >= 0
+      ? Math.round(100 * ((g.progress.last_section_index + 1) / g.section_count)) : 0;
+    return (
+      <Focusable
+        key={g.id}
+        onActivate={() => { setFicheMsg(""); setFicheGuide(g); }}
+        style={{
+          background: "rgba(255,255,255,0.05)", border: `1px solid ${theme.borderColor}`,
+          borderRadius: "8px", padding: "12px 14px", display: "flex", flexDirection: "column", gap: "6px",
+          cursor: "pointer",
+        }}
+      >
+        <div style={{ fontWeight: 700, fontSize: "1rem", color: theme.headingColor, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {/* In grouped mode the game name is the section header, so show the
+              guide's own title (site variant) on the card instead. */}
+          {groupByGame ? (g.title || g.game.game_title) : (g.game.game_title || g.title)}
+        </div>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", fontSize: "0.72rem", opacity: 0.85 }}>
+          {g.game.platform ? <span style={{ background: "rgba(255,255,255,0.1)", borderRadius: "4px", padding: "1px 6px" }}>{g.game.platform}</span> : null}
+          {g.site ? <span style={{ background: "rgba(255,255,255,0.1)", borderRadius: "4px", padding: "1px 6px" }}>{g.site}</span> : null}
+          <span style={{ background: "rgba(255,255,255,0.1)", borderRadius: "4px", padding: "1px 6px" }}>{g.section_count} sect.</span>
+          {g.has_resume ? <span style={{ background: "rgba(255,217,102,0.2)", borderRadius: "4px", padding: "1px 6px" }}>Reprise</span> : null}
+        </div>
+        <div style={{ height: "6px", background: "rgba(255,255,255,0.12)", borderRadius: "3px", overflow: "hidden" }}>
+          <div style={{ width: `${pct}%`, height: "100%", background: theme.headingColor }} />
+        </div>
+      </Focusable>
+    );
+  };
+
+  const gridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "12px" };
+
+  // v0.42.19: group filtered guides by game_title (for the "Grouper" mode).
+  const grouped = useMemo(() => {
+    const map = new Map<string, GuideSummary[]>();
+    for (const g of filtered) {
+      const key = (g.game.game_title || g.title || "?").trim();
+      (map.get(key) || map.set(key, []).get(key)!).push(g);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filtered]);
+
+  // v0.43.1: guide fiche — detail panel with Ouvrir + per-guide actions.
+  if (ficheGuide) {
+    const g = ficheGuide;
+    const pct = g.section_count > 0 && (g.progress?.last_section_index ?? -1) >= 0
+      ? Math.round(100 * ((g.progress.last_section_index + 1) / g.section_count)) : 0;
+    const actBtn: React.CSSProperties = { minWidth: "auto", width: "100%", justifyContent: "flex-start" };
+    return (
+      <div style={layoutStyle}>
+        <div style={headerStyle}>
+          <DialogButton onClick={() => setFicheGuide(null)} style={{ minWidth: "auto", width: "auto" }}>← Liste</DialogButton>
+          <div style={{ fontWeight: 700, fontSize: "1.1rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {g.game.game_title || g.title}
+          </div>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px", maxWidth: "640px" }}>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", fontSize: "0.8rem", opacity: 0.9, marginBottom: "10px" }}>
+            {g.game.platform ? <span style={{ background: "rgba(255,255,255,0.1)", borderRadius: "4px", padding: "2px 8px" }}>{g.game.platform}</span> : null}
+            {g.site ? <span style={{ background: "rgba(255,255,255,0.1)", borderRadius: "4px", padding: "2px 8px" }}>{g.site}</span> : null}
+            <span style={{ background: "rgba(255,255,255,0.1)", borderRadius: "4px", padding: "2px 8px" }}>{g.section_count} sections</span>
+            <span style={{ background: "rgba(255,255,255,0.1)", borderRadius: "4px", padding: "2px 8px" }}>{g.page_count} page(s)</span>
+          </div>
+          <div style={{ fontSize: "0.82rem", opacity: 0.8, marginBottom: "6px" }}>{g.title}</div>
+          <div style={{ height: "8px", background: "rgba(255,255,255,0.12)", borderRadius: "4px", overflow: "hidden", marginBottom: "16px" }}>
+            <div style={{ width: `${pct}%`, height: "100%", background: theme.headingColor }} />
+          </div>
+          {ficheMsg ? <div style={{ fontSize: "0.82rem", color: theme.headingColor, marginBottom: "12px" }}>{ficheMsg}</div> : null}
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxWidth: "420px" }}>
+            <DialogButton style={actBtn} disabled={ficheBusy} onClick={() => { openGuide(g.id); }}>▶ Ouvrir le guide</DialogButton>
+            <DialogButton style={actBtn} disabled={ficheBusy || !g.url} onClick={() => void ficheAction("Re-téléchargement", (id) => reloadGuideContent(id))}>🔄 Re-télécharger</DialogButton>
+            <DialogButton style={actBtn} disabled={ficheBusy} onClick={() => void ficheAction("Reconstruction", (id) => reconstructSections(id))}>🔧 Reconstruire les sections</DialogButton>
+            <DialogButton style={actBtn} disabled={ficheBusy} onClick={() => void ficheAction("Nettoyage", (id) => cleanExistingGuide(id))}>🧹 Nettoyer le contenu</DialogButton>
+            <DialogButton style={{ ...actBtn, borderColor: "rgba(255,100,100,0.4)" }} disabled={ficheBusy} onClick={() => void (async () => {
+              setFicheBusy(true); setFicheMsg("Suppression…");
+              try { await deleteGuide(g.id); await refreshGuides(); setFicheGuide(null); }
+              catch (e) { setFicheMsg(`Suppression : échec — ${e instanceof Error ? e.message : e}`); }
+              finally { setFicheBusy(false); }
+            })()}>🗑 Supprimer ce guide</DialogButton>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={layoutStyle}>
+      <div style={headerStyle}>
+        <DialogButton onClick={() => safeNavigateBack()} style={{ minWidth: "auto", width: "auto" }}>← Retour</DialogButton>
+        <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>📚 Bibliothèque ({filtered.length}/{guides.length})</div>
+        <div style={{ flex: 1 }} />
+        <div style={{ width: "230px" }}>
+          <TextField value={textFilter} onChange={(e: any) => setTextFilter(e.target.value)} placeholder="Filtrer…" bShowClearAction />
+        </div>
+        <DialogButton style={{ minWidth: "auto", width: "auto" }} disabled={availablePlatforms.length <= 1}
+          onClick={() => { const i = Math.max(0, availablePlatforms.indexOf(platformFilter)); setPlatformFilter(availablePlatforms[(i + 1) % availablePlatforms.length]); }}>
+          {platformFilter ? `▸ ${platformFilter}` : "▸ Plateforme"}
+        </DialogButton>
+        <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={() => setGroupByGame((v) => !v)}>{groupByGame ? "🎮 Groupé" : "🎮 Grouper"}</DialogButton>
+        <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={() => setSortMode((m) => m === "recent" ? "name" : m === "name" ? "platform" : "recent")}>Tri : {sortLabel}</DialogButton>
+        <DialogButton style={{ minWidth: "auto", width: "auto" }} disabled={availableLetters.length <= 1}
+          onClick={() => setLetterFilter(availableLetters[(letterIdx + 1) % availableLetters.length])}>{letterLabel}</DialogButton>
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
+        {loading ? (
+          <div style={{ padding: "24px", opacity: 0.8 }}>Chargement…</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: "24px", opacity: 0.8 }}>{guides.length === 0 ? "Aucun guide importé." : "Aucun guide ne correspond au filtre."}</div>
+        ) : groupByGame ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
+            {grouped.map(([game, gs]) => (
+              <div key={game}>
+                <div style={{ fontWeight: 700, fontSize: "1.05rem", color: theme.headingColor, marginBottom: "8px", borderBottom: `1px solid ${theme.borderColor}`, paddingBottom: "4px" }}>
+                  {game} <span style={{ opacity: 0.6, fontWeight: 400 }}>({gs.length})</span>
+                </div>
+                <Focusable style={gridStyle}>
+                  {gs.map(renderCard)}
+                </Focusable>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Focusable style={gridStyle}>
+            {filtered.map(renderCard)}
+          </Focusable>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Stand-alone full-page reading surface, mounted via routerHook on the
  * `/decky-offline-soluce/reader` route. Owns its own state — when the user
  * navigates back, progress is persisted and the QAM Content view will pick up
@@ -1402,6 +2097,11 @@ function FullScreenReader() {
   const [searchPattern, setSearchPattern] = useState<string>("");
   const [showSearch, setShowSearch] = useState<boolean>(false);
   const [showToc, setShowToc] = useState<boolean>(true);
+  const [showDisplay, setShowDisplay] = useState<boolean>(false);  // v0.43.4: display settings panel in the reader
+  const [confortOn, setConfortOn] = useState<boolean>(false);  // v0.43.6: Confort Deck toggle
+  const confortSnapRef = useRef<{ prefs: ReaderPreferences; font: number; toc: boolean } | null>(null);
+  // v0.43.6: page-scroll pulse — L1/R1 bump this; GuideReader scrolls ~80% of a screen.
+  const [scrollPulse, setScrollPulse] = useState<{ n: number; dir: 1 | -1 }>({ n: 0, dir: 1 });
   const [loadError, setLoadError] = useState<string>("");
   const lastScrollFractionRef = useRef<number>(0);
   const restoreFractionRef = useRef<number | null>(null);
@@ -1465,6 +2165,27 @@ function FullScreenReader() {
   useEffect(() => {
     latestStateRef.current = { sectionIndex, fontScale };
   }, [sectionIndex, fontScale]);
+
+  // v0.43.6: controller shortcuts in the reader.
+  //   L2 (28) / R2 (29) → previous / next SECTION
+  //   L1 (30) / R1 (31) → scroll one screen up / down (~80%) within the section
+  // Registered while a guide is loaded; unregistered on unmount.
+  useEffect(() => {
+    if (!guide) return;
+    const sc: any = (window as any).SteamClient;
+    const inputApi: any = sc?.Input;
+    if (!inputApi?.RegisterForControllerInputMessages) return;
+    const count = guide.sections.length;
+    let active = true;
+    const handle = inputApi.RegisterForControllerInputMessages((_idx: number, button: number, pressed: boolean) => {
+      if (!active || !pressed) return;
+      if (button === 28) setSectionIndex((v) => Math.max(0, v - 1));          // L2 → prev section
+      else if (button === 29) setSectionIndex((v) => Math.min(count - 1, v + 1));  // R2 → next section
+      else if (button === 30) setScrollPulse((p) => ({ n: p.n + 1, dir: -1 }));    // L1 → page up
+      else if (button === 31) setScrollPulse((p) => ({ n: p.n + 1, dir: 1 }));     // R1 → page down
+    });
+    return () => { active = false; try { handle?.unregister?.(); } catch {} };
+  }, [guide?.id]);
 
   // Debounced persist on section / font / scroll changes
   useEffect(() => {
@@ -1547,7 +2268,8 @@ function FullScreenReader() {
     flexShrink: 0,
   };
   const sidebarStyle: React.CSSProperties = {
-    width: "300px",
+    // v0.43.5: trimmed 300→240px to give the text column ~60px more width.
+    width: "240px",
     overflowY: "auto",
     overflowX: "hidden",
     borderRight: `1px solid ${theme.borderColor}`,
@@ -1574,6 +2296,11 @@ function FullScreenReader() {
     borderTop: `1px solid ${theme.borderColor}`,
     background: "rgba(0,0,0,0.35)",
     flexShrink: 0,
+  };
+  // v0.42.18: compact header-button style — auto width so 6 buttons fit on the
+  // Deck without pushing the last one (🔍) off-screen.
+  const hdrBtnStyle: React.CSSProperties = {
+    minWidth: "auto", width: "auto", padding: "6px 12px", flexShrink: 0,
   };
 
   if (loadError) {
@@ -1603,10 +2330,50 @@ function FullScreenReader() {
   const currentSection = sectionIndex >= 0 ? guide.sections[sectionIndex] : null;
   const sectionLabel = currentSection ? currentSection.title : "—";
 
+  // v0.43.4: apply + persist a reader preference change live (theme, font,
+  // line-height, width, highlight, numbered). Updates local state so the reader
+  // re-renders instantly, then persists to the backend.
+  const savePrefs = (next: ReaderPreferences) => {
+    setPreferences(next);
+    try {
+      void updateReaderPreferences(
+        next.theme, next.font_family, next.line_height, next.max_width,
+        next.highlight_keywords, next.numbered_sections, next.resume_hotkey || "",
+        typeof next.resume_button === "number" ? next.resume_button : -1,
+        next.resume_enabled !== false,
+      );
+    } catch { /* keep local change even if persist fails */ }
+  };
+  const cyclePref = <K extends keyof ReaderPreferences>(key: K, choices: ReaderPreferences[K][]) => {
+    const i = choices.indexOf(preferences[key]);
+    savePrefs({ ...preferences, [key]: choices[(i + 1) % choices.length] });
+  };
+  // v0.43.6: Confort Deck is a TOGGLE — first click applies the comfort combo +
+  // hides the sidebar (snapshotting the prior state); second click restores it.
+  const toggleConfort = () => {
+    if (!confortOn) {
+      confortSnapRef.current = { prefs: preferences, font: fontScale, toc: showToc };
+      savePrefs({ ...preferences, font_family: "sans", line_height: "airy", max_width: "normal" });
+      setFontScale(1.1); setShowToc(false); setConfortOn(true);
+    } else {
+      const s = confortSnapRef.current;
+      if (s) { savePrefs(s.prefs); setFontScale(s.font); setShowToc(s.toc); }
+      else { setShowToc(true); }
+      confortSnapRef.current = null; setConfortOn(false);
+    }
+  };
+  const prefLabels: Record<string, string> = {
+    dark: "Sombre", sepia: "Sépia", sans: "Sans", serif: "Serif", mono: "Mono",
+    tight: "Serré", normal: "Normal", airy: "Aéré", narrow: "Étroit", full: "Plein",
+  };
+
   return (
     <div style={layoutStyle}>
       <div style={headerStyle}>
-        <DialogButton onClick={() => safeNavigateBack()}>← Retour</DialogButton>
+        {/* v0.42.18: compact header — DialogButton has a wide default min-width;
+            with 6 buttons the last one (🔍) fell off-screen on the Deck. Force
+            auto width + short icon labels so they all fit. */}
+        <DialogButton style={hdrBtnStyle} onClick={() => safeNavigateBack()}>←</DialogButton>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: "0.95rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {guide.game.game_title || guide.title}
@@ -1617,14 +2384,30 @@ function FullScreenReader() {
               : "Aucune section"}
           </div>
         </div>
-        <DialogButton onClick={() => setShowToc((v) => !v)}>{showToc ? "Masquer sommaire" : "📚 Sommaire"}</DialogButton>
-        <DialogButton onClick={() => setShowBookmarksPanel((v) => !v)}>
-          {showBookmarksPanel ? "Fermer 🔖" : `🔖 Marques (${guide.progress?.named_bookmarks?.length || 0})`}
+        <DialogButton style={hdrBtnStyle} onClick={() => setShowToc((v) => !v)}>📚</DialogButton>
+        <DialogButton style={hdrBtnStyle} onClick={() => setShowBookmarksPanel((v) => !v)}>
+          🔖{(guide.progress?.named_bookmarks?.length || 0) > 0 ? ` ${guide.progress.named_bookmarks.length}` : ""}
         </DialogButton>
-        <DialogButton onClick={() => setFontScale((v) => Math.max(0.85, +(v - 0.1).toFixed(2)))}>A−</DialogButton>
-        <DialogButton onClick={() => setFontScale((v) => Math.min(2.0, +(v + 0.1).toFixed(2)))}>A+</DialogButton>
-        <DialogButton onClick={() => setShowSearch((v) => !v)}>{showSearch ? "Fermer 🔍" : "🔍"}</DialogButton>
+        <DialogButton style={hdrBtnStyle} onClick={() => setFontScale((v) => Math.max(0.85, +(v - 0.1).toFixed(2)))}>A−</DialogButton>
+        <DialogButton style={hdrBtnStyle} onClick={() => setFontScale((v) => Math.min(2.0, +(v + 0.1).toFixed(2)))}>A+</DialogButton>
+        <DialogButton style={hdrBtnStyle} onClick={() => setShowDisplay((v) => !v)}>⚙</DialogButton>
+        <DialogButton style={hdrBtnStyle} onClick={() => setShowSearch((v) => !v)}>🔍</DialogButton>
       </div>
+
+      {showDisplay ? (
+        <div style={{ padding: "10px 16px", background: "rgba(0,0,0,0.3)", flexShrink: 0, display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: "0.8rem", opacity: 0.7 }}>Affichage :</span>
+          <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={() => cyclePref("theme", ["dark", "sepia"])}>Thème : {prefLabels[preferences.theme]}</DialogButton>
+          <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={() => cyclePref("font_family", ["sans", "serif", "mono"])}>Police : {prefLabels[preferences.font_family]}</DialogButton>
+          <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={() => cyclePref("line_height", ["tight", "normal", "airy"])}>Interligne : {prefLabels[preferences.line_height]}</DialogButton>
+          <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={() => cyclePref("max_width", ["narrow", "normal", "full"])}>Largeur : {prefLabels[preferences.max_width]}</DialogButton>
+          <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={() => savePrefs({ ...preferences, highlight_keywords: !preferences.highlight_keywords })}>Surlignage : {preferences.highlight_keywords ? "Oui" : "Non"}</DialogButton>
+          <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={() => savePrefs({ ...preferences, numbered_sections: !preferences.numbered_sections })}>Numéros : {preferences.numbered_sections ? "Oui" : "Non"}</DialogButton>
+          <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={toggleConfort}>
+            {confortOn ? "🛋 Confort ✓ (désactiver)" : "🛋 Confort Deck"}
+          </DialogButton>
+        </div>
+      ) : null}
 
       {showSearch ? (
         <div style={{ padding: "8px 16px", background: "rgba(0,0,0,0.25)", flexShrink: 0 }}>
@@ -1746,8 +2529,9 @@ function FullScreenReader() {
                 saveProgress(guide.id, si, fs, lastScrollFractionRef.current).catch(() => {});
               }, 1500) as unknown as number;
             }}
-            maxHeight={showSearch ? "calc(100vh - 290px)" : "calc(100vh - 240px)"}
+            maxHeight={`calc(100vh - ${240 + (showSearch ? 50 : 0) + (showDisplay ? 50 : 0)}px)`}
             onJumpToSection={(idx) => setSectionIndex(idx)}
+            scrollPulse={scrollPulse}
           />
           ) : null}
         </div>
@@ -1892,11 +2676,71 @@ function setCaptureInProgress(active: boolean): void {
 // opens our plugin tab after a Decky restart) and stays alive across QAM open/close.
 
 
+/**
+ * v0.43.18: ongoing background imports, visible from the Home view so the user
+ * always knows where a long (60-page) import stands even after leaving the search
+ * screen. Polls list_imports every 2s; running jobs show a progress bar, finished
+ * ones a tap-to-open (or error) row that clears itself when tapped.
+ */
+function ActiveImports() {
+  const [jobs, setJobs] = useState<ImportJob[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try { const j = await listImports(); if (alive) setJobs(j); } catch {}
+    };
+    void poll();
+    const t = window.setInterval(poll, 2000);
+    return () => { alive = false; window.clearInterval(t); };
+  }, []);
+  if (!jobs.length) return null;
+  const running = jobs.filter((j) => j.state === "running");
+  const finished = jobs.filter((j) => j.state !== "running");
+  const openGuide = (id: string) => {
+    requestFullScreenGuide(id);
+    try { Router.CloseSideMenus(); } catch {}
+    try { Router.Navigate(FULL_SCREEN_ROUTE); } catch {}
+  };
+  const clear = (jobId: string) => {
+    void dismissImport(jobId).catch(() => {});
+    setJobs((js) => js.filter((x) => x.job_id !== jobId));
+  };
+  return (
+    <PanelSection title="Imports en cours">
+      {running.map((j) => {
+        const pct = j.total > 0 ? Math.min(100, Math.round((100 * j.done) / Math.max(1, j.total))) : 0;
+        return (
+          <PanelSectionRow key={j.job_id}>
+            <div style={{ width: "100%", fontSize: "0.82rem" }}>
+              <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>⏳ {j.title}</div>
+              <div style={{ opacity: 0.8, fontSize: "0.76rem" }}>{j.msg}{j.total > 0 ? ` — ${j.done}/${j.total}` : ""}</div>
+              {j.total > 0 ? (
+                <div style={{ height: 5, background: "rgba(255,255,255,0.15)", borderRadius: 3, marginTop: 5 }}>
+                  <div style={{ height: "100%", width: `${pct}%`, background: "#8be08b", borderRadius: 3, transition: "width 0.4s" }} />
+                </div>
+              ) : null}
+            </div>
+          </PanelSectionRow>
+        );
+      })}
+      {finished.map((j) => (
+        <PanelSectionRow key={j.job_id}>
+          <ButtonItem layout="below" onClick={() => { if (j.state === "done" && j.guide_id) openGuide(j.guide_id); clear(j.job_id); }}>
+            {j.state === "done"
+              ? `✓ ${j.title.slice(0, 30)} — ouvrir (${j.section_count} sect.)`
+              : `⚠ ${j.title.slice(0, 24)} : ${(j.error || "échec").slice(0, 26)}`}
+          </ButtonItem>
+        </PanelSectionRow>
+      ))}
+    </PanelSection>
+  );
+}
+
 // ========== Main Content component ==========
 
 function Content() {
   // Core state
-  const [activeView, setActiveView] = useState<ViewMode>("sources");
+  const [activeView, setActiveView] = useState<ViewMode>("home");
   const [guides, setGuides] = useState<GuideSummary[]>([]);
   const [selectedGuide, setSelectedGuide] = useState<GuideDetail | null>(null);
   const [sources, setSources] = useState<ScanSource[]>([]);
@@ -1933,6 +2777,11 @@ function Content() {
   const [sortByName, setSortByName] = useState<boolean>(true);
   const [letterFilter, setLetterFilter] = useState<string>("");  // "" = all; otherwise single uppercase char
   const [showFavoritesOnly, setShowFavoritesOnly] = useState<boolean>(false);
+  // v0.42.13: filter + sort for the GUIDES view (A+B). Text filter, letter
+  // filter, and a 3-way sort so 20-30 guides stay navigable.
+  const [guideTextFilter, setGuideTextFilter] = useState<string>("");
+  const [guideLetterFilter, setGuideLetterFilter] = useState<string>("");
+  const [guideSortMode, setGuideSortMode] = useState<"recent" | "name" | "platform">("recent");
 
   // Reader preferences
   const [preferences, setPreferences] = useState<ReaderPreferences>({
@@ -2065,7 +2914,55 @@ function Content() {
   const selectedSearchSite = SEARCH_SITE_CHOICES[searchSiteIndex] || SEARCH_SITE_CHOICES[0];
   const selectedLanguage = LANGUAGE_CHOICES[languageIndex] || LANGUAGE_CHOICES[0];
   const selectedSearchResult = searchResults[searchResultIndex] || null;
-  const selectedGuideSummary = guides[guideIndex] || null;
+  // v0.42.13: apply text + letter filter and sort to the guides list.
+  const guideTitleOf = (g: GuideSummary) => (g.game.game_title || g.title || "").trim();
+  const filteredGuides = useMemo(() => {
+    const needle = guideTextFilter.trim().toLowerCase();
+    let list = guides.filter((g) => {
+      // Text filter: match title OR game_title OR site
+      if (needle) {
+        const hay = `${g.title} ${g.game.game_title || ""} ${g.site || ""}`.toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      // Letter filter on the display title's first character
+      if (guideLetterFilter) {
+        const first = (guideTitleOf(g)[0] || "").toUpperCase();
+        if (guideLetterFilter === "#") {
+          if (/[A-Z]/.test(first)) return false;  // keep only non-letters
+        } else if (first !== guideLetterFilter) {
+          return false;
+        }
+      }
+      return true;
+    });
+    if (guideSortMode === "name") {
+      list = list.slice().sort((a, b) => guideTitleOf(a).localeCompare(guideTitleOf(b)));
+    } else if (guideSortMode === "platform") {
+      list = list.slice().sort((a, b) => {
+        const pa = a.game.platform || "zzz", pb = b.game.platform || "zzz";
+        return pa.localeCompare(pb) || guideTitleOf(a).localeCompare(guideTitleOf(b));
+      });
+    } else {
+      // recent: most-recently-opened first, then never-opened by name
+      list = list.slice().sort((a, b) =>
+        (b.progress?.last_opened_at || "").localeCompare(a.progress?.last_opened_at || "")
+        || guideTitleOf(a).localeCompare(guideTitleOf(b))
+      );
+    }
+    return list;
+  }, [guides, guideTextFilter, guideLetterFilter, guideSortMode]);
+
+  // Letters that actually have at least one guide (for the A-Z cycle).
+  const guideAvailableLetters = useMemo(() => {
+    const set = new Set<string>();
+    for (const g of guides) {
+      const first = (guideTitleOf(g)[0] || "").toUpperCase();
+      set.add(/[A-Z]/.test(first) ? first : "#");
+    }
+    return ["", ...Array.from(set).sort()];
+  }, [guides]);
+
+  const selectedGuideSummary = filteredGuides[guideIndex] || null;
   // A5: similar-guides suggestions for the currently selected guide
   const similarGuides = useMemo(() => findSimilarGuides(selectedGuideSummary, guides), [selectedGuideSummary, guides]);
 
@@ -2185,7 +3082,11 @@ function Content() {
 
   useEffect(() => { if (sourceIndex >= sources.length) setSourceIndex(0); }, [sourceIndex, sources.length]);
   useEffect(() => { if (libraryIndex >= filteredItems.length) setLibraryIndex(0); }, [libraryIndex, filteredItems.length]);
-  useEffect(() => { if (guideIndex >= guides.length) setGuideIndex(0); }, [guideIndex, guides.length]);
+  useEffect(() => { if (guideIndex >= filteredGuides.length) setGuideIndex(0); }, [guideIndex, filteredGuides.length]);
+
+  // v0.43.3: the game-library "search for this game" now opens the full-screen
+  // search route directly (FullScreenSearch consumes the query on mount), so no
+  // QAM interval is needed. The old QAM "search" view remains for manual use.
   useEffect(() => { if (searchResultIndex >= searchResults.length) setSearchResultIndex(0); }, [searchResultIndex, searchResults.length]);
   useEffect(() => { if (relatedGuideIndex >= relatedGuides.length) setRelatedGuideIndex(0); }, [relatedGuideIndex, relatedGuides.length]);
   useEffect(() => { if (platformIndex >= platformChoices.length) setPlatformIndex(0); }, [platformIndex, platformChoices.length]);
@@ -2717,6 +3618,32 @@ function Content() {
     }
   };
 
+  // v0.42.12: re-download the CURRENTLY SELECTED summary without needing to
+  // open the guide first. Wired to a button in the top guide-selection panel
+  // so re-download is one click away (the "Lecture offline" button is buried
+  // far down and only appears after opening the guide).
+  const handleReloadSelectedSummary = async () => {
+    if (!selectedGuideSummary) return;
+    setIsBusy(true); setError("");
+    setDebugOutput(`Re-téléchargement de « ${selectedGuideSummary.title.slice(0, 40)} »…`);
+    try {
+      const updated = await reloadGuideContent(selectedGuideSummary.id);
+      setGuides((c) => c.map((i) => (i.id === updated.id ? updated : i)));
+      // If this guide is also the one currently opened, refresh its detail too.
+      if (selectedGuide && selectedGuide.id === updated.id) {
+        setSelectedGuide(updated);
+        setSelectedSectionIndex(updated.progress.last_section_index ?? -1);
+      }
+      setDebugOutput(`Re-téléchargement OK : ${updated.page_count} page(s), ${updated.section_count} section(s) — méthode ${updated.detection_method || "?"}`);
+      try { toaster.toast({ title: "Re-téléchargé", body: `${updated.page_count} page(s), ${updated.section_count} section(s)`, duration: 3000 }); } catch {}
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Re-téléchargement impossible (ancien contenu conservé)");
+      setDebugOutput("");
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
   const goToMatch = (idx: number) => {
     if (!selectedGuide || findMatches.length === 0) return;
     const wrapped = ((idx % findMatches.length) + findMatches.length) % findMatches.length;
@@ -3060,62 +3987,111 @@ function Content() {
 
   // ========== Renderers ==========
 
-  const renderModeHeader = () => (
-    <PanelSection title="Vue active">
-      <PanelSectionRow>
-        <div style={boxStyle}>
-          <div style={{ fontWeight: 700, marginBottom: "6px" }}>{activeView.toUpperCase()}</div>
-          <div style={{ fontSize: "0.8rem", opacity: 0.86 }}>
-            Sources → bibliothèque → recherche → guides offline.
-          </div>
-        </div>
-      </PanelSectionRow>
-      <PanelSectionRow>
-        <ButtonItem layout="below" disabled={isBusy} onClick={() => setActiveView(VIEW_SEQUENCE[cycleIndex(VIEW_SEQUENCE.indexOf(activeView), VIEW_SEQUENCE.length, -1)])}>
-          Vue précédente
-        </ButtonItem>
-      </PanelSectionRow>
-      <PanelSectionRow>
-        <ButtonItem layout="below" disabled={isBusy} onClick={() => setActiveView(VIEW_SEQUENCE[cycleIndex(VIEW_SEQUENCE.indexOf(activeView), VIEW_SEQUENCE.length, 1)])}>
-          Vue suivante
-        </ButtonItem>
-      </PanelSectionRow>
-    </PanelSection>
-  );
+  // v0.43.0: navigation is now launcher-based. The home view IS the nav (direct
+  // buttons, no cycling). Non-home views get a simple "← Accueil" back button.
+  const renderModeHeader = () => {
+    if (activeView === "home") return null;
+    return (
+      <PanelSection title={VIEW_LABELS[activeView] || activeView}>
+        <PanelSectionRow>
+          <ButtonItem layout="below" disabled={isBusy} onClick={() => setActiveView("home")}>
+            ← Accueil
+          </ButtonItem>
+        </PanelSectionRow>
+      </PanelSection>
+    );
+  };
 
-  const renderSourcesView = () => (
-    <>
-      {lastOpenedGuide ? (
-        <PanelSection title="Reprendre la lecture">
+  // v0.43.0: the launcher — quick access to the most-used actions instead of
+  // cycling through 4 dense views. Reprendre / Bibliothèque plein écran /
+  // Rechercher / Récents / Réglages.
+  const renderHomeView = () => {
+    const recents = [...guides]
+      .filter((g) => g.progress?.last_opened_at)
+      .sort((a, b) => (b.progress.last_opened_at || "").localeCompare(a.progress.last_opened_at || ""))
+      .slice(0, 5);
+    return (
+      <>
+        <ActiveImports />
+        <PanelSection title="Offline Soluce">
+          {lastOpenedGuide ? (
+            <PanelSectionRow>
+              <ButtonItem layout="below" disabled={isBusy} onClick={() => {
+                requestFullScreenGuide(lastOpenedGuide.id);
+                try { Router.CloseSideMenus(); } catch {}
+                Router.Navigate(FULL_SCREEN_ROUTE);
+              }}>
+                ▶ Reprendre : {(lastOpenedGuide.game.game_title || lastOpenedGuide.title).slice(0, 30)}
+              </ButtonItem>
+            </PanelSectionRow>
+          ) : null}
           <PanelSectionRow>
-            <div style={{ ...boxStyle, borderColor: "rgba(255, 217, 102, 0.35)" }}>
-              <div style={{ fontWeight: 700, marginBottom: "4px" }}>
-                {lastOpenedGuide.game.game_title || lastOpenedGuide.title}
-              </div>
-              <div style={{ fontSize: "0.78rem", opacity: 0.85 }}>
-                {lastOpenedGuide.resume_label}
-                {lastOpenedGuide.progress?.last_opened_at
-                  ? ` — ${formatDate(lastOpenedGuide.progress.last_opened_at)}`
-                  : ""}
-              </div>
-            </div>
-          </PanelSectionRow>
-          <PanelSectionRow>
-            <ButtonItem layout="below" disabled={isBusy} onClick={() => void openGuideById(lastOpenedGuide.id)}>
-              ⏱ Reprendre où j'étais
+            <ButtonItem layout="below" disabled={isBusy || !guides.length} onClick={() => {
+              try { Router.CloseSideMenus(); } catch {}
+              Router.Navigate(LIBRARY_ROUTE);
+            }}>
+              📚 Bibliothèque plein écran ({guides.length})
             </ButtonItem>
           </PanelSectionRow>
           <PanelSectionRow>
             <ButtonItem layout="below" disabled={isBusy} onClick={() => {
-              requestFullScreenGuide(lastOpenedGuide.id);
-              Router.CloseSideMenus();
-              Router.Navigate(FULL_SCREEN_ROUTE);
+              try { Router.CloseSideMenus(); } catch {}
+              Router.Navigate(GAME_LIBRARY_ROUTE);
             }}>
-              🖥️ Reprendre en plein écran
+              🎮 Mes jeux installés (plein écran)
+            </ButtonItem>
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <ButtonItem layout="below" disabled={isBusy} onClick={() => {
+              try { Router.CloseSideMenus(); } catch {}
+              Router.Navigate(SEARCH_ROUTE);
+            }}>
+              🔍 Rechercher un guide (plein écran)
             </ButtonItem>
           </PanelSectionRow>
         </PanelSection>
-      ) : null}
+
+        {recents.length > 0 ? (
+          <PanelSection title="Récents">
+            {recents.map((g) => (
+              <PanelSectionRow key={g.id}>
+                <ButtonItem layout="below" disabled={isBusy} onClick={() => {
+                  requestFullScreenGuide(g.id);
+                  try { Router.CloseSideMenus(); } catch {}
+                  Router.Navigate(FULL_SCREEN_ROUTE);
+                }}>
+                  {(g.game.game_title || g.title).slice(0, 34)}
+                </ButtonItem>
+              </PanelSectionRow>
+            ))}
+          </PanelSection>
+        ) : null}
+
+        <PanelSection title=" ">
+          <PanelSectionRow>
+            <ButtonItem layout="below" disabled={isBusy} onClick={() => setActiveView("guides")}>
+              🗂️ Gérer les guides (QAM)
+            </ButtonItem>
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <ButtonItem layout="below" disabled={isBusy} onClick={() => setActiveView("sources")}>
+              ⚙️ Réglages · sources · sauvegarde
+            </ButtonItem>
+          </PanelSectionRow>
+        </PanelSection>
+      </>
+    );
+  };
+
+  const renderSourcesView = () => (
+    <>
+      <PanelSection title="Bibliothèque de jeux (scan ROMs)">
+        <PanelSectionRow>
+          <ButtonItem layout="below" disabled={isBusy} onClick={() => setActiveView("library")}>
+            🎮 Parcourir mes jeux installés
+          </ButtonItem>
+        </PanelSectionRow>
+      </PanelSection>
 
       <PanelSection title="Résumé scan">
         <PanelSectionRow>
@@ -3844,10 +4820,58 @@ function Content() {
       </div>
     ) : null;
 
+    // v0.42.13: filter + sort controls for the guides list.
+    const gLetterIdx = guideAvailableLetters.indexOf(guideLetterFilter) >= 0
+      ? guideAvailableLetters.indexOf(guideLetterFilter) : 0;
+    const gLetterLabel = (l: string) => l === "" ? "Toutes" : l === "#" ? "Chiffres / symboles" : l;
+    const sortLabel = guideSortMode === "recent" ? "Récemment ouvert"
+      : guideSortMode === "name" ? "Nom (A→Z)" : "Plateforme";
+    const anyFilter = !!(guideTextFilter.trim() || guideLetterFilter);
+
     return (
       <>
         {!expandedReader ? (
-        <PanelSection title={selectedGuideSummary ? `Guide importé ${guideIndex + 1}/${guides.length}` : "Guides importés"}>
+        <PanelSection title={`Filtrer (${filteredGuides.length}/${guides.length})`}>
+          <PanelSectionRow>
+            <ButtonItem layout="below" disabled={isBusy || !guides.length} onClick={() => {
+              try { Router.CloseSideMenus(); } catch {}
+              Router.Navigate(LIBRARY_ROUTE);
+            }}>
+              📚 Bibliothèque plein écran ({guides.length})
+            </ButtonItem>
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <TextField
+              value={guideTextFilter}
+              onChange={(e: any) => { setGuideTextFilter(e.target.value); setGuideIndex(0); }}
+              placeholder="Filtrer par titre / jeu / site…"
+              label="Filtre texte"
+              bShowClearAction
+            />
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <ButtonItem layout="below" disabled={isBusy} onClick={() => setGuideSortMode((m) => m === "recent" ? "name" : m === "name" ? "platform" : "recent")}>
+              Tri : {sortLabel} (cycle)
+            </ButtonItem>
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <ButtonItem layout="below" disabled={isBusy || guideAvailableLetters.length <= 1}
+              onClick={() => { setGuideLetterFilter(guideAvailableLetters[cycleIndex(gLetterIdx, guideAvailableLetters.length, 1)]); setGuideIndex(0); }}>
+              Initiale : {gLetterLabel(guideLetterFilter)} ▶
+            </ButtonItem>
+          </PanelSectionRow>
+          {anyFilter ? (
+            <PanelSectionRow>
+              <ButtonItem layout="below" disabled={isBusy} onClick={() => { setGuideTextFilter(""); setGuideLetterFilter(""); setGuideIndex(0); }}>
+                ✕ Effacer les filtres
+              </ButtonItem>
+            </PanelSectionRow>
+          ) : null}
+        </PanelSection>
+        ) : null}
+
+        {!expandedReader ? (
+        <PanelSection title={selectedGuideSummary ? `Guide ${guideIndex + 1}/${filteredGuides.length}` : "Guides importés"}>
           <PanelSectionRow>
             <div style={boxStyle}>
               {selectedGuideSummary ? (
@@ -3882,10 +4906,10 @@ function Content() {
             </div>
           </PanelSectionRow>
           <PanelSectionRow>
-            <ButtonItem layout="below" disabled={isBusy || guides.length <= 1} onClick={() => setGuideIndex((v) => cycleIndex(v, guides.length, -1))}>Guide précédent</ButtonItem>
+            <ButtonItem layout="below" disabled={isBusy || filteredGuides.length <= 1} onClick={() => setGuideIndex((v) => cycleIndex(v, filteredGuides.length, -1))}>◀ Guide précédent</ButtonItem>
           </PanelSectionRow>
           <PanelSectionRow>
-            <ButtonItem layout="below" disabled={isBusy || guides.length <= 1} onClick={() => setGuideIndex((v) => cycleIndex(v, guides.length, 1))}>Guide suivant</ButtonItem>
+            <ButtonItem layout="below" disabled={isBusy || filteredGuides.length <= 1} onClick={() => setGuideIndex((v) => cycleIndex(v, filteredGuides.length, 1))}>Guide suivant ▶</ButtonItem>
           </PanelSectionRow>
           <PanelSectionRow>
             <ButtonItem layout="below" disabled={isBusy || !selectedGuideSummary} onClick={() => void openGuideById(selectedGuideSummary!.id)}>
@@ -3900,6 +4924,11 @@ function Content() {
               Router.Navigate(FULL_SCREEN_ROUTE);
             }}>
               🖥️ Ouvrir en plein écran
+            </ButtonItem>
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <ButtonItem layout="below" disabled={isBusy || !selectedGuideSummary || !selectedGuideSummary.url} onClick={() => void handleReloadSelectedSummary()}>
+              🔄 Re-télécharger ce guide
             </ButtonItem>
           </PanelSectionRow>
           <PanelSectionRow>
@@ -4314,6 +5343,7 @@ function Content() {
           </PanelSectionRow>
         </PanelSection>
       ) : null}
+      {activeView === "home" ? renderHomeView() : null}
       {activeView === "sources" ? renderSourcesView() : null}
       {activeView === "library" ? renderLibraryView() : null}
       {activeView === "search" ? renderSearchView() : null}
@@ -4324,6 +5354,9 @@ function Content() {
 
 export default definePlugin(() => {
   routerHook.addRoute(FULL_SCREEN_ROUTE, FullScreenReader, { exact: true });
+  routerHook.addRoute(LIBRARY_ROUTE, FullScreenLibrary, { exact: true });  // v0.42.17
+  routerHook.addRoute(GAME_LIBRARY_ROUTE, FullScreenGameLibrary, { exact: true });  // v0.43.1
+  routerHook.addRoute(SEARCH_ROUTE, FullScreenSearch, { exact: true });  // v0.43.3
 
   // v0.35 fix: register the controller listener AT PLUGIN LOAD (in the factory),
   // not inside a React component via addGlobalComponent. Previously addGlobalComponent
@@ -4446,6 +5479,9 @@ export default definePlugin(() => {
       listenerActive = false;
       try { listenerHandle?.unregister?.(); } catch {}
       routerHook.removeRoute(FULL_SCREEN_ROUTE);
+      try { routerHook.removeRoute(LIBRARY_ROUTE); } catch {}
+      try { routerHook.removeRoute(GAME_LIBRARY_ROUTE); } catch {}
+      try { routerHook.removeRoute(SEARCH_ROUTE); } catch {}
     },
   };
 });

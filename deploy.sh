@@ -108,17 +108,25 @@ for f in "${OPTIONAL[@]}"; do
     fi
 done
 
-# 4) Sync vers le Deck (--delete pour purger d'anciens fichiers obsoletes du plugin).
-# --rsync-path="sudo rsync" execute rsync en root cote Deck pour pouvoir ecrire
-# dans /home/deck/homebrew/plugins/ qui est root-owned (Decky cree les plugins en root).
-# Necessite: deck ALL=(ALL) NOPASSWD: /usr/bin/rsync dans sudoers (one-time).
-# rsync cree le dossier destination automatiquement, pas besoin de mkdir prealable.
-echo "[deploy] rsync (en sudo cote Deck) vers $DECK_HOST:$REMOTE_DIR ..."
+# 4) Sync en 2 temps, robuste aux resets de /etc/sudoers (les MAJ SteamOS beta
+# effacent le NOPASSWD). D'abord rsync vers un staging user-writable (pas de
+# sudo), puis install en root via sudo_ssh (qui pipe DECK_SUDO_PASSWORD, ou
+# retombe sur un prompt interactif). Plus besoin de "deck ALL=NOPASSWD: rsync".
+REMOTE_STAGING="/tmp/decky-deploy/${PLUGIN_NAME}"
+echo "[deploy] rsync vers staging $DECK_HOST:$REMOTE_STAGING ..."
+ssh "$DECK_HOST" "rm -rf '$REMOTE_STAGING' && mkdir -p '$REMOTE_STAGING'"
 rsync -az --delete \
-    --rsync-path="sudo rsync" \
     --exclude='__pycache__' \
     --exclude='*.pyc' \
-    "$STAGING/" "$DECK_HOST:$REMOTE_DIR/"
+    "$STAGING/" "$DECK_HOST:$REMOTE_STAGING/"
+
+# Install en root : copie staging -> plugins, purge les obsoletes. PAS de
+# --chown : le staging /tmp a ete cree par le 1er rsync (en deck), donc rsync -a
+# (lance en root) PRESERVE l'ownership deck:deck des fichiers — l'etat d'origine
+# qui fonctionnait. NE PAS forcer root:root : ca empeche le loader de charger le
+# plugin (bug v0.43.9). Decky re-gere lui-meme l'ownership du dossier au load.
+echo "[deploy] install en root cote Deck -> $REMOTE_DIR ..."
+sudo_ssh "rsync -a --delete --exclude=__pycache__ --exclude='*.pyc' '$REMOTE_STAGING/' '$REMOTE_DIR/'"
 
 # 5) Reload Decky (sudo via DECK_SUDO_PASSWORD si defini, sinon prompt interactif)
 if [[ "$DO_RESTART" == "1" ]]; then
