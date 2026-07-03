@@ -1679,7 +1679,10 @@ class Plugin:
                 end = (int(page_boundaries[i + 1]["line_start"]) - 1) if i + 1 < len(page_boundaries) else n - 1
                 end = max(start, min(end, n - 1))
                 page_secs.append(GuideSection(title=str(pb.get("title") or f"Page {i + 1}"), line_start=start, line_end=end, heading_level=2))
-            page_secs = self._split_large_sections(page_secs, lines)
+            # v0.43.32: char_split=False — each page is already a coherent chapter;
+            # don't char-paginate it (IGN long-line prose was shredded into parts).
+            # Only a genuinely huge chapter (>350 lines) still gets line-split.
+            page_secs = self._split_large_sections(page_secs, lines, char_split=False)
             page_secs = self._trim_trailing_title_decoration(page_secs)
             page_secs = self._normalize_gamefaqs_titles(page_secs)
             page_secs = self._number_consecutive_duplicates(page_secs)
@@ -6853,6 +6856,7 @@ class Plugin:
         sections: list[GuideSection],
         lines: list[str],
         depth: int = 0,
+        char_split: bool = True,
     ) -> list[GuideSection]:
         """Iterative wrapper around _split_large_sections_once: re-applies the
         same algorithm until no section exceeds the threshold, capped at
@@ -6861,10 +6865,15 @@ class Plugin:
         Necessary because Tier 1 semantic split can produce 2+ subs where ONE of
         them is still huge (e.g. 1700-line "Hugo Chapter 1" gets cut at line 100
         and 1700, leaving a 1600-line sub). Iteration handles those nested cases.
+
+        v0.43.32: char_split=False disables the char-based pagination (only the
+        line-based 350-line split fires). Used by the per-page path so IGN's
+        long-line prose chapters (1 paragraph = 1 long line → char-heavy even at 5
+        lines) aren't shredded into "(k/N)" parts of a few lines each.
         """
         if depth >= self.SPLIT_MAX_PASSES:
             return sections
-        pass_result = self._split_large_sections_once(sections, lines)
+        pass_result = self._split_large_sections_once(sections, lines, char_split=char_split)
         # Did anything actually change? If not, abort to avoid infinite loops.
         if len(pass_result) == len(sections):
             return pass_result
@@ -6873,11 +6882,13 @@ class Plugin:
             span = s.line_end - s.line_start
             if span > self.SPLIT_LARGE_THRESHOLD:
                 return True
+            if not char_split:
+                return False
             char_len = sum(len(lines[i]) for i in range(s.line_start, min(s.line_end + 1, len(lines))))
             avg_line = char_len / max(1, span + 1)
             return char_len > self.CHAR_SPLIT_THRESHOLD and avg_line >= self.CHAR_SPLIT_MIN_AVG_LINE
         if any(_oversized(s) for s in pass_result):
-            return self._split_large_sections(pass_result, lines, depth=depth + 1)
+            return self._split_large_sections(pass_result, lines, depth=depth + 1, char_split=char_split)
         return pass_result
 
     def _char_chunk_boundaries(self, lines: list[str], start: int, end: int) -> list[tuple[int, int]]:
@@ -6912,6 +6923,7 @@ class Plugin:
         self,
         sections: list[GuideSection],
         lines: list[str],
+        char_split: bool = True,
     ) -> list[GuideSection]:
         """One pass of the split algorithm (see _split_large_sections for the
         iterative wrapper).
@@ -6937,7 +6949,7 @@ class Plugin:
             # so FAQ guides (short hard-wrapped lines) aren't over-split.
             line_count = max(1, span + 1)
             avg_line = char_len / line_count
-            char_heavy = char_len > self.CHAR_SPLIT_THRESHOLD and avg_line >= self.CHAR_SPLIT_MIN_AVG_LINE
+            char_heavy = char_split and char_len > self.CHAR_SPLIT_THRESHOLD and avg_line >= self.CHAR_SPLIT_MIN_AVG_LINE
             if span <= self.SPLIT_LARGE_THRESHOLD and not char_heavy:
                 result.append(sec)
                 continue
