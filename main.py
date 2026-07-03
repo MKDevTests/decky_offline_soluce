@@ -4692,6 +4692,10 @@ class Plugin:
         # links inside contenu-asl blocks").
         if "jeuxvideo.com" in host:
             return self._discover_jeuxvideo_chapter_links(current_url, html_text)
+        # v0.43.30: IGN wiki chapter links live in ESCAPED JSON (React SSR), so the
+        # <a>-tag link parser misses them and the crawl stalls at 3 pages.
+        if "ign.com" in host:
+            return self._discover_ign_chapter_links(current_url, html_text)
         out: list[str] = []
         seen: set[str] = set()
         for host_match, link_re, _label in self._SITE_CHAPTER_LINK_RES:
@@ -4716,6 +4720,39 @@ class Plugin:
                 out.append(canonical)
         if out:
             try: self._debug_log(f"  site-specific link discovery: {len(out)} URLs for {host}")
+            except Exception: pass
+        return out
+
+    def _discover_ign_chapter_links(self, current_url: str, html_text: str) -> list[str]:
+        """v0.43.30: IGN wiki walkthroughs (`/wikis/<game>/<Chapter>`) render their
+        chapter nav inside escaped React JSON (`href=\\"/wikis/…\\"`), which the
+        HTML link parser can't see — so the crawl only followed the 2-3 real <a>
+        tags and stopped (secret of mana / Persona 3 = 3 pages). Regex the raw
+        text for every `/wikis/<game>/<Chapter>` in document order (walkthrough nav
+        comes first, so chapters queue before reference pages under the page cap)."""
+        parsed = urlparse(current_url)
+        if "ign.com" not in (parsed.hostname or "").lower():
+            return []
+        parts = [p for p in parsed.path.split("/") if p]
+        if len(parts) < 2 or parts[0] != "wikis":
+            return []
+        game = parts[1]
+        pat = re.compile(r"/wikis/" + re.escape(game) + r"/([A-Za-z0-9_%.'()\-]+)")
+        out: list[str] = []
+        seen: set[str] = set()
+        for m in pat.finditer(html_text):
+            chapter = m.group(1)
+            if not chapter or chapter.lower() in ("wiki_guide", "index"):
+                continue
+            canonical = f"https://www.ign.com/wikis/{game}/{chapter}"
+            if any(canonical.lower().endswith(ext) for ext in NON_PAGE_URL_EXTENSIONS):
+                continue
+            if canonical in seen or canonical == current_url:
+                continue
+            seen.add(canonical)
+            out.append(canonical)
+        if out:
+            try: self._debug_log(f"  IGN chapter discovery: {len(out)} URLs")
             except Exception: pass
         return out
 
@@ -5410,7 +5447,56 @@ class Plugin:
         text = self._strip_noise(text)
         return text
 
+    def _extract_ign_next_data(self, html_text: str) -> str:
+        """v0.43.31: modern IGN wikis (Next.js) put the walkthrough content in the
+        __NEXT_DATA__ JSON, at props.pageProps.page.page.htmlEntities[].values.html
+        — NOT in any HTML container, so the selector extractor returned ~30 chars
+        (secret of mana / Persona 3 stalled at a few thin pages). Parse the JSON
+        and concatenate every entity's `html` (recursing into list-valued blocks
+        like tables). Returns "" if the structure isn't present (older pages)."""
+        try:
+            m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html_text, re.DOTALL)
+            if not m:
+                return ""
+            data = json.loads(m.group(1))
+            page = ((data.get("props") or {}).get("pageProps") or {}).get("page") or {}
+            ents = (page.get("page") or {}).get("htmlEntities")
+            if not isinstance(ents, list) or not ents:
+                return ""
+            parts: list[str] = []
+
+            def collect(o: Any) -> None:
+                if isinstance(o, dict):
+                    h = o.get("html")
+                    if isinstance(h, str) and h.strip():
+                        parts.append(h)
+                    for k, v in o.items():
+                        if k != "html" and isinstance(v, (list, dict)):
+                            collect(v)
+                elif isinstance(o, list):
+                    for it in o:
+                        collect(it)
+
+            for e in ents:
+                collect(e.get("values") if isinstance(e, dict) else e)
+            if not parts:
+                return ""
+            raw = _html_unescape("\n".join(parts))
+            # IGN embeds like <youtube>URL</youtube> / <ign-widget> add nothing.
+            raw = re.sub(r"<(youtube|ign-[\w-]+|gallery)[^>]*>.*?</\1>", "", raw, flags=re.DOTALL | re.IGNORECASE)
+            text = self._strip_noise(self._html_to_text(raw))
+            return text
+        except Exception as exc:
+            try: self._debug_log(f"  IGN __NEXT_DATA__ extraction failed: {exc}")
+            except Exception: pass
+            return ""
+
     def _extract_ign_text(self, html_text: str) -> str:
+        # v0.43.31: try the Next.js JSON payload FIRST (modern React pages);
+        # fall through to the legacy HTML selectors for older wiki pages.
+        nd = self._extract_ign_next_data(html_text)
+        if nd and len(nd) >= 120:
+            return nd
         # v0.42.4: IGN migrated to Next.js with JSX-generated class names. The
         # old selectors (data-cy="article-body" / article-page-content /
         # wiki-content / main-body) no longer exist. The new structure is:
