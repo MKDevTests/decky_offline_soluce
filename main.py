@@ -79,7 +79,9 @@ USER_AGENT = (
 )
 MAX_DOWNLOAD_BYTES = 3_500_000
 MAX_CONTENT_CHARS = 700_000
-MAX_SECTION_COUNT = 120
+MAX_SECTION_COUNT = 400  # v0.43.22: was 120 — truncating at 120 silently orphaned
+# the content past the 120th section (chrono cross lost 65% of its walkthrough).
+# _cap_sections now also extends the last kept section to EOF so NOTHING is lost.
 # Multi-page guides on RPGSoluce, Neoseeker etc. can easily span 30+ chapters.
 # Cap is loose; the real stop signal is the BFS queue draining or content size limit.
 MAX_FETCHED_PAGES = 60
@@ -196,21 +198,13 @@ SEARCH_SITES: dict[str, dict[str, Any]] = {
         "domains": ["vally8.free.fr"],
         "keywords": "soluce",
     },
-    "darklevel": {
-        "label": "Darklevel",
-        "domains": ["darklevel.free.fr"],
-        "keywords": "soluce",
-    },
     "neoseeker": {
         "label": "Neoseeker",
         "domains": ["neoseeker.com"],
         "keywords": "walkthrough guide",
     },
-    "strategywiki": {
-        "label": "StrategyWiki",
-        "domains": ["strategywiki.org"],
-        "keywords": "walkthrough guide",
-    },
+    # v0.43.21: darklevel + strategywiki removed — darklevel not useful,
+    # strategywiki is Cloudflare-gated and low quality.
 }
 
 ROM_FILE_EXTENSIONS = {
@@ -1387,7 +1381,7 @@ class Plugin:
         # the candidate pool; the language-aware scoring below then floats them
         # to the top. Non-fatal: any failure just falls back to the general set.
         if normalized_lang == "fr" and preferred_key in {"", "all", "tous"}:
-            fr_domains = ["rpgsoluce.com", "jeuxvideo.com", "vally8.free.fr", "darklevel.free.fr"]
+            fr_domains = ["rpgsoluce.com", "jeuxvideo.com", "vally8.free.fr"]
             fr_clause = " OR ".join(f"site:{d}" for d in fr_domains)
             fr_query = re.sub(r"\s+", " ", f"({fr_clause}) {normalized_query} {platform_token} soluce").strip()
             try:
@@ -1535,6 +1529,52 @@ class Plugin:
             None, self._do_import_sync, url, game_title, platform, rom_hint, aliases, emulator, None,
         )
 
+    def _guide_url_key(self, url: str) -> tuple[str, str]:
+        """v0.43.21: (host-without-www, guide-root-path) — the identity of a guide
+        regardless of which page (root vs chapter) of it was linked. Reuses the
+        per-site root logic from _guide_base_path so anti-duplicate matches the
+        same collapsing as search (rpgsoluce /soluces/plat/game, vally8 /jeux/game,
+        JV wiki id, else the path)."""
+        pu = urlparse(url)
+        host = (pu.hostname or "").casefold()
+        host_norm = host[4:] if host.startswith("www.") else host
+        # Only the fragment-heavy sites collapse to a per-game root. Others
+        # (GameFAQs, IGN, Neoseeker) key on the full path so two DIFFERENT FAQs of
+        # the same game (…/faqs/111 vs …/faqs/222) stay distinct.
+        is_fragment_site = any(host_norm == d or host_norm.endswith(f".{d}") for d in self._FRAGMENT_SITE_HOSTS)
+        if is_fragment_site:
+            return (host_norm, self._guide_base_path(host, pu.path))
+        return (host_norm, pu.path.rstrip("/") or "/")
+
+    def _is_gamefaqs_game_page(self, url: str) -> bool:
+        """v0.43.27: True if `url` is a GameFAQs GAME landing page (…/<platform>/
+        <id>-<game>) rather than a specific FAQ (…/<platform>/<id>-<game>/faqs/<id>).
+        Game pages carry no guide text, only nav chrome."""
+        pu = urlparse(url)
+        if "gamefaqs.gamespot.com" not in (pu.hostname or "").casefold():
+            return False
+        parts = [p for p in pu.path.split("/") if p]
+        return len(parts) == 2 and "faqs" not in parts and bool(re.match(r"^\d+-", parts[1]))
+
+    def _find_guide_id_by_url_key(self, url_key: tuple[str, str]) -> "str | None":
+        """v0.43.21: id of an already-saved guide whose URL maps to the same guide
+        root, or None. Scans the guide files' `url` field (cheap for a normal
+        library)."""
+        if not url_key[0]:
+            return None
+        try:
+            for path in self._guides_dir.glob("*.json"):
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                u = payload.get("url") or ""
+                if u and self._guide_url_key(u) == url_key:
+                    return payload.get("id") or path.stem
+        except Exception:
+            return None
+        return None
+
     async def start_import(
         self,
         url: str,
@@ -1554,10 +1594,29 @@ class Plugin:
         import uuid as _uuid
         if not hasattr(self, "_imports"):
             self._imports = {}
+        # v0.43.21: anti-duplicate. Normalise the URL to its guide ROOT so a chapter
+        # URL of an already-imported game (rpgsoluce root vs .../chapitre-01.htm) OR
+        # a rapid double-click is caught even though the raw URLs differ:
+        #   (a) an already-saved guide → return it to OPEN instead of re-importing;
+        #   (b) an in-flight import of the same guide → re-use that job.
+        try:
+            url_key = self._guide_url_key(url)
+        except Exception:
+            url_key = ("", url)
+        existing_id = self._find_guide_id_by_url_key(url_key)
+        if existing_id:
+            self._debug_log(f"start_import: duplicate of existing guide {existing_id} (url_key={url_key})")
+            return {"job_id": "", "duplicate_guide_id": existing_id}
+        for jid, job in self._imports.items():
+            if job.get("state") == "running" and job.get("url_key") == list(url_key):
+                self._debug_log(f"start_import: same guide already importing (job {jid})")
+                return {"job_id": jid, "duplicate_guide_id": None}
+
         job_id = _uuid.uuid4().hex[:12]
         self._imports[job_id] = {
             "state": "running", "done": 0, "total": 0, "msg": "Démarrage…",
             "guide_id": None, "error": None, "title": game_title or url, "section_count": 0,
+            "url_key": list(url_key),
         }
         loop = _asyncio.get_event_loop()
         fut = loop.run_in_executor(
@@ -1576,7 +1635,7 @@ class Plugin:
                 self._imports[job_id].update(state="error", error=str(exc), msg=f"Échec : {exc}")
 
         fut.add_done_callback(_done)
-        return {"job_id": job_id}
+        return {"job_id": job_id, "duplicate_guide_id": None}
 
     async def get_import_status(self, job_id: str) -> dict[str, Any]:
         """v0.43.14: poll target for the import-progress UI."""
@@ -1601,6 +1660,35 @@ class Plugin:
             self._imports.pop(job_id, None)
         return True
 
+    def _sections_from_collected(self, content: str, collected: dict[str, Any]) -> tuple[list[GuideSection], str]:
+        """v0.43.20: shared sectioning used by BOTH import and Re-DL/reload.
+
+        MULTI-PAGE guides (Neoseeker, JV, rpgsoluce trees) are sectioned BY PAGE —
+        one section per fetched chapter, titled by that page — with NO merge (the
+        heuristic path's _merge_small_sections fused small pages into a neighbour
+        and left content under the WRONG title). Single-page guides keep the smart
+        heuristic detection. Reusing this in reload_guide_content is what makes the
+        "retélécharger" button actually re-apply the per-page fix."""
+        page_boundaries = collected.get("page_boundaries") or []
+        if len(page_boundaries) > 1:
+            lines = content.split("\n")
+            n = len(lines)
+            page_secs: list[GuideSection] = []
+            for i, pb in enumerate(page_boundaries):
+                start = min(int(pb.get("line_start", 0)), max(0, n - 1))
+                end = (int(page_boundaries[i + 1]["line_start"]) - 1) if i + 1 < len(page_boundaries) else n - 1
+                end = max(start, min(end, n - 1))
+                page_secs.append(GuideSection(title=str(pb.get("title") or f"Page {i + 1}"), line_start=start, line_end=end, heading_level=2))
+            page_secs = self._split_large_sections(page_secs, lines)
+            page_secs = self._trim_trailing_title_decoration(page_secs)
+            page_secs = self._normalize_gamefaqs_titles(page_secs)
+            page_secs = self._number_consecutive_duplicates(page_secs)
+            page_secs = self._truncate_long_titles(page_secs)
+            page_secs = self._cap_sections(page_secs, lines)
+            self._debug_log(f"  per-page sectioning: {len(page_boundaries)} pages -> {len(page_secs)} sections")
+            return page_secs, "pages"
+        return self._build_sections_with_method(content)
+
     def _do_import_sync(
         self,
         url: str,
@@ -1623,6 +1711,16 @@ class Plugin:
             self._debug_log(f"  validate_url FAILED: {exc}")
             raise
 
+        # v0.43.27: reject GameFAQs GAME-PAGE URLs (…/xbox-series-x/409958-metaphor).
+        # They have no guide text — only nav chrome (Boards / Q&A / Jump to) — so
+        # they'd import as a 0-1 section garbage guide (Metaphor, WORLD END).
+        if self._is_gamefaqs_game_page(normalized_url):
+            raise ValueError(
+                "C'est la PAGE DU JEU GameFAQs, pas un guide. Sur GameFAQs, ouvre "
+                "l'onglet « FAQs/Guides » du jeu, choisis un walkthrough, et importe "
+                "son URL (elle contient …/faqs/…)."
+            )
+
         def progress_cb(done: int, total: int, current: str) -> None:
             if job_id and job_id in self._imports:
                 self._imports[job_id].update(done=done, total=total, msg=f"Téléchargement page {done}/{total}…")
@@ -1643,33 +1741,7 @@ class Plugin:
 
         if job_id and job_id in self._imports:
             self._imports[job_id].update(msg="Découpage en sections…")
-        # v0.43.17: MULTI-PAGE guides (Neoseeker, JV, rpgsoluce trees) are sectioned
-        # BY PAGE — one section per fetched chapter, titled by that page — instead of
-        # re-derived by banner/heading heuristics. That heuristic path ran
-        # _merge_small_sections, which fused small pages into a neighbour and left
-        # the content under the WRONG title (e.g. "Chapter 1 Ophilia" holding the
-        # "How the guide works" intro). Single-page guides keep the smart detection.
-        page_boundaries = collected.get("page_boundaries") or []
-        if len(page_boundaries) > 1:
-            lines = content.split("\n")
-            n = len(lines)
-            page_secs: list[GuideSection] = []
-            for i, pb in enumerate(page_boundaries):
-                start = min(int(pb.get("line_start", 0)), max(0, n - 1))
-                end = (int(page_boundaries[i + 1]["line_start"]) - 1) if i + 1 < len(page_boundaries) else n - 1
-                end = max(start, min(end, n - 1))
-                page_secs.append(GuideSection(title=str(pb.get("title") or f"Page {i + 1}"), line_start=start, line_end=end, heading_level=2))
-            # Split oversized chapters, then clean titles — but DO NOT merge (that's
-            # what broke attribution). Keep every page as its own navigable section.
-            page_secs = self._split_large_sections(page_secs, lines)
-            page_secs = self._trim_trailing_title_decoration(page_secs)
-            page_secs = self._normalize_gamefaqs_titles(page_secs)
-            page_secs = self._number_consecutive_duplicates(page_secs)
-            page_secs = self._truncate_long_titles(page_secs)
-            sections, detection_method = page_secs, "pages"
-            self._debug_log(f"  per-page sectioning: {len(page_boundaries)} pages -> {len(sections)} sections")
-        else:
-            sections, detection_method = self._build_sections_with_method(content)
+        sections, detection_method = self._sections_from_collected(content, collected)
         title = str(collected["title"])
         guide_id = self._make_id(title)
         snippet = self._make_snippet(content)
@@ -2314,6 +2386,39 @@ class Plugin:
         """
         if not _HAS_URLLIB:
             raise ValueError("Le re-téléchargement nécessite le module réseau")
+        import asyncio as _asyncio
+        import uuid as _uuid
+        # v0.43.28: register a job so a Re-DL shows in "Imports en cours" (Home)
+        # with live progress — same as a search import — and stays visible if the
+        # user leaves the fiche (the executor keeps running to completion).
+        if not hasattr(self, "_imports"):
+            self._imports = {}
+        try:
+            rec = self._load_record_or_raise(guide_id)
+            title = (rec.game.game_title or rec.title or guide_id)
+        except Exception:
+            title = guide_id
+        job_id = "redl-" + _uuid.uuid4().hex[:8]
+        self._imports[job_id] = {
+            "state": "running", "done": 0, "total": 0, "msg": "Re-téléchargement…",
+            "guide_id": guide_id, "error": None, "title": title, "section_count": 0,
+        }
+        loop = _asyncio.get_event_loop()
+        try:
+            result = await loop.run_in_executor(None, self._reload_guide_sync, guide_id, job_id)
+            self._imports[job_id].update(
+                state="done", guide_id=result.get("id", guide_id),
+                section_count=int(result.get("section_count") or len(result.get("sections") or [])),
+                msg="Terminé ✓",
+            )
+            return result
+        except Exception as exc:
+            self._imports[job_id].update(state="error", error=str(exc), msg=f"Échec : {exc}")
+            raise
+
+    def _reload_guide_sync(self, guide_id: str, job_id: "str | None" = None) -> dict[str, Any]:
+        """v0.43.20: sync body of Re-DL — runs in a thread pool so re-downloading a
+        big multi-page guide doesn't freeze the asyncio loop (and thus the UI)."""
         record = self._load_record_or_raise(guide_id)
         if not record.url:
             raise ValueError("Pas d'URL source enregistrée pour ce guide")
@@ -2321,8 +2426,12 @@ class Plugin:
         self._switch_debug_file("reload_guide.log")
         self._debug_log(f"reload_guide_content: id={guide_id} url={record.url}")
 
+        def progress_cb(done: int, total: int, current: str) -> None:
+            if job_id and job_id in self._imports:
+                self._imports[job_id].update(done=done, total=total, msg=f"Re-DL page {done}/{total}…")
+
         try:
-            collected = self._collect_guide(record.url)
+            collected = self._collect_guide(record.url, progress_cb)
         except Exception as exc:
             self._debug_log(f"  refetch FAILED: {exc}")
             self._switch_debug_file("main.log")
@@ -2335,7 +2444,7 @@ class Plugin:
         if len(new_content) > MAX_CONTENT_CHARS:
             new_content = new_content[:MAX_CONTENT_CHARS] + "\n\n[... contenu tronqué ...]"
 
-        new_sections, new_method = self._build_sections_with_method(new_content)
+        new_sections, new_method = self._sections_from_collected(new_content, collected)
 
         # Replace content + derived fields, keep id/progress/game/title
         record.content = new_content
@@ -2638,8 +2747,8 @@ class Plugin:
         if value in {"en", "english", "anglais"}:
             return "en"
         # Auto: english sites → english, french sites → french, all → french as default
-        english_sites = {"gamefaqs", "ign", "neoseeker", "strategywiki"}
-        french_sites = {"rpgsoluce", "jeuxvideo", "vally8", "darklevel"}
+        english_sites = {"gamefaqs", "ign", "neoseeker"}
+        french_sites = {"rpgsoluce", "jeuxvideo", "vally8"}
         if site_key in english_sites:
             return "en"
         if site_key in french_sites:
@@ -3834,10 +3943,19 @@ class Plugin:
         return deduped
 
     def _write_record(self, record: GuideRecord) -> None:
-        self._guide_path(record.id).write_text(
+        # v0.43.20: ATOMIC write. Previously a direct write_text — if a reader
+        # (or save_progress, fired when opening a guide) touched the file mid-write
+        # (e.g. opening a guide while its background import was still writing), it
+        # saw a truncated JSON → "guide coupé et illisible". Write to a temp file
+        # then os.replace() (atomic on Windows + Linux): readers always see either
+        # the complete old file or the complete new one, never a partial.
+        path = self._guide_path(record.id)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(
             json.dumps(self._record_to_payload(record), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        os.replace(str(tmp), str(path))
 
     def _search_site(
         self,
@@ -4117,7 +4235,7 @@ class Plugin:
     # index…). A site:-restricted search surfaces ALL of them, cluttering the
     # results with fragments of the same guide. These collapse fragment URLs back
     # to their guide root (the page to import — the BFS crawl then pulls the rest).
-    _FRAGMENT_SITE_HOSTS = ("rpgsoluce.com", "vally8.free.fr", "darklevel.free.fr", "jeuxvideo.com")
+    _FRAGMENT_SITE_HOSTS = ("rpgsoluce.com", "vally8.free.fr", "jeuxvideo.com")
     _FRAGMENT_SEG_RE = re.compile(
         r"^(?:chapit?res?|parties?|parts?|chapters?|pages?|sections?|episodes?|ep|"
         r"soluces?|solutions?|walkthroughs?|etapes?|steps?|niveaux?|levels?|"
@@ -4143,8 +4261,8 @@ class Plugin:
         # rpgsoluce: root = soluces/platform/game (first 3 segments)
         if "rpgsoluce.com" in h and segs[0].lower() == "soluces":
             return "/" + "/".join(segs[:3])
-        # vally8 / darklevel: root = jeux/game (first 2 segments)
-        if ("vally8.free.fr" in h or "darklevel.free.fr" in h) and segs[0].lower() == "jeux":
+        # vally8: root = jeux/game (first 2 segments)
+        if "vally8.free.fr" in h and segs[0].lower() == "jeux":
             return "/" + "/".join(segs[:2])
         # jeuxvideo wiki: collapse every sub-page to .../wikis-soluce-astuces/<id-game>
         if "wikis-soluce-astuces" in segs:
@@ -4221,12 +4339,16 @@ class Plugin:
 
     # v0.43.9: language buckets for search scoring/discovery. Mirrors the sets in
     # _normalize_search_language; kept here so the scorer can bias by language.
-    _FRENCH_SITE_KEYS = {"rpgsoluce", "jeuxvideo", "vally8", "darklevel"}
-    _ENGLISH_SITE_KEYS = {"gamefaqs", "ign", "neoseeker", "strategywiki"}
+    _FRENCH_SITE_KEYS = {"rpgsoluce", "jeuxvideo", "vally8"}
+    _ENGLISH_SITE_KEYS = {"gamefaqs", "ign", "neoseeker"}
 
     def _looks_like_guide_result(self, site_key: str, title: str, url: str, snippet: str) -> bool:
         haystack = f"{title} {url} {snippet}".casefold()
         if site_key == "gamefaqs":
+            # v0.43.27: exclude bare game-landing pages (no /faqs/) — they're nav
+            # chrome, not guides, and import to 0-1 garbage sections.
+            if self._is_gamefaqs_game_page(url):
+                return False
             return "/faqs/" in url or any(token in haystack for token in ["walkthrough", "guide", "faq"])
         if site_key == "rpgsoluce":
             return "/soluces/" in url or any(token in haystack for token in ["soluce", "cheminement", "solution"])
@@ -4309,6 +4431,43 @@ class Plugin:
             elif site_key in self._FRENCH_SITE_KEYS:
                 score -= 15
         return score
+
+    # v0.43.24: a line is a divider / decoration if it's only made of these.
+    _DECORATION_LINE_RE = re.compile(r"^[=_~*#+\-.|/\\ \t]+$")
+
+    def _strip_cross_page_boilerplate(self, parts: list[str]) -> list[str]:
+        """v0.43.24: remove nav/footer lines a multi-page site repeats on nearly
+        EVERY crawled page (menu bars, chapter lists, social/footer links). A
+        non-trivial line present in >= 60% of the page blocks is template
+        boilerplate, not walkthrough content. Conservative: needs >=3 pages,
+        skips blanks/dividers/PRE-marked lines, and never touches per-page unique
+        text (chapter walkthroughs differ page to page)."""
+        parts = [p for p in parts if p]
+        if len(parts) < 3:
+            return parts
+        from collections import Counter
+        counts: Counter = Counter()
+        for part in parts:
+            seen: set[str] = set()
+            for ln in part.split("\n"):
+                s = ln.strip()
+                if len(s) < 8 or "\x01" in ln or self._DECORATION_LINE_RE.match(s):
+                    continue
+                seen.add(s)
+            for s in seen:
+                counts[s] += 1
+        threshold = max(2, int(0.6 * len(parts)))
+        boiler = {s for s, n in counts.items() if n >= threshold}
+        if not boiler:
+            return parts
+        self._debug_log(f"  cross-page boilerplate: removing {len(boiler)} repeated line(s) across {len(parts)} pages")
+        out: list[str] = []
+        for part in parts:
+            kept = [ln for ln in part.split("\n") if ln.strip() not in boiler]
+            # collapse the blank runs the removal leaves behind
+            cleaned = re.sub(r"\n{3,}", "\n\n", "\n".join(kept))
+            out.append(cleaned)
+        return out
 
     def _collect_guide(self, start_url: str, progress_cb: "Any | None" = None) -> dict[str, Any]:
         """Fetch a guide and all related pages.
@@ -4445,7 +4604,15 @@ class Plugin:
             # Discover more URLs to fetch (siblings under prefix + next-link chain)
             self._enqueue_related(current_url, html_text, base_prefix, extractor, queue, queued, visited)
 
-        used_parts = [part for part in combined_parts if part]
+        # v0.43.24: strip nav/footer lines a multi-page site repeats on EVERY
+        # crawled page (vally8 "Le coin de Chrono Cross", chapter menus, social
+        # footers). Done here so page boundaries reflect the cleaned content.
+        combined_parts = self._strip_cross_page_boilerplate(combined_parts)
+        # Re-align titles with parts, dropping any page emptied by the strip.
+        paired = [(p, page_titles[i] if i < len(page_titles) else f"Page {i + 1}") for i, p in enumerate(combined_parts)]
+        paired = [(p, t) for p, t in paired if p.strip()]
+        used_parts = [p for p, _ in paired]
+        page_titles = [t for _, t in paired]
         content = "\n\n".join(used_parts).strip()
         self._debug_log(f"  _collect_guide done: {len(source_pages)} pages, {len(content)} chars content")
         if not content:
@@ -5729,6 +5896,33 @@ class Plugin:
             break
         return "\n".join(lines).strip()
 
+    # v0.43.29: vally8 / darklevel URL-slug → readable page title. These sites give
+    # EVERY page the same site-name <title> ("Le coin de <jeu>") and repeat their
+    # nav as the first content lines, so normal title derivation names every
+    # section after the site. The URL slug (soluce.php / perso.php / keyitem.php)
+    # is the reliable per-page signal.
+    _VALLY8_SLUG_MAP = {
+        "soluce": "Soluce", "solution": "Soluce", "cheminement": "Cheminement",
+        "perso": "Personnages", "persos": "Personnages", "personnages": "Personnages",
+        "keyitem": "Objets clés", "keyitems": "Objets clés", "objet": "Objets", "objets": "Objets",
+        "inventaire": "Inventaire", "index": "Introduction", "intro": "Introduction",
+        "arme": "Armes", "armes": "Armes", "magie": "Magie", "magies": "Magies",
+        "carte": "Cartes", "cartes": "Cartes", "map": "Cartes", "boss": "Boss",
+        "quete": "Quêtes", "quetes": "Quêtes", "sidequest": "Quêtes annexes",
+        "astuce": "Astuces", "astuces": "Astuces", "secret": "Secrets", "secrets": "Secrets",
+        "competence": "Compétences", "competences": "Compétences", "skill": "Compétences",
+        "objectif": "Objectifs", "monstre": "Monstres", "monstres": "Monstres", "ennemi": "Ennemis",
+    }
+
+    def _vally8_slug_title(self, slug: str) -> str:
+        s = re.sub(r"\.(?:php|html?|asp)$", "", slug, flags=re.IGNORECASE).lower()
+        m = re.match(r"^(.+?)(\d+)$", s)  # soluce2 -> ("soluce", "2")
+        base, num = (m.group(1), m.group(2)) if m else (s, "")
+        name = self._VALLY8_SLUG_MAP.get(base) or (base[:1].upper() + base[1:] if base else "")
+        if not name:
+            return ""
+        return f"{name} (partie {num})" if num else name
+
     def _derive_page_display_title(
         self,
         page_index: int,
@@ -5744,6 +5938,14 @@ class Plugin:
             cleaned_hint = self._clean_inline_text(hint)
             if cleaned_hint and len(cleaned_hint) >= 3:
                 return cleaned_hint
+
+        # v0.43.29: vally8/darklevel — name the page from its URL slug.
+        _host = (urlparse(page_url).hostname or "").casefold()
+        if "vally8.free.fr" in _host or "darklevel.free.fr" in _host:
+            _slug = urlparse(page_url).path.rstrip("/").split("/")[-1]
+            _vt = self._vally8_slug_title(_slug)
+            if _vt:
+                return _vt
 
         candidate = self._clean_inline_text(page_title)
         root_clean = self._clean_inline_text(root_title)
@@ -5930,6 +6132,25 @@ class Plugin:
         normalized = re.sub(r"\s+", " ", text).strip().casefold()
         return normalized[:4000]
 
+    def _cap_sections(self, sections: list[GuideSection], lines: list[str]) -> list[GuideSection]:
+        """v0.43.22: enforce MAX_SECTION_COUNT WITHOUT losing content. The old
+        `sections[:MAX_SECTION_COUNT]` dropped every section past the cap, and
+        since the reader renders section-by-section, all their content became
+        unreachable (chrono cross: 65% of the walkthrough invisible). Here the
+        last kept section is stretched to EOF so the tail stays readable."""
+        if len(sections) <= MAX_SECTION_COUNT:
+            return sections
+        kept = list(sections[:MAX_SECTION_COUNT])
+        last = kept[-1]
+        eof = len(lines) - 1
+        if last.line_end < eof:
+            kept[-1] = GuideSection(
+                title=last.title, line_start=last.line_start, line_end=eof,
+                heading_level=last.heading_level, is_preformatted=last.is_preformatted,
+            )
+        self._debug_log(f"  _cap_sections: {len(sections)} -> {MAX_SECTION_COUNT} (last stretched to EOF line {eof})")
+        return kept
+
     def _build_sections(self, content: str) -> list[GuideSection]:
         """Back-compat wrapper that drops the detection method.
         Prefer _build_sections_with_method when you need the method label."""
@@ -5982,7 +6203,7 @@ class Plugin:
                 sections = self._split_large_sections(sections, lines)
                 # v0.42.0: polish titles before returning (all paths)
                 sections = self._polish_section_titles(sections)
-                return sections[:MAX_SECTION_COUNT], "headings"
+                return self._cap_sections(sections, lines), "headings"
 
         # --- PASS 2: GameFAQs-style TOC with [CODE] anchors ---
         toc_sections = self._sections_from_toc_codes(lines)
@@ -5991,7 +6212,7 @@ class Plugin:
             if len(toc_sections) >= 2:
                 toc_sections = self._split_large_sections(toc_sections, lines)
                 toc_sections = self._polish_section_titles(toc_sections)
-                return toc_sections[:MAX_SECTION_COUNT], "toc_codes"
+                return self._cap_sections(toc_sections, lines), "toc_codes"
 
         # --- PASS 2b: numbered/lettered TOC without [CODE] markers ---
         # Older GameFAQs FAQs (pre-2005-ish, dan_crenshaw era) use a TOC like
@@ -6002,7 +6223,7 @@ class Plugin:
             if len(numbered_toc_sections) >= 2:
                 numbered_toc_sections = self._split_large_sections(numbered_toc_sections, lines)
                 numbered_toc_sections = self._polish_section_titles(numbered_toc_sections)
-                return numbered_toc_sections[:MAX_SECTION_COUNT], "numbered_toc"
+                return self._cap_sections(numbered_toc_sections, lines), "numbered_toc"
 
         # --- PASS 3: ASCII banners ---
         banner_sections = self._sections_from_ascii_banners(lines)
@@ -6011,7 +6232,7 @@ class Plugin:
             if len(banner_sections) >= 2:
                 banner_sections = self._split_large_sections(banner_sections, lines)
                 banner_sections = self._polish_section_titles(banner_sections)
-                return banner_sections[:MAX_SECTION_COUNT], "banners"
+                return self._cap_sections(banner_sections, lines), "banners"
 
         # --- PASS 4: heuristic fallback (stricter than before) ---
         heuristic_sections = self._sections_from_heuristic(lines)
@@ -6019,7 +6240,7 @@ class Plugin:
             heuristic_sections = self._merge_small_sections(heuristic_sections, lines)
             heuristic_sections = self._split_large_sections(heuristic_sections, lines)
             heuristic_sections = self._polish_section_titles(heuristic_sections)
-            return heuristic_sections[:MAX_SECTION_COUNT], "heuristic"
+            return self._cap_sections(heuristic_sections, lines), "heuristic"
 
         # --- PASS 5 (v0.42.4): force-pagination fallback ---
         # If NO method produced 2+ sections, the guide would render as one
@@ -6042,7 +6263,7 @@ class Plugin:
             if len(forced) >= 2:
                 try: self._debug_log(f"  forced-pagination fallback: {len(forced)} pages of {chunk} lines")
                 except Exception: pass
-                return forced[:MAX_SECTION_COUNT], "forced-pages"
+                return self._cap_sections(forced, lines), "forced-pages"
         return [], "none"
 
     # ==================================================================
@@ -6491,14 +6712,25 @@ class Plugin:
                 run_end += 1
             run_len = run_end - i
             if run_len >= 2:
+                # v0.43.25: a run of 3+ paginated pieces becomes a COLLAPSIBLE
+                # GROUP — the first piece is the parent (heading_level 2, clean
+                # title) and the rest are children (heading_level 3). The reader's
+                # buildTocGroups then nests them, so "BIG ALIEN ×12" is one
+                # expandable entry instead of 12 flat rows. Runs of 2 stay flat.
+                group = run_len >= 3
                 for k in range(run_len):
                     idx = i + k
-                    new_title = f"{b} ({k+1}/{run_len})"
+                    if group and k == 0:
+                        new_title, new_level = b, 2
+                    elif group:
+                        new_title, new_level = f"{b} — {k + 1}/{run_len}", 3
+                    else:
+                        new_title, new_level = f"{b} ({k + 1}/{run_len})", out[idx].heading_level
                     out[idx] = GuideSection(
                         title=new_title,
                         line_start=out[idx].line_start,
                         line_end=out[idx].line_end,
-                        heading_level=out[idx].heading_level,
+                        heading_level=new_level,
                         is_preformatted=out[idx].is_preformatted,
                     )
             i = run_end
@@ -6523,6 +6755,10 @@ class Plugin:
     CHAR_SPLIT_THRESHOLD = 2000       # chars — prose sections beyond this get paginated
     CHAR_PAGINATION_CHUNK = 1200      # target chars per forced page (≈ one Deck screen)
     CHAR_SPLIT_MIN_AVG_LINE = 130     # only char-split when avg line length exceeds this (prose, not FAQ)
+    MAX_SECTION_SUBPAGES = 12         # v0.43.23: cap pages ONE section paginates into.
+    # A 95k-char prose block was becoming 79 pages of 1200 chars ("BIG FREAKING
+    # ALIEN (7/79)") — unnavigable. The per-page budget grows so no single section
+    # yields more than this many pages.
 
     SPLIT_MAX_PASSES = 5  # safety cap against infinite recursion when split can't shrink further
 
@@ -6565,6 +6801,12 @@ class Plugin:
         uniformly — whichever budget is hit first ends the chunk."""
         out: list[tuple[int, int]] = []
         end = min(end, len(lines) - 1)
+        # v0.43.23: grow the per-page budgets so ONE section never paginates into
+        # more than MAX_SECTION_SUBPAGES pages (the 79-page explosion fix).
+        total_chars = sum(len(lines[i]) + 1 for i in range(start, end + 1))
+        total_lines = end - start + 1
+        char_budget = max(self.CHAR_PAGINATION_CHUNK, -(-total_chars // self.MAX_SECTION_SUBPAGES))
+        line_budget = max(self.FORCED_PAGINATION_CHUNK, -(-total_lines // self.MAX_SECTION_SUBPAGES))
         i = start
         while i <= end:
             chunk_chars = 0
@@ -6574,7 +6816,7 @@ class Plugin:
                 chunk_chars += len(lines[j]) + 1
                 chunk_lines += 1
                 j += 1
-                if chunk_chars >= self.CHAR_PAGINATION_CHUNK or chunk_lines >= self.FORCED_PAGINATION_CHUNK:
+                if chunk_chars >= char_budget or chunk_lines >= line_budget:
                     break
             out.append((i, j - 1))
             i = j
@@ -6861,13 +7103,19 @@ class Plugin:
         ("4b. Hugo Chapter 1") or inside a banner ("---\n4b. Hugo Chapter 1\n---")
         — we just match the line starting with the id, either way works.
         """
-        entry_re = re.compile(r"^\s*(\d{1,3}[a-z]?)\.\s+(.{3,120})\s*$")
+        # v0.43.26: two code styles.
+        #  - digit  : "4b. Hugo Chapter 1"  (dan_crenshaw)
+        #  - roman  : "I. Introduction" / "VI.1 Beginning" / "VI.26.A - The Red Room"
+        #    (GameFAQs "verbose walkthrough" style — chrono cross etc., which used
+        #    to fall through to the garbage heuristic).
+        entry_re_digit = re.compile(r"^\s*(\d{1,3}[a-z]?)\.\s+(.{3,120})\s*$")
+        entry_re_roman = re.compile(r"^\s*([IVXLC]{1,5}(?:\.\d{1,3}(?:\.[A-Za-z])?)?)[.\s\-–]+(.{3,120}?)\s*$")
 
         # Step 1: candidate entries
         candidates: list[tuple[int, str, str]] = []
         max_check = min(len(lines), 600)
         for i in range(max_check):
-            m = entry_re.match(lines[i])
+            m = entry_re_digit.match(lines[i]) or entry_re_roman.match(lines[i])
             if not m:
                 continue
             id_ = m.group(1).lower()
@@ -6911,7 +7159,9 @@ class Plugin:
         starts: list[tuple[int, str, int]] = []
         used_positions: set[int] = set()
         for _, id_, title in toc_run:
-            anchor_re = re.compile(r"^\s*" + re.escape(id_) + r"\.\s+.+$", re.IGNORECASE)
+            # v0.43.26: flexible separator after the code (". " for digit/roman-top,
+            # " " for "VI.1", " - " for "VI.26.A").
+            anchor_re = re.compile(r"^\s*" + re.escape(id_) + r"[.\s\-–].+$", re.IGNORECASE)
             best_pos = -1
             for body_idx in range(body_start, len(lines)):
                 if body_idx in used_positions:
@@ -6921,8 +7171,9 @@ class Plugin:
                     break
             if best_pos >= 0:
                 used_positions.add(best_pos)
-                # Heading level: parents are level 2, children (with letter) level 3
-                level = 3 if re.fullmatch(r"\d+[a-z]", id_) else 2
+                # Heading level: top-level codes (roman "VI" / digit "4") are level 2;
+                # sub-entries (digit "4b", roman "VI.1" / "VI.26.A") are children (3).
+                level = 2 if re.fullmatch(r"[ivxlc]{1,5}|\d{1,3}", id_) else 3
                 starts.append((best_pos, title, level))
 
         if len(starts) < 2:

@@ -203,9 +203,7 @@ const SEARCH_SITE_CHOICES = [
     { value: "ign", label: "IGN" },
     { value: "jeuxvideo", label: "Jeuxvideo.com" },
     { value: "vally8", label: "Vally8" },
-    { value: "darklevel", label: "Darklevel" },
     { value: "neoseeker", label: "Neoseeker" },
-    { value: "strategywiki", label: "StrategyWiki" },
 ];
 const LANGUAGE_CHOICES = [
     { value: "auto", label: "Auto" },
@@ -1135,7 +1133,23 @@ function FullScreenSearch() {
         setBusy(true);
         setMsg(`Démarrage de l'import de « ${r.title.slice(0, 40)} »…`);
         try {
-            const { job_id } = await startImport(r.url, query.trim() || r.title, "Autre", query.trim() || r.title, "", "");
+            const resp = await startImport(r.url, query.trim() || r.title, "Autre", query.trim() || r.title, "", "");
+            // v0.43.21: backend anti-duplicate — if this guide (by root URL) already
+            // exists, open it instead of making a second copy.
+            if (resp.duplicate_guide_id) {
+                try {
+                    setImported(await listGuides());
+                }
+                catch { }
+                setMsg("Déjà importé — ouverture…");
+                openGuideId(resp.duplicate_guide_id);
+                return;
+            }
+            const job_id = resp.job_id;
+            if (!job_id) {
+                setMsg("Import : réponse inattendue");
+                return;
+            }
             let status = null;
             for (let i = 0; i < 600; i++) { // ~15 min ceiling at 1.5s/poll
                 await new Promise((res) => setTimeout(res, 1500));

@@ -259,7 +259,7 @@ type ImportStatus = {
 };
 const startImport = callable<[
   url: string, gameTitle: string, platform: string, romHint: string, aliases: string, emulator: string,
-], { job_id: string }>("start_import");
+], { job_id: string; duplicate_guide_id: string | null }>("start_import");
 const getImportStatus = callable<[jobId: string], ImportStatus>("get_import_status");
 type ImportJob = ImportStatus & { job_id: string };
 const listImports = callable<[], ImportJob[]>("list_imports");
@@ -362,9 +362,7 @@ const SEARCH_SITE_CHOICES = [
   { value: "ign", label: "IGN" },
   { value: "jeuxvideo", label: "Jeuxvideo.com" },
   { value: "vally8", label: "Vally8" },
-  { value: "darklevel", label: "Darklevel" },
   { value: "neoseeker", label: "Neoseeker" },
-  { value: "strategywiki", label: "StrategyWiki" },
 ];
 const LANGUAGE_CHOICES = [
   { value: "auto", label: "Auto" },
@@ -1503,7 +1501,17 @@ function FullScreenSearch() {
     // the import even keeps running if you leave this screen.
     setBusy(true); setMsg(`Démarrage de l'import de « ${r.title.slice(0, 40)} »…`);
     try {
-      const { job_id } = await startImport(r.url, query.trim() || r.title, "Autre", query.trim() || r.title, "", "");
+      const resp = await startImport(r.url, query.trim() || r.title, "Autre", query.trim() || r.title, "", "");
+      // v0.43.21: backend anti-duplicate — if this guide (by root URL) already
+      // exists, open it instead of making a second copy.
+      if (resp.duplicate_guide_id) {
+        try { setImported(await listGuides()); } catch {}
+        setMsg("Déjà importé — ouverture…");
+        openGuideId(resp.duplicate_guide_id);
+        return;
+      }
+      const job_id = resp.job_id;
+      if (!job_id) { setMsg("Import : réponse inattendue"); return; }
       let status: ImportStatus | null = null;
       for (let i = 0; i < 600; i++) {  // ~15 min ceiling at 1.5s/poll
         await new Promise((res) => setTimeout(res, 1500));
@@ -4668,8 +4676,8 @@ function Content() {
           <PanelSectionRow>
             {/* v0.42.1: cycle de site cible. Quand != "Tous", la backend prefixe
                 site:DOMAIN à la query, ce qui force le moteur à ne retourner que
-                les URLs de ce site (utile pour IGN/Neoseeker/StrategyWiki qui
-                sont systématiquement déclassés dans les résultats génériques). */}
+                les URLs de ce site (utile pour IGN/Neoseeker qui sont
+                systématiquement déclassés dans les résultats génériques). */}
             <ButtonItem layout="below" disabled={isBusy} onClick={() => setSearchSiteIndex((v) => cycleIndex(v, SEARCH_SITE_CHOICES.length, 1))}>
               Site cible : {selectedSearchSite.label} (cycle)
             </ButtonItem>
