@@ -236,15 +236,32 @@ const FIND_PRESETS = [
     { label: "Ending / Fin", pattern: "ending" },
     { label: "Chapter / Chapitre", pattern: "chapter" },
 ];
-// Keywords that get auto-highlighted in guides (grouped by style)
-const KEYWORD_GROUPS = [
-    { color: "#ff6e6e", words: ["boss", "final boss", "mini-boss", "miniboss"] },
-    { color: "#ffd166", words: ["item", "objet", "équipement", "equipement", "key item", "weapon", "arme"] },
-    { color: "#8be08b", words: ["save", "sauvegarde", "save point", "point de sauvegarde"] },
-    { color: "#8bb3ff", words: ["quête", "quest", "mission", "side quest", "quête annexe"] },
-    { color: "#ff8bd1", words: ["secret", "spoiler", "caché", "hidden"] },
-    { color: "#fca55e", words: ["attention", "warning", "danger", "piège", "trap"] },
-    { color: "#b59bff", words: ["astuce", "tip", "conseil", "hint"] },
+// v0.43.33: auto-highlight HIGH-VALUE PHRASES (not common words like "boss"/"item"
+// which were pure noise). Mirrors the backend _IMPORTANT_FLAG_RES so the inline
+// highlight and the "À ne pas rater" checklist agree. Ordered by priority.
+const HIGHLIGHT_CATEGORIES = [
+    {
+        category: "missable", color: "#ff6b6b", icon: "🔴",
+        source: "(?:permanently\\s+)?missable|point\\s+of\\s+no\\s+return|do(?:n'?t| not)\\s+miss\\b"
+            + "|\\b(?:last|only|one)\\s+(?:chance|time)\\s+to\\b|one[-\\s]time[-\\s]only"
+            + "|can(?:'?t|not)\\s+(?:be\\s+)?(?:obtain|get|acquire|find|buy|purchase)\\w*\\s+(?:it\\s+)?(?:later|again|after|anymore)"
+            + "|no\\s+longer\\s+(?:be\\s+)?(?:available|obtainable|accessible)"
+            + "|before\\s+(?:you\\s+)?(?:leave|proceed|continue|move\\s+on)"
+            + "|manquable|[àa]\\s+ne\\s+pas\\s+(?:rater|manquer|louper|oublier)|point\\s+de\\s+non[-\\s]retour"
+            + "|derni[èe]re\\s+(?:chance|occasion|possibilit[ée])",
+    },
+    {
+        category: "key_item", color: "#ffd166", icon: "🟡",
+        source: "\\bkey\\s+items?\\b|objets?\\s+cl[ée]s?\\b"
+            + "|\\bunique\\s+(?:weapon|armou?r|accessor\\w+|ring|sword|shield|item|equipment)"
+            + "|(?:ultimate|strongest|best)\\s+(?:weapon|armou?r|sword|spear|shield)\\b"
+            + "|arme\\s+(?:ultime|unique|l[ée]gendaire)|un\\s+seul\\s+exemplaire",
+    },
+    {
+        category: "side_quest", color: "#8bb3ff", icon: "🔵",
+        source: "\\bside[-\\s]quest|\\boptional\\s+(?:quest|boss|area|dungeon|content|objective|super\\s?boss)"
+            + "|qu[êe]tes?\\s+(?:annexes?|secondaires?|optionnelles?|facultatives?)|\\b(?:facultati\\w+|optionnel\\w*)\\b",
+    },
 ];
 function themeStyle(theme) {
     if (theme === "sepia") {
@@ -632,15 +649,11 @@ function renderHighlightedText(text, highlightKeywords, searchPattern, sections,
         pieces.push({ regex: new RegExp(escaped, "gi"), className: "os-find" });
     }
     if (highlightKeywords) {
-        for (const group of KEYWORD_GROUPS) {
-            const words = group.words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-            if (words) {
-                pieces.push({
-                    regex: new RegExp(`\\b(?:${words})\\b`, "gi"),
-                    className: "os-kw",
-                    color: group.color,
-                });
+        for (const cat of HIGHLIGHT_CATEGORIES) {
+            try {
+                pieces.push({ regex: new RegExp(cat.source, "gi"), className: "os-kw", color: cat.color });
             }
+            catch { /* skip a bad pattern rather than break rendering */ }
         }
     }
     // L5: cross-references — only active when we have sections + a jump callback
@@ -1574,6 +1587,7 @@ function FullScreenReader() {
     const [showSearch, setShowSearch] = SP_REACT.useState(false);
     const [showToc, setShowToc] = SP_REACT.useState(true);
     const [showDisplay, setShowDisplay] = SP_REACT.useState(false); // v0.43.4: display settings panel in the reader
+    const [showFlags, setShowFlags] = SP_REACT.useState(false); // v0.43.33: "À ne pas rater" checklist
     const [confortOn, setConfortOn] = SP_REACT.useState(false); // v0.43.6: Confort Deck toggle
     const confortSnapRef = SP_REACT.useRef(null);
     // v0.43.6: page-scroll pulse — L1/R1 bump this; GuideReader scrolls ~80% of a screen.
@@ -1839,7 +1853,18 @@ function FullScreenReader() {
     };
     return (SP_JSX.jsxs("div", { style: layoutStyle, children: [SP_JSX.jsxs("div", { style: headerStyle, children: [SP_JSX.jsx(DFL.DialogButton, { style: hdrBtnStyle, onClick: () => safeNavigateBack(), children: "\u2190" }), SP_JSX.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [SP_JSX.jsx("div", { style: { fontWeight: 700, fontSize: "0.95rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, children: guide.game.game_title || guide.title }), SP_JSX.jsx("div", { style: { fontSize: "0.78rem", opacity: 0.75, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, children: sectionCount > 0 && sectionIndex >= 0
                                     ? `Section ${sectionIndex + 1}/${sectionCount} · ${sectionLabel}`
-                                    : "Aucune section" })] }), SP_JSX.jsx(DFL.DialogButton, { style: hdrBtnStyle, onClick: () => setShowToc((v) => !v), children: "\uD83D\uDCDA" }), SP_JSX.jsxs(DFL.DialogButton, { style: hdrBtnStyle, onClick: () => setShowBookmarksPanel((v) => !v), children: ["\uD83D\uDD16", (guide.progress?.named_bookmarks?.length || 0) > 0 ? ` ${guide.progress.named_bookmarks.length}` : ""] }), SP_JSX.jsx(DFL.DialogButton, { style: hdrBtnStyle, onClick: () => setFontScale((v) => Math.max(0.85, +(v - 0.1).toFixed(2))), children: "A\u2212" }), SP_JSX.jsx(DFL.DialogButton, { style: hdrBtnStyle, onClick: () => setFontScale((v) => Math.min(2.0, +(v + 0.1).toFixed(2))), children: "A+" }), SP_JSX.jsx(DFL.DialogButton, { style: hdrBtnStyle, onClick: () => setShowDisplay((v) => !v), children: "\u2699" }), SP_JSX.jsx(DFL.DialogButton, { style: hdrBtnStyle, onClick: () => setShowSearch((v) => !v), children: "\uD83D\uDD0D" })] }), showDisplay ? (SP_JSX.jsxs("div", { style: { padding: "10px 16px", background: "rgba(0,0,0,0.3)", flexShrink: 0, display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }, children: [SP_JSX.jsx("span", { style: { fontSize: "0.8rem", opacity: 0.7 }, children: "Affichage :" }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("theme", ["dark", "sepia"]), children: ["Th\u00E8me : ", prefLabels[preferences.theme]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("font_family", ["sans", "serif", "mono"]), children: ["Police : ", prefLabels[preferences.font_family]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("line_height", ["tight", "normal", "airy"]), children: ["Interligne : ", prefLabels[preferences.line_height]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("max_width", ["narrow", "normal", "full"]), children: ["Largeur : ", prefLabels[preferences.max_width]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => savePrefs({ ...preferences, highlight_keywords: !preferences.highlight_keywords }), children: ["Surlignage : ", preferences.highlight_keywords ? "Oui" : "Non"] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => savePrefs({ ...preferences, numbered_sections: !preferences.numbered_sections }), children: ["Num\u00E9ros : ", preferences.numbered_sections ? "Oui" : "Non"] }), SP_JSX.jsx(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: toggleConfort, children: confortOn ? "🛋 Confort ✓ (désactiver)" : "🛋 Confort Deck" })] })) : null, showSearch ? (SP_JSX.jsx("div", { style: { padding: "8px 16px", background: "rgba(0,0,0,0.25)", flexShrink: 0 }, children: SP_JSX.jsx(DFL.TextField, { value: searchPattern, onChange: (e) => setSearchPattern(e.target.value), placeholder: "Surligner dans la section\u2026", bShowClearAction: true }) })) : null, SP_JSX.jsxs("div", { style: mainAreaStyle, children: [showToc ? (SP_JSX.jsx(TocSidebar, { guide: guide, preferences: preferences, theme: theme, sidebarStyle: sidebarStyle, sectionIndex: sectionIndex, setSectionIndex: setSectionIndex, tocFilter: tocFilter, setTocFilter: setTocFilter, collapsedParents: collapsedParents, setCollapsedParents: setCollapsedParents, showHiddenSections: showHiddenSections, setShowHiddenSections: setShowHiddenSections })) : null, SP_JSX.jsxs("div", { style: readerPaneStyle, children: [showBookmarksPanel ? (SP_JSX.jsx(NamedBookmarksPanel, { guide: guide, currentSectionIndex: sectionIndex, currentScrollFraction: lastScrollFractionRef.current, busy: bookmarksBusy, theme: theme, onClose: () => setShowBookmarksPanel(false), onAdd: async () => {
+                                    : "Aucune section" })] }), SP_JSX.jsx(DFL.DialogButton, { style: hdrBtnStyle, onClick: () => setShowToc((v) => !v), children: "\uD83D\uDCDA" }), SP_JSX.jsxs(DFL.DialogButton, { style: hdrBtnStyle, onClick: () => setShowBookmarksPanel((v) => !v), children: ["\uD83D\uDD16", (guide.progress?.named_bookmarks?.length || 0) > 0 ? ` ${guide.progress.named_bookmarks.length}` : ""] }), SP_JSX.jsx(DFL.DialogButton, { style: hdrBtnStyle, onClick: () => setFontScale((v) => Math.max(0.85, +(v - 0.1).toFixed(2))), children: "A\u2212" }), SP_JSX.jsx(DFL.DialogButton, { style: hdrBtnStyle, onClick: () => setFontScale((v) => Math.min(2.0, +(v + 0.1).toFixed(2))), children: "A+" }), SP_JSX.jsx(DFL.DialogButton, { style: hdrBtnStyle, onClick: () => setShowDisplay((v) => !v), children: "\u2699" }), SP_JSX.jsx(DFL.DialogButton, { style: hdrBtnStyle, onClick: () => setShowSearch((v) => !v), children: "\uD83D\uDD0D" }), (guide.important_flags?.length || 0) > 0 ? (SP_JSX.jsxs(DFL.DialogButton, { style: hdrBtnStyle, onClick: () => setShowFlags((v) => !v), children: ["\u26A0\uFE0F", (() => { const n = guide.important_flags.filter((f) => f.category === "missable").length; return n > 0 ? ` ${n}` : ""; })()] })) : null] }), showFlags && (guide.important_flags?.length || 0) > 0 ? (SP_JSX.jsxs("div", { style: { padding: "10px 16px", background: "rgba(0,0,0,0.35)", flexShrink: 0, maxHeight: "40vh", overflowY: "auto" }, children: [SP_JSX.jsx("div", { style: { fontSize: "0.9rem", fontWeight: 700, marginBottom: "8px", color: "#ffd966" }, children: "\u26A0\uFE0F \u00C0 ne pas rater dans ce guide" }), ["missable", "key_item", "side_quest"].map((cat) => {
+                        const catFlags = guide.important_flags.filter((f) => f.category === cat);
+                        if (!catFlags.length)
+                            return null;
+                        const meta = HIGHLIGHT_CATEGORIES.find((c) => c.category === cat);
+                        const label = cat === "missable" ? "Manquables / point de non-retour" : cat === "key_item" ? "Objets clés / uniques" : "Quêtes secondaires / optionnel";
+                        return (SP_JSX.jsxs("div", { style: { marginBottom: "10px" }, children: [SP_JSX.jsxs("div", { style: { fontSize: "0.78rem", fontWeight: 700, color: meta.color, marginBottom: "4px" }, children: [meta.icon, " ", label, " (", catFlags.length, ")"] }), catFlags.map((f, i) => (SP_JSX.jsxs(DFL.Focusable, { onActivate: () => { setSectionIndex(f.section_index >= 0 ? f.section_index : sectionIndex); setShowFlags(false); }, style: {
+                                        padding: "6px 8px", marginBottom: "3px", borderRadius: "5px", cursor: "pointer",
+                                        background: "rgba(255,255,255,0.05)", borderLeft: `3px solid ${meta.color}`,
+                                        fontSize: "0.76rem", lineHeight: 1.3,
+                                    }, children: [SP_JSX.jsx("div", { style: { opacity: 0.6, fontSize: "0.68rem" }, children: f.section_index >= 0 && guide.sections[f.section_index] ? `▸ ${guide.sections[f.section_index].title.slice(0, 34)}` : "▸ (guide)" }), SP_JSX.jsx("div", { children: f.snippet })] }, `${cat}-${i}`)))] }, cat));
+                    })] })) : null, showDisplay ? (SP_JSX.jsxs("div", { style: { padding: "10px 16px", background: "rgba(0,0,0,0.3)", flexShrink: 0, display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }, children: [SP_JSX.jsx("span", { style: { fontSize: "0.8rem", opacity: 0.7 }, children: "Affichage :" }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("theme", ["dark", "sepia"]), children: ["Th\u00E8me : ", prefLabels[preferences.theme]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("font_family", ["sans", "serif", "mono"]), children: ["Police : ", prefLabels[preferences.font_family]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("line_height", ["tight", "normal", "airy"]), children: ["Interligne : ", prefLabels[preferences.line_height]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("max_width", ["narrow", "normal", "full"]), children: ["Largeur : ", prefLabels[preferences.max_width]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => savePrefs({ ...preferences, highlight_keywords: !preferences.highlight_keywords }), children: ["Surlignage : ", preferences.highlight_keywords ? "Oui" : "Non"] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => savePrefs({ ...preferences, numbered_sections: !preferences.numbered_sections }), children: ["Num\u00E9ros : ", preferences.numbered_sections ? "Oui" : "Non"] }), SP_JSX.jsx(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: toggleConfort, children: confortOn ? "🛋 Confort ✓ (désactiver)" : "🛋 Confort Deck" })] })) : null, showSearch ? (SP_JSX.jsx("div", { style: { padding: "8px 16px", background: "rgba(0,0,0,0.25)", flexShrink: 0 }, children: SP_JSX.jsx(DFL.TextField, { value: searchPattern, onChange: (e) => setSearchPattern(e.target.value), placeholder: "Surligner dans la section\u2026", bShowClearAction: true }) })) : null, SP_JSX.jsxs("div", { style: mainAreaStyle, children: [showToc ? (SP_JSX.jsx(TocSidebar, { guide: guide, preferences: preferences, theme: theme, sidebarStyle: sidebarStyle, sectionIndex: sectionIndex, setSectionIndex: setSectionIndex, tocFilter: tocFilter, setTocFilter: setTocFilter, collapsedParents: collapsedParents, setCollapsedParents: setCollapsedParents, showHiddenSections: showHiddenSections, setShowHiddenSections: setShowHiddenSections })) : null, SP_JSX.jsxs("div", { style: readerPaneStyle, children: [showBookmarksPanel ? (SP_JSX.jsx(NamedBookmarksPanel, { guide: guide, currentSectionIndex: sectionIndex, currentScrollFraction: lastScrollFractionRef.current, busy: bookmarksBusy, theme: theme, onClose: () => setShowBookmarksPanel(false), onAdd: async () => {
                                     if (!guide)
                                         return;
                                     setBookmarksBusy(true);

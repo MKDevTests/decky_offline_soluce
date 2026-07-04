@@ -1,0 +1,424 @@
+==========================================================================================
+FILE: final-fantasy-ix-20260527114534.json
+  title=Final Fantasy IX  site=gamefaqs.gamespot.com  method=banners
+  sections=102
+  hidden=1
+------------------------------------------------------------------------------------------
+  [  0] lvl=2 size= 329 | AUTEUR [HIDDEN]
+  [  1] lvl=2 size=  56 | Conditions qui arrête la transe:
+  [  2] lvl=2 size= 192 | Eiko
+  [  3] lvl=2 size= 122 | Effets Nuisibles Soins Compétence de Prévention
+  [  4] lvl=3 size=  39 | Effets Nuisibles Soins Compétence de … — | A L E X A…
+  [  5] lvl=3 size= 162 | Vous trouverez [33 Gil] et une [Carte Gobelin] devant…
+  [  6] lvl=3 size= 102 | | C H Â T E A U D ' A L E X A N D R I E |DISC1P02|
+  [  7] lvl=3 size= 222 | | P R I M A V I S T A / F O R Ê T M A U D I T E…
+  [  8] lvl=3 size= 101 | | G R O T T E D E S G L A C E S |DISC1P04|
+  [  9] lvl=3 size= 178 | | D A L I, L E V I L L A G E R E T I R É |DISC1P05|
+  [ 10] lvl=3 size= 126 | | C H Â T E A U D E L I N D B L U M |DISC1P06|
+  [ 11] lvl=3 size= 203 | | E N E M I S | | O B J E T S |
+  [ 12] lvl=3 size= 206 | | F Ê T E D E L A C H A S S E |DISC1P07|
+  [ 13] lvl=3 size=  71 | | E N E M I S | | O B J E T S |
+  [ 14] lvl=3 size=  60 | | M A G I E B L E U E |
+  [ 15] lvl=3 size=  95 | | C I T A D E L L E D E L A P O R T E S U D |DISC1P09|
+  [ 16] lvl=3 size= 120 | | M A G I E B L E U E |
+  [ 17] lvl=3 size=  82 | | E N E M I S | | O B J E T S | (1/2)
+  [ 18] lvl=3 size=  96 | | E N E M I S | | O B J E T S | (2/2)
+  [ 19] lvl=3 size=  84 | 3. Ambition
+  [ 20] lvl=3 size=  32 | Quelques objets intéressants:
+  [ 21] lvl=3 size=  81 | | E N E M I S | | O B J E T S |
+  [ 22] lvl=3 size=  67 | | M A G I E B L E U E | | A T E |
+  [ 23] lvl=3 size= 163 | | E N E M I S | | O B J E T S |
+  [ 24] lvl=3 size=  56 | Vous recevrez ainsi plusieurs objets:
+  [ 25] lvl=3 size= 113 | |A L E X A N D R I E |DISC2P05|
+  [ 26] lvl=3 size=  87 | |P I N N A C L E R O C K S |DISC2P06|
+  [ 27] lvl=3 size= 239 | |L I N D B L U M |DISC2P07|
+  [ 28] lvl=3 size=  47 | | M A G I E B L E U E |
+  [ 29] lvl=3 size= 161 | Steelskin est présent ici et vend des objets:
+  [ 30] lvl=3 size= 102 | |C O N D É A |DISC2P09|
+  [ 31] lvl=3 size= 134 | Voici la liste des événements en temps actifs au…
+  [ 32] lvl=3 size= 110 | | P A S S E D E C O N D É A |DISC2P11|
+  [ 33] lvl=3 size= 108 | | E N E M I S | | O B J E T S |
+  [ 34] lvl=3 size=  71 | | I F A G R A N D A R B R E D E V I E |DISC2P13|
+  [ 35] lvl=3 size=  67 | | E N E M I S | | O B J E T S |
+  [ 36] lvl=3 size=  48 | | R E T O U R À I F A |DISC2P15|
+  [ 37] lvl=3 size= 222 | | A L E X A N D R I E |DISC3P01|
+  [ 38] lvl=3 size= 117 | | T R É N O |DISC3P02|
+  [ 39] lvl=3 size=  51 | Choix à faire:
+  [ 40] lvl=3 size=  60 | | A L E X A N D R I E E N P É R I L |DISC3P03|
+  [ 41] lvl=3 size= 165 | | L I N D B L U M |DISC3P04|
+  [ 42] lvl=3 size= 243 | Voici une liste:
+  [ 43] lvl=2 size=  44 | ****IMPORTANT
+  [ 44] lvl=3 size=  63 | ****IMPORTANT***** — Voici les marais disponible…
+  [ 45] lvl=3 size=  50 | ****IMPORTANT***** — | P A L A I S D É S E R T…
+  [ 46] lvl=3 size=  36 | ****IMPORTANT***** — Il y a plusieurs choses à faire…
+  [ 47] lvl=3 size= 120 | ****IMPORTANT***** — | E U Y E V A I R |DISC3P09|
+  [ 48] lvl=3 size=  74 | ****IMPORTANT***** — |P A L A I S D É S E R T ( 2 )…
+  [ 49] lvl=3 size=  68 | ****IMPORTANT***** — | P A L A I S D U D É S E R T…
+  [ 50] lvl=3 size= 112 | ****IMPORTANT***** — 3. Deuxième plancher, bougie de…
+  [ 51] lvl=2 size=  72 | ************IMPORTANT
+  [ 52] lvl=3 size=  92 | ************IMPORTANT*************** — | M A G I E B…
+  [ 53] lvl=3 size=  41 | | L I N D B L U M / A L E X A N D R I E |DISC3P15|
+  [ 54] lvl=3 size=  75 | | QUÊTES SECONDAIRES 2 |QUETESE2|
+  [ 55] lvl=3 size=  84 | Trouver les Chocographes:
+  [ 56] lvl=3 size=  62 | Voici les marais disponible jusqu'ici:
+  [ 57] lvl=3 size= 160 | | E N E M I S | | O B J E T S |
+  [ 58] lvl=3 size=  92 | | M A G I E B L E U E | +>>>>>>>>>>>>>>>>>>>>>>>>>>>>>+
+  [ 59] lvl=3 size= 114 | Il y a 4 objets rare à prendre sur les Fresques:
+  [ 60] lvl=3 size=  74 | Voici une liste d'objets :
+  [ 61] lvl=3 size=  75 | |B R A N V A L |DISC3P19|
+  [ 62] lvl=3 size=  31 | |P A N D É M O N I U M |DISC3P20|
+  [ 63] lvl=3 size=  90 | 1) Amduscias (avec Djidane, Freyja et Tarask)
+  [ 64] lvl=3 size=  65 | |V I L L A G E D E S M A G E S N O I R S |DISC4P01|
+  [ 65] lvl=3 size=  41 | Continent Fermé ! Vous recevez:
+  [ 66] lvl=3 size= 160 | Acheter au Enchères de Tréno une copie de chaque…
+  [ 67] lvl=3 size= 108 | |M É M O R I A |DISC4P02|
+  [ 68] lvl=3 size=  77 | Après le combat, il ouvre une forge spéciale:
+  [ 69] lvl=3 size=  95 | |M O N D E D E C R I S T A L |DISC4P03|
+  [ 70] lvl=3 size=  66 | COMPÉTENCES DE SOUTIEN (1/10)
+  [ 71] lvl=3 size=  56 | COMPÉTENCES DE SOUTIEN (2/10)
+  [ 72] lvl=3 size=  76 | COMPÉTENCES DE SOUTIEN (3/10)
+  [ 73] lvl=3 size=  61 | COMPÉTENCES DE SOUTIEN (4/10)
+  [ 74] lvl=3 size=  59 | COMPÉTENCES DE SOUTIEN (5/10)
+  [ 75] lvl=3 size=  44 | COMPÉTENCES DE SOUTIEN (6/10)
+  [ 76] lvl=3 size=  75 | COMPÉTENCES DE SOUTIEN (7/10)
+  [ 77] lvl=4 size= 250 | COMPÉTENCES DE SOUTIEN (8/10)
+  [ 78] lvl=4 size= 250 | COMPÉTENCES DE SOUTIEN (9/10)
+  [ 79] lvl=4 size=  72 | COMPÉTENCES DE SOUTIEN (10/10)
+  [ 80] lvl=3 size= 180 | | T Ê T E |EQUIPTET|
+  [ 81] lvl=3 size= 127 | | B R A S |EQUIPBRA|
+  [ 82] lvl=3 size= 223 | | C O R P S |EQUIPCOR|
+  [ 83] lvl=3 size= 255 | | A C C E S S O I R E S |EQUIPACC|
+  [ 84] lvl=3 size= 305 | | T R É S O R S |TRÉSORS!|
+  [ 85] lvl=3 size=  80 | | | =LE 1ER GRAND MAITRE
+  [ 86] lvl=3 size= 158 | |P I E R R E S S T E L L A I R E S |PIERREST|
+  [ 87] lvl=3 size= 174 | | R A T A Ï M E |RATQUIZ!|
+  [ 88] lvl=3 size=  31 | | E N C H È R E S D E T R É N O |ENCHTRNO|
+  [ 89] lvl=3 size=  83 | | C R E U S E ! C H O C O B O ! |HOT&COLD|
+  [ 90] lvl=3 size=  72 | +---------------------------LISTE DES…
+  [ 91] lvl=3 size= 113 | +---------------------------LISTE DES…
+  [ 92] lvl=3 size= 152 | | M O G - P O S T E |MOGNETCE|
+  [ 93] lvl=3 size=  67 | | P A R A D I S C H O C O B O |CHOCOPAR|
+  [ 94] lvl=3 size= 103 | | B O S S O P T I O N E L S OPTIB1SS|OPTIBOSS|
+  [ 95] lvl=3 size=  44 | | E M P L A C E M E N T D E S M O G S |EMPLMOGS|
+  [ 96] lvl=4 size= 250 | | L E T T R E S D E S M O G … (1/3)
+  [ 97] lvl=4 size= 250 | | L E T T R E S D E S M O G … (2/3)
+  [ 98] lvl=4 size= 194 | | L E T T R E S D E S M O G … (3/3)
+  [ 99] lvl=4 size= 250 | |B E S T I A I R E |BEASTIAR| (1/2)
+  [100] lvl=4 size= 249 | |B E S T I A I R E |BEASTIAR| (2/2)
+  [101] lvl=3 size= 351 | Talents : Talents :
+==========================================================================================
+FILE: full-walkthrough-20260529073218.json
+  title=Full Walkthrough  site=ign.com  method=heuristic
+  sections=2
+  hidden=0
+------------------------------------------------------------------------------------------
+  [  0] lvl=0 size=  33 | Walkthrough - Persona 3 Portable (1/2)
+  [  1] lvl=0 size=  14 | Walkthrough - Persona 3 Portable (2/2)
+==========================================================================================
+FILE: le-coin-de-suikoden-5-20260417102806.json
+  title=Le coin de Suikoden 5  site=vally8.free.fr  method=forced-pages
+  sections=8
+  hidden=0
+------------------------------------------------------------------------------------------
+  [  0] lvl=2 size= 250 | Page 1/8
+  [  1] lvl=2 size= 250 | Page 2/8
+  [  2] lvl=2 size= 250 | Page 3/8
+  [  3] lvl=2 size= 250 | Page 4/8
+  [  4] lvl=2 size= 250 | Page 5/8
+  [  5] lvl=2 size= 250 | Page 6/8
+  [  6] lvl=2 size= 250 | Page 7/8
+  [  7] lvl=2 size= 133 | Page 8/8
+==========================================================================================
+FILE: rpg-soluce-20260417102709.json
+  title=RPG Soluce  site=rpgsoluce.com  method=banners
+  sections=28
+  hidden=0
+------------------------------------------------------------------------------------------
+  [  0] lvl=2 size=   3 | Chapitre 2
+  [  1] lvl=4 size= 250 | Chapitre 2 — 2. Trahisons (1/2)
+  [  2] lvl=4 size= 174 | Chapitre 2 — 2. Trahisons (2/2)
+  [  3] lvl=3 size=  68 | Chapitre 2 — Armée de Jidan Guisu :
+  [  4] lvl=2 size= 302 | Chapitre 3
+  [  5] lvl=3 size= 250 | Chapitre 4 (1/2)
+  [  6] lvl=3 size= 113 | Chapitre 4 (2/2)
+  [  7] lvl=2 size= 343 | Chapitre 5
+  [  8] lvl=3 size= 250 | Chapitre 6 (1/2)
+  [  9] lvl=3 size= 107 | Chapitre 6 (2/2)
+  [ 10] lvl=2 size= 314 | Chapitre 7
+  [ 11] lvl=2 size=   3 | Chapitre 8
+  [ 12] lvl=3 size= 276 | Chapitre 8 — 8. La Rune Solaire
+  [ 13] lvl=4 size= 250 | Chapitre 8 — 7. Reprendre Falena (1/7)
+  [ 14] lvl=4 size= 250 | Chapitre 8 — 7. Reprendre Falena (2/7)
+  [ 15] lvl=4 size= 250 | Chapitre 8 — 7. Reprendre Falena (3/7)
+  [ 16] lvl=4 size= 250 | Chapitre 8 — 7. Reprendre Falena (4/7)
+  [ 17] lvl=4 size= 250 | Chapitre 8 — 7. Reprendre Falena (5/7)
+  [ 18] lvl=4 size= 250 | Chapitre 8 — 7. Reprendre Falena (6/7)
+  [ 19] lvl=4 size= 110 | Chapitre 8 — 7. Reprendre Falena (7/7)
+  [ 20] lvl=3 size= 100 | Chapitre 8 — Pour ce jeu, Egbert vous proposera les…
+  [ 21] lvl=4 size= 250 | Chapitre 8 — Sur mer : (1/7)
+  [ 22] lvl=4 size= 250 | Chapitre 8 — Sur mer : (2/7)
+  [ 23] lvl=4 size= 250 | Chapitre 8 — Sur mer : (3/7)
+  [ 24] lvl=4 size= 250 | Chapitre 8 — Sur mer : (4/7)
+  [ 25] lvl=4 size= 250 | Chapitre 8 — Sur mer : (5/7)
+  [ 26] lvl=4 size= 250 | Chapitre 8 — Sur mer : (6/7)
+  [ 27] lvl=4 size=  35 | Chapitre 8 — Sur mer : (7/7)
+==========================================================================================
+FILE: rpg-soluce-20260527114454.json
+  title=RPG Soluce  site=rpgsoluce.com  method=banners
+  sections=44
+  hidden=0
+------------------------------------------------------------------------------------------
+  [  0] lvl=2 size=  51 | Chapitre 1
+  [  1] lvl=2 size= 106 | Chapitre 2
+  [  2] lvl=2 size=  65 | Chapitre 3
+  [  3] lvl=2 size=  77 | Chapitre 4
+  [  4] lvl=2 size= 126 | Chapitre 5
+  [  5] lvl=2 size=  38 | Chapitre 6
+  [  6] lvl=2 size=  94 | Chapitre 7
+  [  7] lvl=2 size=  49 | Chapitre 8
+  [  8] lvl=2 size= 229 | Chapitre 9
+  [  9] lvl=2 size= 119 | Chapitre 10
+  [ 10] lvl=2 size= 128 | Chapitre 11
+  [ 11] lvl=2 size=  51 | Chapitre 12
+  [ 12] lvl=2 size= 117 | Chapitre 13
+  [ 13] lvl=2 size=  42 | Chapitre 14
+  [ 14] lvl=3 size=  82 | Chapitre 14 — Commandes spéciales : (1/5)
+  [ 15] lvl=3 size= 160 | Chapitre 14 — Commandes spéciales : (2/5)
+  [ 16] lvl=3 size= 165 | Chapitre 14 — Commandes spéciales : (3/5)
+  [ 17] lvl=3 size= 104 | Chapitre 14 — Commandes spéciales : (4/5)
+  [ 18] lvl=3 size= 285 | Chapitre 14 — Commandes spéciales : (5/5)
+  [ 19] lvl=3 size= 169 | Chapitre 14 — Effet aléatoire :
+  [ 20] lvl=3 size=  91 | Chapitre 14 — Invoque Fenril :
+  [ 21] lvl=3 size= 165 | Chapitre 14 — Commandes spéciales :
+  [ 22] lvl=4 size= 250 | Chapitre 14 — Les Tantalas : (1/7)
+  [ 23] lvl=4 size= 250 | Chapitre 14 — Les Tantalas : (2/7)
+  [ 24] lvl=4 size= 250 | Chapitre 14 — Les Tantalas : (3/7)
+  [ 25] lvl=4 size= 250 | Chapitre 14 — Les Tantalas : (4/7)
+  [ 26] lvl=4 size= 250 | Chapitre 14 — Les Tantalas : (5/7)
+  [ 27] lvl=4 size= 250 | Chapitre 14 — Les Tantalas : (6/7)
+  [ 28] lvl=4 size=  28 | Chapitre 14 — Les Tantalas : (7/7)
+  [ 29] lvl=3 size= 271 | Chapitre 14 — Quelques petits conseils pour la vente :
+  [ 30] lvl=4 size= 250 | Chapitre 14 — 7) Final Fantasy VII : (1/7)
+  [ 31] lvl=4 size= 250 | Chapitre 14 — 7) Final Fantasy VII : (2/7)
+  [ 32] lvl=4 size= 250 | Chapitre 14 — 7) Final Fantasy VII : (3/7)
+  [ 33] lvl=4 size= 250 | Chapitre 14 — 7) Final Fantasy VII : (4/7)
+  [ 34] lvl=4 size= 250 | Chapitre 14 — 7) Final Fantasy VII : (5/7)
+  [ 35] lvl=4 size= 250 | Chapitre 14 — 7) Final Fantasy VII : (6/7)
+  [ 36] lvl=4 size= 190 | Chapitre 14 — 7) Final Fantasy VII : (7/7)
+  [ 37] lvl=4 size= 250 | Chapitre 14 — 3. Défense physique comprise entre 0 et…
+  [ 38] lvl=4 size= 250 | Chapitre 14 — 3. Défense physique comprise entre 0 et…
+  [ 39] lvl=4 size= 250 | Chapitre 14 — 3. Défense physique comprise entre 0 et…
+  [ 40] lvl=4 size= 250 | Chapitre 14 — 3. Défense physique comprise entre 0 et…
+  [ 41] lvl=4 size= 250 | Chapitre 14 — 3. Défense physique comprise entre 0 et…
+  [ 42] lvl=4 size= 250 | Chapitre 14 — 3. Défense physique comprise entre 0 et…
+  [ 43] lvl=4 size= 130 | Chapitre 14 — 3. Défense physique comprise entre 0 et…
+==========================================================================================
+FILE: seekers-of-truth-20260529073341.json
+  title=Seekers of Truth  site=ign.com  method=banners
+  sections=9
+  hidden=0
+------------------------------------------------------------------------------------------
+  [  0] lvl=2 size= 136 | End Game
+  [  1] lvl=3 size= 250 | Hollow Forest (1/2)
+  [  2] lvl=3 size= 191 | Hollow Forest (2/2)
+  [  3] lvl=3 size= 250 | Yomotsu Hirasaka (1/3)
+  [  4] lvl=3 size= 250 | Yomotsu Hirasaka (2/3)
+  [  5] lvl=3 size=  83 | Yomotsu Hirasaka (3/3)
+  [  6] lvl=2 size=  49 | April 19th
+  [  7] lvl=2 size= 132 | May 25th
+  [  8] lvl=2 size=  45 | June
+==========================================================================================
+FILE: suikoden-iii-20260418111854.json
+  title=Suikoden III  site=gamefaqs.gamespot.com  method=numbered_toc
+  sections=76
+  hidden=11
+------------------------------------------------------------------------------------------
+  [  0] lvl=2 size=  55 | Introduction (How do I find stuff in this document?) [HIDDEN]
+  [  1] lvl=2 size=  28 | Top 10 e-Mail Questions
+  [  2] lvl=3 size=  23 | Should I play Suikoden I and II first? [HIDDEN]
+  [  3] lvl=3 size=  57 | All about recruiting [HIDDEN]
+  [  4] lvl=3 size=  23 | What skills should my characters learn? [HIDDEN]
+  [  5] lvl=3 size=  54 | Why aren't the lottery results switching like you said? [HIDDEN]
+  [  6] lvl=3 size=  40 | Where can I get a Statue S?
+  [  7] lvl=3 size=  75 | Why this order of play? [HIDDEN]
+  [  8] lvl=3 size= 174 | Skills/Stats
+  [  9] lvl=3 size=  38 | Support Characters
+  [ 10] lvl=3 size=  49 | Battle Formations/The Pair System
+  [ 11] lvl=3 size= 181 | Strategy Battles
+  [ 12] lvl=3 size=  31 | Duels
+  [ 13] lvl=3 size=  33 | Treasure bosses
+  [ 14] lvl=2 size=  44 | Walkthrough
+  [ 15] lvl=3 size= 238 | What's the Chris Level 99 trick? Should I do it? [HIDDEN]
+  [ 16] lvl=3 size=  72 | I need money and lots of it!
+  [ 17] lvl=3 size=  39 | Looting corpses
+  [ 18] lvl=3 size=  32 | What's a Tank? [HIDDEN]
+  [ 19] lvl=3 size=  44 | What are the Armor Sets and what do they do?
+  [ 20] lvl=3 size=  28 | No offense, but can you suggest another Walkthrough? [HIDDEN]
+  [ 21] lvl=3 size=  39 | Introduction
+  [ 22] lvl=4 size= 250 | Hugo Chapter 1 (1/2)
+  [ 23] lvl=4 size= 140 | Hugo Chapter 1 (2/2)
+  [ 24] lvl=3 size= 147 | Chris Chapter 1
+  [ 25] lvl=4 size= 250 | Geddoe Chapter 1 (1/2)
+  [ 26] lvl=4 size= 169 | Geddoe Chapter 1 (2/2)
+  [ 27] lvl=4 size=  41 | Geddoe Chapter 1 — What they say and what they mean:
+  [ 28] lvl=4 size= 114 | Geddoe Chapter 1 — Aila: Ace: Joker:
+  [ 29] lvl=4 size= 103 | Geddoe Chapter 1 — The notable loot I got after this…
+  [ 30] lvl=3 size=  23 | Break--Time to Decide about Thomas
+  [ 31] lvl=3 size= 152 | Chris Chapter 2
+  [ 32] lvl=4 size= 102 | Chris Chapter 2 — Deathblow: (1/4)
+  [ 33] lvl=4 size= 171 | Chris Chapter 2 — Deathblow: (2/4)
+  [ 34] lvl=4 size=  54 | Chris Chapter 2 — Deathblow: (3/4)
+  [ 35] lvl=4 size=  57 | Chris Chapter 2 — Deathblow: (4/4)
+  [ 36] lvl=3 size= 179 | Hugo Chapter 2
+  [ 37] lvl=3 size= 225 | Geddoe Chapter 2
+  [ 38] lvl=3 size= 281 | Geddoe Chapter 3
+  [ 39] lvl=4 size= 250 | Hugo Chapter 3 (1/3)
+  [ 40] lvl=4 size= 250 | Hugo Chapter 3 (2/3)
+  [ 41] lvl=4 size= 110 | Hugo Chapter 3 (3/3)
+  [ 42] lvl=3 size= 221 | Chris Chapter 3
+  [ 43] lvl=4 size= 109 | Chris Chapter 3 — Wilder: Rico: Fred:
+  [ 44] lvl=4 size= 175 | Chris Chapter 3 — This was my formation for the fight:
+  [ 45] lvl=4 size= 250 | Thomas Chapter 1 (Optional) (1/2)
+  [ 46] lvl=4 size= 183 | Thomas Chapter 1 (Optional) (2/2)
+  [ 47] lvl=3 size= 151 | Thomas Chapter 2 (Optional)
+  [ 48] lvl=3 size=  46 | Interlude--The Big Question (Spoilers)
+  [ 49] lvl=4 size= 250 | Chapter 4 (1/3)
+  [ 50] lvl=4 size= 250 | Chapter 4 (2/3)
+  [ 51] lvl=4 size= 149 | Chapter 4 (3/3)
+  [ 52] lvl=3 size=  20 | Chapter 5
+  [ 53] lvl=4 size=  81 | Chapter 5 — After fighting the treasure bosses twice…
+  [ 54] lvl=4 size= 187 | Chapter 5 — The formation I used:
+  [ 55] lvl=4 size=  38 | Chapter 5 — And the all-star fodder teams:
+  [ 56] lvl=4 size= 117 | Chapter 5 — Here's a diagram of the starting area:
+  [ 57] lvl=4 size= 207 | Chapter 5 — 1. Chris, Borus, Percival, Roland…
+  [ 58] lvl=2 size= 118 | Ernie's Quiz
+  [ 59] lvl=2 size=  73 | Acknowledgements
+  [ 60] lvl=4 size= 250 | Acknowledgements — 47. Yumi, ch. 5 (1/3)
+  [ 61] lvl=4 size= 250 | Acknowledgements — 47. Yumi, ch. 5 (2/3)
+  [ 62] lvl=4 size= 233 | Acknowledgements — 47. Yumi, ch. 5 (3/3)
+  [ 63] lvl=4 size= 250 | Acknowledgements — Five People (1/7)
+  [ 64] lvl=4 size= 250 | Acknowledgements — Five People (2/7)
+  [ 65] lvl=4 size= 250 | Acknowledgements — Five People (3/7)
+  [ 66] lvl=4 size= 250 | Acknowledgements — Five People (4/7)
+  [ 67] lvl=4 size= 250 | Acknowledgements — Five People (5/7)
+  [ 68] lvl=4 size= 250 | Acknowledgements — Five People (6/7)
+  [ 69] lvl=4 size= 240 | Acknowledgements — Five People (7/7)
+  [ 70] lvl=3 size=  27 | Acknowledgements — Part III: Secrets (HUGE SPOILERS)
+  [ 71] lvl=4 size=  53 | Acknowledgements — Part III: Secrets … — 12. So why…
+  [ 72] lvl=4 size= 255 | Acknowledgements — Part III: Secrets … — 11…
+  [ 73] lvl=4 size=  59 | Acknowledgements — Part III: Secrets … — I'm aware of…
+  [ 74] lvl=4 size=  94 | Acknowledgements — Part III: Secrets … — 12. So why…
+  [ 75] lvl=3 size= 150 | Acknowledgements — Part IV: Thanks and Version History [HIDDEN]
+==========================================================================================
+FILE: suikoden-v-20260417102745.json
+  title=Suikoden V  site=gamefaqs.gamespot.com  method=toc_codes
+  sections=33
+  hidden=0
+------------------------------------------------------------------------------------------
+  [  0] lvl=2 size=  49 | -> 1.6 Bataille à Lelcar
+  [  1] lvl=2 size=  42 | -> 1.7 L'imposteur de Sable
+  [  2] lvl=2 size=  42 | -> 1.8 Rencontre avec la Nation des Îles
+  [  3] lvl=2 size=  34 | -> 1.9 L'attaque sur Doraat
+  [  4] lvl=2 size=  35 | -> 1.10 La campagne de la Reine
+  [  5] lvl=2 size=  41 | -> 1.11 Il faut sauver Lyon
+  [  6] lvl=2 size=  80 | -> 1.12 L'invasion de l'armée Godwin
+  [  7] lvl=2 size=  20 | -> 1.13 La reprise du QG
+  [  8] lvl=2 size=  37 | -> 1.14 Reprendre le dessus
+  [  9] lvl=2 size=  31 | -> 1.15 L'attaque sur Stormfist
+  [ 10] lvl=2 size=  52 | -> 1.16 La bataille décisive
+  [ 11] lvl=2 size=  73 | -> 1.17 A la poursuite de Marscal Godwin
+  [ 12] lvl=2 size= 234 | Les 108 Etoiles
+  [ 13] lvl=3 size= 100 | Les 108 Etoiles----------------------… — Il y a deux…
+  [ 14] lvl=4 size= 250 | Voici les différents lieux… (1/2)
+  [ 15] lvl=4 size= 102 | Voici les différents lieux… (2/2)
+  [ 16] lvl=2 size= 118 | Recrutement chronologique
+  [ 17] lvl=2 size=  60 | Les Points de sympathies
+  [ 18] lvl=4 size= 250 | Les Points de sympathies-------------… — Les Choix du…
+  [ 19] lvl=4 size= 106 | Les Choix du Prince (suite 2)
+  [ 20] lvl=4 size= 250 | Sauvetage de Marina (aucun… (1/3)
+  [ 21] lvl=4 size= 250 | Sauvetage de Marina (aucun… (2/3)
+  [ 22] lvl=4 size= 116 | Sauvetage de Marina (aucun… (3/3)
+  [ 23] lvl=2 size=  71 | Liste des combos
+  [ 24] lvl=2 size=  71 | Liste des livres anciens
+  [ 25] lvl=2 size= 173 | Liste des statues, tableaux, pots et plantes
+  [ 26] lvl=2 size=  98 | Les dialogues dans les bains
+  [ 27] lvl=2 size= 240 | Les batailles stratégiques
+  [ 28] lvl=2 size=  34 | Course de Dragons-Chevaux
+  [ 29] lvl=2 size= 152 | Le jeu de dame d'Egbert
+  [ 30] lvl=2 size=  43 | Jeu de Fuyo "Feitas"
+  [ 31] lvl=2 size=  37 | NewGame +
+  [ 32] lvl=2 size=  24 | Infos auteur & Crédits
+==========================================================================================
+FILE: suikoden-v-20260417103721.json
+  title=Suikoden V  site=gamefaqs.gamespot.com  method=banners
+  sections=68
+  hidden=0
+------------------------------------------------------------------------------------------
+  [  0] lvl=2 size= 183 | Accuracy - ACC: How often you will hit an enemy.
+  [  1] lvl=2 size=  51 | --- The Formation System
+  [  2] lvl=2 size=  82 | Personal Skills:
+  [  3] lvl=2 size=  81 | Treasure Hunter: Raises the percentage that you'll…
+  [  4] lvl=3 size= 250 | Unfortunately, there is also no Costume Change either…
+  [  5] lvl=3 size= 249 | Unfortunately, there is also no Costume Change either…
+  [  6] lvl=3 size= 272 | Unfortunately, there is also no Costu… — SACRIFICIAL…
+  [  7] lvl=4 size= 250 | SUNBEAM PIECE. (1/2)
+  [  8] lvl=4 size= 246 | SUNBEAM PIECE. (2/2)
+  [  9] lvl=3 size= 265 | How to Recruit:
+  [ 10] lvl=3 size=  35 | Foes: Ram (HP: 150), ComShip x2 (HP: 150) ArchShip x2…
+  [ 11] lvl=3 size= 114 | How to Recruit: (1/2)
+  [ 12] lvl=3 size=  42 | How to Recruit: (2/2)
+  [ 13] lvl=3 size= 123 | Foes: Archer (HP: 100), Infantry (HP: 100), Calvalry…
+  [ 14] lvl=3 size= 250 | Fuyo and Shigure join along with Oboro. (1/3)
+  [ 15] lvl=3 size= 250 | Fuyo and Shigure join along with Oboro. (2/3)
+  [ 16] lvl=3 size= 122 | Fuyo and Shigure join along with Oboro. (3/3)
+  [ 17] lvl=2 size=  38 | Mueller joins along with Wilhelm.
+  [ 18] lvl=2 size=  21 | Marina joins along with Belcoot.
+  [ 19] lvl=3 size=  60 | Marina joins along with Belcoot. — How to Recruit:
+  [ 20] lvl=3 size= 236 | How to Recruit: (1/3)
+  [ 21] lvl=3 size=  57 | How to Recruit: (2/3)
+  [ 22] lvl=3 size= 109 | How to Recruit: (3/3)
+  [ 23] lvl=2 size= 218 | After beating Nikea, she will join your army.
+  [ 24] lvl=2 size=  44 | Faylon joins along with Faylen.
+  [ 25] lvl=2 size=  79 | Sagiri joins along with Nakula.
+  [ 26] lvl=2 size= 134 | Mathias joins along with Isabel.
+  [ 27] lvl=2 size=  59 | Meroon joins along with Moroon.
+  [ 28] lvl=2 size=  88 | Shun-Min joins along with Retso.
+  [ 29] lvl=2 size= 193 | Nelis joins along with Yahr.
+  [ 30] lvl=2 size=  19 | Bergen joins along with Levi.
+  [ 31] lvl=2 size=  84 | Ernst joins along with Norma.
+  [ 32] lvl=2 size=  46 | The battle ends once Roy gets within atack range of…
+  [ 33] lvl=2 size=  78 | If this party is not strong, expect a few deaths.
+  [ 34] lvl=2 size=  11 | Isato joins along with Haswar.
+  [ 35] lvl=3 size= 106 | Isato joins along with Haswar. — How to Recruit:
+  [ 36] lvl=3 size= 100 | How to Recruit: (1/9)
+  [ 37] lvl=3 size= 111 | How to Recruit: (2/9)
+  [ 38] lvl=4 size= 250 | How to Recruit: (3/9)
+  [ 39] lvl=4 size= 250 | How to Recruit: (4/9)
+  [ 40] lvl=4 size=  39 | How to Recruit: (5/9)
+  [ 41] lvl=3 size= 243 | How to Recruit: (6/9)
+  [ 42] lvl=4 size= 250 | How to Recruit: (7/9)
+  [ 43] lvl=4 size= 250 | How to Recruit: (8/9)
+  [ 44] lvl=4 size=  38 | How to Recruit: (9/9)
+  [ 45] lvl=3 size=  32 | Foes: Ram (HP: 150), ComShip x2 (HP: 150) ArchShip x2…
+  [ 46] lvl=3 size= 131 | Foes: Archer (HP: 100), Infantry (HP: 100), Calvalry…
+  [ 47] lvl=3 size= 250 | The battle ends once Roy gets within atack range of…
+  [ 48] lvl=3 size= 214 | The battle ends once Roy gets within atack range of…
+  [ 49] lvl=2 size= 142 | Fuyo and Shigure join along with Oboro.
+  [ 50] lvl=2 size=  37 | Mueller joins along with Wilhelm.
+  [ 51] lvl=2 size= 296 | Marina joins along with Belcoot.
+  [ 52] lvl=2 size=  34 | After beating her, she will join your army.
+  [ 53] lvl=2 size=  25 | Faylon joins along with Faylen.
+  [ 54] lvl=2 size=  22 | Sagiri joins along with Nakula.
+  [ 55] lvl=2 size=  39 | Mathias joins along with Isabel.
+  [ 56] lvl=2 size=  60 | Meroon joins along with Moroon.
+  [ 57] lvl=2 size=  88 | Shun-Min joins along with Retso.
+  [ 58] lvl=2 size=  32 | Bergen joins along with Levi.
+  [ 59] lvl=2 size=  47 | Ernst joins along with Norma.
+  [ 60] lvl=2 size= 211 | Isato joins along with Haswar.
+  [ 61] lvl=2 size= 253 | Physical Training Manuals:
+  [ 62] lvl=2 size=  45 | Old Book Locations:
+  [ 63] lvl=2 size= 164 | Window Set Locations:
+  [ 64] lvl=2 size= 326 | Some Frequently Asked Questions about my "Lym Points:"
+  [ 65] lvl=2 size=  45 | Note: There seems to be no more Lym Points from here…
+  [ 66] lvl=2 size=  22 | Changes~
+  [ 67] lvl=2 size=  24 | What's left to do?

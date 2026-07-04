@@ -403,6 +403,17 @@ class GuideGameInfo:
 
 
 @dataclass
+class GuideFlag:
+    """v0.43.33: an auto-detected high-value moment in a guide — a missable/point
+    of no return, a key/unique item, or an optional side quest. Powers inline
+    highlighting AND the per-guide "À ne pas rater" checklist."""
+    category: str            # "missable" | "key_item" | "side_quest"
+    section_index: int       # section it belongs to (-1 if before any)
+    snippet: str             # the sentence/line carrying the flagged phrase
+    matched: str = ""        # the exact phrase that triggered it
+
+
+@dataclass
 class GuideRecord:
     id: str
     title: str
@@ -423,6 +434,7 @@ class GuideRecord:
     # the parser used the explicit TOC, banners, html headings, or fell back to heuristic.
     # Values: "headings" | "toc_codes" | "banners" | "heuristic" | "" (legacy/unknown)
     detection_method: str = ""
+    important_flags: list[GuideFlag] = field(default_factory=list)  # v0.43.33
 
 
 @dataclass
@@ -1692,6 +1704,86 @@ class Plugin:
             return page_secs, "pages"
         return self._build_sections_with_method(content)
 
+    # v0.43.33: high-value phrase detection. Ordered by priority (first match on a
+    # line wins) — missable/point-of-no-return is the most important. Patterns are
+    # deliberately SPECIFIC (phrases, not common words like "boss"/"item") so they
+    # surface only the ~handful of genuinely critical moments per guide.
+    _IMPORTANT_FLAG_RES: list[tuple[str, "re.Pattern[str]"]] = [
+        ("missable", re.compile(
+            r"\b(?:permanently\s+)?missable\b"
+            r"|point\s+of\s+no\s+return"
+            r"|do(?:n'?t| not)\s+miss\b"
+            r"|\b(?:last|only|one)\s+(?:chance|time)\s+to\b"
+            r"|one[-\s]time[-\s]only"
+            r"|can(?:'?t|not)\s+(?:be\s+)?(?:obtain|get|acquire|find|buy|purchase)\w*\s+(?:it\s+)?(?:later|again|after|anymore)"
+            r"|no\s+longer\s+(?:be\s+)?(?:available|obtainable|accessible)"
+            r"|before\s+(?:you\s+)?(?:leave|proceed|continue|move\s+on)"
+            r"|\bmanquable"
+            r"|[àa]\s+ne\s+pas\s+(?:rater|manquer|louper|oublier)"
+            r"|point\s+de\s+non[-\s]retour"
+            r"|(?:impossible|ne\s+pourrez\s+plus|plus\s+possible)\b.{0,25}(?:plus\s+tard|par\s+la\s+suite|ensuite|apr[èe]s)"
+            r"|derni[èe]re\s+(?:chance|occasion|possibilit[ée])",
+            re.IGNORECASE)),
+        ("key_item", re.compile(
+            r"\bkey\s+items?\b"
+            r"|objets?\s+cl[ée]s?\b"
+            r"|\bunique\s+(?:weapon|armou?r|accessor\w+|ring|sword|shield|item|equipment)"
+            r"|(?:ultimate|strongest|best)\s+(?:weapon|armou?r|sword|spear|shield)\b"
+            r"|arme\s+(?:ultime|unique|l[ée]gendaire)"
+            r"|un\s+seul\s+exemplaire",
+            re.IGNORECASE)),
+        ("side_quest", re.compile(
+            r"\bside[-\s]quest"
+            r"|\boptional\s+(?:quest|boss|area|dungeon|content|objective|super\s?boss)"
+            r"|qu[êe]tes?\s+(?:annexes?|secondaires?|optionnelles?|facultatives?)"
+            r"|\b(?:facultati\w+|optionnel\w*)\b",
+            re.IGNORECASE)),
+    ]
+
+    def _flag_snippet(self, lines: list[str], li: int) -> str:
+        """The readable context for a flag: the line, widened to neighbours when
+        the source is hard-wrapped (short lines) so the sentence isn't cut."""
+        s = lines[li].strip()
+        if len(s) < 60 and 0 <= li:
+            window = " ".join(
+                x.strip() for x in lines[max(0, li - 1):li + 2]
+                if x.strip() and "\x01" not in x
+            )
+            return re.sub(r"\s+", " ", window)[:220].strip()
+        return re.sub(r"\s+", " ", s)[:220].strip()
+
+    def _extract_important_flags(self, content: str, sections: list[GuideSection]) -> list[GuideFlag]:
+        """v0.43.33: scan the guide for missable / key-item / side-quest phrases."""
+        lines = content.split("\n")
+        # line -> section index (sections are contiguous line ranges)
+        sec_of = [-1] * len(lines)
+        for idx, s in enumerate(sections):
+            for li in range(max(0, s.line_start), min(s.line_end + 1, len(lines))):
+                sec_of[li] = idx
+        flags: list[GuideFlag] = []
+        seen: set[tuple[str, str]] = set()
+        for li, line in enumerate(lines):
+            s = line.strip()
+            if len(s) < 8 or "\x01" in line:
+                continue
+            for cat, rx in self._IMPORTANT_FLAG_RES:
+                m = rx.search(s)
+                if not m:
+                    continue
+                snippet = self._flag_snippet(lines, li)
+                dedupe_key = (cat, snippet[:60].lower())
+                if dedupe_key in seen:
+                    break
+                seen.add(dedupe_key)
+                flags.append(GuideFlag(
+                    category=cat,
+                    section_index=sec_of[li] if li < len(sec_of) else -1,
+                    snippet=snippet,
+                    matched=m.group(0),
+                ))
+                break  # one flag per line; missable (first) wins over key_item
+        return flags[:250]
+
     def _do_import_sync(
         self,
         url: str,
@@ -1776,6 +1868,7 @@ class Plugin:
             detection_method=detection_method,
             source_pages=list(collected["source_pages"]),
             progress=GuideReadingProgress(hidden_section_titles=auto_hidden),
+            important_flags=self._extract_important_flags(content, sections),
         )
         self._write_record(record)
         self._debug_log(f"  _do_import_sync SUCCESS: id={guide_id} title='{title}' sections={len(sections)} words={len(content.split())}")
@@ -1972,6 +2065,7 @@ class Plugin:
         new_sections, new_method = self._build_sections_with_method(record.content)
         record.sections = new_sections
         record.detection_method = new_method
+        record.important_flags = self._extract_important_flags(record.content, new_sections)
 
         def remap(old_index: int) -> int:
             if old_index < 0:
@@ -2172,6 +2266,7 @@ class Plugin:
         new_sections, new_method = self._build_sections_with_method(record.content)
         record.sections = new_sections
         record.detection_method = new_method
+        record.important_flags = self._extract_important_flags(record.content, new_sections)
 
         def remap(old_index: int) -> int:
             if old_index < 0:
@@ -2453,6 +2548,7 @@ class Plugin:
         record.content = new_content
         record.sections = new_sections
         record.detection_method = new_method
+        record.important_flags = self._extract_important_flags(new_content, new_sections)
         record.source_pages = list(collected["source_pages"])
         record.word_count = len(new_content.split())
         record.size_bytes = len(new_content.encode("utf-8"))
@@ -3595,6 +3691,19 @@ class Plugin:
             except Exception:
                 continue
 
+        raw_flags = payload.get("important_flags") or []
+        important_flags: list[GuideFlag] = []
+        for item in raw_flags:
+            try:
+                important_flags.append(GuideFlag(
+                    category=str(item.get("category", "")),
+                    section_index=int(item.get("section_index", -1)),
+                    snippet=str(item.get("snippet", "")),
+                    matched=str(item.get("matched", "")),
+                ))
+            except Exception:
+                continue
+
         raw_progress = payload.get("progress") or {}
 
         # Parse named bookmarks
@@ -3697,6 +3806,7 @@ class Plugin:
             source_pages=source_pages,
             progress=progress,
             detection_method=str(payload.get("detection_method", "")),
+            important_flags=important_flags,
         )
 
     def _build_game_info(

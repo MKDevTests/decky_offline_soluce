@@ -144,10 +144,18 @@ type GuideSummary = {
   game: GuideGameInfo;
 };
 
+type ImportantFlag = {
+  category: "missable" | "key_item" | "side_quest" | string;
+  section_index: number;
+  snippet: string;
+  matched: string;
+};
+
 type GuideDetail = GuideSummary & {
   content: string;
   sections: GuideSection[];
   source_pages: GuideSourcePage[];
+  important_flags?: ImportantFlag[];
 };
 
 type GuideSearchResult = {
@@ -397,15 +405,32 @@ const FIND_PRESETS: Array<{ label: string; pattern: string }> = [
   { label: "Chapter / Chapitre", pattern: "chapter" },
 ];
 
-// Keywords that get auto-highlighted in guides (grouped by style)
-const KEYWORD_GROUPS: Array<{ color: string; words: string[] }> = [
-  { color: "#ff6e6e", words: ["boss", "final boss", "mini-boss", "miniboss"] },
-  { color: "#ffd166", words: ["item", "objet", "équipement", "equipement", "key item", "weapon", "arme"] },
-  { color: "#8be08b", words: ["save", "sauvegarde", "save point", "point de sauvegarde"] },
-  { color: "#8bb3ff", words: ["quête", "quest", "mission", "side quest", "quête annexe"] },
-  { color: "#ff8bd1", words: ["secret", "spoiler", "caché", "hidden"] },
-  { color: "#fca55e", words: ["attention", "warning", "danger", "piège", "trap"] },
-  { color: "#b59bff", words: ["astuce", "tip", "conseil", "hint"] },
+// v0.43.33: auto-highlight HIGH-VALUE PHRASES (not common words like "boss"/"item"
+// which were pure noise). Mirrors the backend _IMPORTANT_FLAG_RES so the inline
+// highlight and the "À ne pas rater" checklist agree. Ordered by priority.
+const HIGHLIGHT_CATEGORIES: Array<{ category: string; color: string; icon: string; source: string }> = [
+  {
+    category: "missable", color: "#ff6b6b", icon: "🔴",
+    source: "(?:permanently\\s+)?missable|point\\s+of\\s+no\\s+return|do(?:n'?t| not)\\s+miss\\b"
+      + "|\\b(?:last|only|one)\\s+(?:chance|time)\\s+to\\b|one[-\\s]time[-\\s]only"
+      + "|can(?:'?t|not)\\s+(?:be\\s+)?(?:obtain|get|acquire|find|buy|purchase)\\w*\\s+(?:it\\s+)?(?:later|again|after|anymore)"
+      + "|no\\s+longer\\s+(?:be\\s+)?(?:available|obtainable|accessible)"
+      + "|before\\s+(?:you\\s+)?(?:leave|proceed|continue|move\\s+on)"
+      + "|manquable|[àa]\\s+ne\\s+pas\\s+(?:rater|manquer|louper|oublier)|point\\s+de\\s+non[-\\s]retour"
+      + "|derni[èe]re\\s+(?:chance|occasion|possibilit[ée])",
+  },
+  {
+    category: "key_item", color: "#ffd166", icon: "🟡",
+    source: "\\bkey\\s+items?\\b|objets?\\s+cl[ée]s?\\b"
+      + "|\\bunique\\s+(?:weapon|armou?r|accessor\\w+|ring|sword|shield|item|equipment)"
+      + "|(?:ultimate|strongest|best)\\s+(?:weapon|armou?r|sword|spear|shield)\\b"
+      + "|arme\\s+(?:ultime|unique|l[ée]gendaire)|un\\s+seul\\s+exemplaire",
+  },
+  {
+    category: "side_quest", color: "#8bb3ff", icon: "🔵",
+    source: "\\bside[-\\s]quest|\\boptional\\s+(?:quest|boss|area|dungeon|content|objective|super\\s?boss)"
+      + "|qu[êe]tes?\\s+(?:annexes?|secondaires?|optionnelles?|facultatives?)|\\b(?:facultati\\w+|optionnel\\w*)\\b",
+  },
 ];
 
 // ========== Theme helpers ==========
@@ -818,15 +843,10 @@ function renderHighlightedText(
   }
 
   if (highlightKeywords) {
-    for (const group of KEYWORD_GROUPS) {
-      const words = group.words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-      if (words) {
-        pieces.push({
-          regex: new RegExp(`\\b(?:${words})\\b`, "gi"),
-          className: "os-kw",
-          color: group.color,
-        });
-      }
+    for (const cat of HIGHLIGHT_CATEGORIES) {
+      try {
+        pieces.push({ regex: new RegExp(cat.source, "gi"), className: "os-kw", color: cat.color });
+      } catch { /* skip a bad pattern rather than break rendering */ }
     }
   }
 
@@ -2106,6 +2126,7 @@ function FullScreenReader() {
   const [showSearch, setShowSearch] = useState<boolean>(false);
   const [showToc, setShowToc] = useState<boolean>(true);
   const [showDisplay, setShowDisplay] = useState<boolean>(false);  // v0.43.4: display settings panel in the reader
+  const [showFlags, setShowFlags] = useState<boolean>(false);  // v0.43.33: "À ne pas rater" checklist
   const [confortOn, setConfortOn] = useState<boolean>(false);  // v0.43.6: Confort Deck toggle
   const confortSnapRef = useRef<{ prefs: ReaderPreferences; font: number; toc: boolean } | null>(null);
   // v0.43.6: page-scroll pulse — L1/R1 bump this; GuideReader scrolls ~80% of a screen.
@@ -2400,7 +2421,49 @@ function FullScreenReader() {
         <DialogButton style={hdrBtnStyle} onClick={() => setFontScale((v) => Math.min(2.0, +(v + 0.1).toFixed(2)))}>A+</DialogButton>
         <DialogButton style={hdrBtnStyle} onClick={() => setShowDisplay((v) => !v)}>⚙</DialogButton>
         <DialogButton style={hdrBtnStyle} onClick={() => setShowSearch((v) => !v)}>🔍</DialogButton>
+        {(guide.important_flags?.length || 0) > 0 ? (
+          <DialogButton style={hdrBtnStyle} onClick={() => setShowFlags((v) => !v)}>
+            ⚠️{(() => { const n = guide.important_flags!.filter((f) => f.category === "missable").length; return n > 0 ? ` ${n}` : ""; })()}
+          </DialogButton>
+        ) : null}
       </div>
+
+      {showFlags && (guide.important_flags?.length || 0) > 0 ? (
+        <div style={{ padding: "10px 16px", background: "rgba(0,0,0,0.35)", flexShrink: 0, maxHeight: "40vh", overflowY: "auto" }}>
+          <div style={{ fontSize: "0.9rem", fontWeight: 700, marginBottom: "8px", color: "#ffd966" }}>
+            ⚠️ À ne pas rater dans ce guide
+          </div>
+          {(["missable", "key_item", "side_quest"] as const).map((cat) => {
+            const catFlags = guide.important_flags!.filter((f) => f.category === cat);
+            if (!catFlags.length) return null;
+            const meta = HIGHLIGHT_CATEGORIES.find((c) => c.category === cat)!;
+            const label = cat === "missable" ? "Manquables / point de non-retour" : cat === "key_item" ? "Objets clés / uniques" : "Quêtes secondaires / optionnel";
+            return (
+              <div key={cat} style={{ marginBottom: "10px" }}>
+                <div style={{ fontSize: "0.78rem", fontWeight: 700, color: meta.color, marginBottom: "4px" }}>
+                  {meta.icon} {label} ({catFlags.length})
+                </div>
+                {catFlags.map((f, i) => (
+                  <Focusable
+                    key={`${cat}-${i}`}
+                    onActivate={() => { setSectionIndex(f.section_index >= 0 ? f.section_index : sectionIndex); setShowFlags(false); }}
+                    style={{
+                      padding: "6px 8px", marginBottom: "3px", borderRadius: "5px", cursor: "pointer",
+                      background: "rgba(255,255,255,0.05)", borderLeft: `3px solid ${meta.color}`,
+                      fontSize: "0.76rem", lineHeight: 1.3,
+                    }}
+                  >
+                    <div style={{ opacity: 0.6, fontSize: "0.68rem" }}>
+                      {f.section_index >= 0 && guide.sections[f.section_index] ? `▸ ${guide.sections[f.section_index].title.slice(0, 34)}` : "▸ (guide)"}
+                    </div>
+                    <div>{f.snippet}</div>
+                  </Focusable>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
 
       {showDisplay ? (
         <div style={{ padding: "10px 16px", background: "rgba(0,0,0,0.3)", flexShrink: 0, display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>

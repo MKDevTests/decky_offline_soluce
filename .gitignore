@@ -1,0 +1,5 @@
+dist/
+node_modules/
+*.pyc
+__pycache__/
+.deck-deploy.local

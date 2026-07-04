@@ -1,0 +1,588 @@
+=== 28 guides ===
+
+bahamut-lagoon-20260702005639.json         | site=gamefaqs.gamespot.co | secs= 95 | Bahamut Lagoon | https://gamefaqs.gamespot.com/snes/563516-bahamut-lagoon/faqs/19025
+chrono-cross-faq-walkthrough-for-playstati | site=gamefaqs.gamespot.co | secs= 49 | chrono cross | https://gamefaqs.gamespot.com/ps/196917-chrono-cross/faqs/42649
+devil-may-cry-3-special-edition-2026070200 | site=gamefaqs.gamespot.co | secs= 86 | Devil May Cry 3 | https://gamefaqs.gamespot.com/ps2/930014-devil-may-cry-3-special-edition/faqs/41453
+final-fantasy-ix-20260527114534.json       | site=gamefaqs.gamespot.co | secs= 96 | FINAL FANTASY IX | https://gamefaqs.gamespot.com/ps/197338-final-fantasy-ix/faqs/32944
+full-walkthrough-20260529073218.json       | site=ign.com              | secs=  2 | Persona 3 Portable | https://www.ign.com/wikis/persona-3-portable/Full_Walkthrough_-_Persona_3_Portable
+koudelka-20260702005432.json               | site=gamefaqs.gamespot.co | secs= 52 | Koudelka | https://gamefaqs.gamespot.com/ps/197752-koudelka/faqs/54942
+koudelka-20260702005511.json               | site=gamefaqs.gamespot.co | secs= 52 | Koudelka | https://gamefaqs.gamespot.com/ps/197752-koudelka/faqs/54942
+koudelka-20260702011705.json               | site=gamefaqs.gamespot.co | secs= 52 | Koudelka | https://gamefaqs.gamespot.com/ps/197752-koudelka/faqs/54942
+koudelka-faqs-walkthroughs-and-guides-for- | site=gamefaqs.gamespot.co | secs=  0 | Koudelka | https://gamefaqs.gamespot.com/ps/197752-koudelka/faqs
+koudelka-faqs-walkthroughs-and-guides-for- | site=gamefaqs.gamespot.co | secs=  0 | Koudelka | https://gamefaqs.gamespot.com/ps/197752-koudelka/faqs
+koudelka-faqs-walkthroughs-and-guides-for- | site=gamefaqs.gamespot.co | secs=  0 | Koudelka | https://gamefaqs.gamespot.com/ps/197752-koudelka/faqs
+koudelka-faqs-walkthroughs-and-guides-for- | site=gamefaqs.gamespot.co | secs=  0 | koudelka | https://gamefaqs.gamespot.com/ps/197752-koudelka/faqs
+le-coin-de-suikoden-5-20260417102806.json  | site=vally8.free.fr       | secs=  8 | Suikoden V | http://vally8.free.fr/jeux/suikoden5/soluce.php
+le-donjon-de-naheulbeuk-l-amulette-du-d-so | site=jeuxvideo.com        | secs=  7 | Le Donjon de Naheulbeu | https://www.jeuxvideo.com/wikis-soluce-astuces/1272096/guide-complet-de-le-donjon-de-naheulbeuk-l-amulette-du-desordre.htm
+metaphor-refantazio-walkthrough-guide-2026 | site=gamefaqs.gamespot.co | secs= 57 | Metaphor-ReFantazio | https://gamefaqs.gamespot.com/xbox-series-x/409958-metaphor-refantazio/faqs/81526/introduction
+rpg-soluce-20260417102709.json             | site=rpgsoluce.com        | secs= 28 | Suikoden V | https://www.rpgsoluce.com/soluces/ps2/suikoden5/cheminement/chapitre-1.htm
+rpg-soluce-20260527114454.json             | site=rpgsoluce.com        | secs= 44 | FINAL FANTASY IX | https://www.rpgsoluce.com/soluces/ps1/ff9/
+rpg-soluce-20260612123437.json             | site=rpgsoluce.com        | secs= 50 | chrono cross | https://www.rpgsoluce.com/soluces/ps4/chrono-cross/
+rpg-soluce-20260612123542.json             | site=rpgsoluce.com        | secs= 49 | chrono cross | https://www.rpgsoluce.com/soluces/ps4/chrono-cross/cheminement/chapitre-01.htm
+rpg-soluce-20260612232446.json             | site=rpgsoluce.com        | secs= 41 | wild arms 3 | https://www.rpgsoluce.com/soluces/ps2/wildarms3/cheminement/chapitre-1-3.htm
+rpg-soluce-20260612232508.json             | site=rpgsoluce.com        | secs= 42 | wild arms 3 | https://www.rpgsoluce.com/soluces/ps2/wildarms3/
+seekers-of-truth-20260529073341.json       | site=ign.com              | secs=  9 | Persona 4 Golden | https://www.ign.com/wikis/shin-megami-tensei-persona-4-golden/Seekers_of_Truth
+suikoden-iii-20260418111854.json           | site=gamefaqs.gamespot.co | secs= 61 | Suikoden III | https://gamefaqs.gamespot.com/ps2/536777-suikoden-iii/faqs/20702
+suikoden-v-20260417102745.json             | site=gamefaqs.gamespot.co | secs= 31 | Suikoden V | https://gamefaqs.gamespot.com/ps2/929668-suikoden-v/faqs/50476
+suikoden-v-20260417103721.json             | site=gamefaqs.gamespot.co | secs= 51 | Suikoden V | https://gamefaqs.gamespot.com/ps2/929668-suikoden-v/faqs/42244
+walkthrough-20260702005002.json            | site=ign.com              | secs=  9 | Disco Elysium | https://www.ign.com/wikis/disco-elysium/Walkthrough
+wild-arms-3-20260612235236.json            | site=gamefaqs.gamespot.co | secs= 57 | wild arms 3 | https://gamefaqs.gamespot.com/ps2/478787-wild-arms-3/faqs/58236
+world-end-economica-episode-01-videos-for- | site=gamefaqs.gamespot.co | secs=  1 | WORLD END ECONOMiCA ep | https://gamefaqs.gamespot.com/pc/796107-world-end-economica-episode01/videos/1134705
+
+==========================================================================================
+
+### KOUDELKA : koudelka-20260702005432.json (52 sections) ###
+  [ 0] Introduction: using the guide…
+  [ 1] Game Basics…
+  [ 2] Sidequest: The Gargoyle…
+  [ 3] Sidequest: The Gargoyle .............… — CHARACTER…
+  [ 4] A1. Getting out of the Attic
+  [ 5] A2. Exploring the Attic
+  [ 6] A3. Ladder to Attic Room
+  [ 7] B5. Herb Garden
+  [ 8] C1. Exploring Upstairs
+  [ 9] C3. Bedroom and Rope Ladder
+  [10] D2. Priest's Quarters
+  [11] E N D O F D I S C O N E R E V I E W
+  [12] 2E. D U N G E O N T O S H R I N E
+  [13] E1. Behind Bars
+  [14] E3. Dungeon, Basement
+  [15] E5. Underground Shrine
+  [16] G2. Shrine Room - Holy Water Font
+  [17] G3 The Chandelier Hall
+  [18] H1. The Thief
+  [19] H2. Caretakers' Quarters Again
+  [20] 2I. R E D K E Y D O O R
+  [21] J1. Tile Floor Room
+  [22] J7. The Library - Archives
+  [23] K8. The Church
+  [24] E N D O F D I S C T W O R E V I E W
+  [25] L1. The Inner Grounds
+  [26] L2. The Centre Building
+  [27] M1. Underground Corridor and Sub Hall
+  [28] N1. The Graveyard
+  [29] O2. Charlotte's Room
+  [30] 3P. P A T R I C K ' S Q U A R T E R S
+  [31] P5. Portrait Room
+  [32] Q6. Chapel
+  [33] E N D O F D I S C T H R E E R E V I E W
+  [34] R. P R E P A R A T I O N
+  [35] 4T. T H E T O W E R
+  [36] T2. Meeting Elaine
+  [37] T3. The Final Battle
+  [38] T4 The End
+  [39] Lists…
+--- CONTENT (2000 premiers chars, pour voir l'ASCII art) ---
+Guide and Walkthrough (PS) by threetimes
+
+Version: 1.3 | Updated: 11/18/2011
+
+PRE
+| _ _ ____ |
+| .--. | \| | \ Developer: Sacnoth
+| / / \ | |___ | | / / \ Publisher: SNK/Atari
+| / [ | | | | | / / \ Release: 1999 JP
+|,/ \ /| | | | |,/ /_____\ 2000 US/EU
+/PRE
+| \ \._./ | | ./| | | \ / \
+| \ | |_./ |____|____|_ \/ \
+| \ | / | /\ \
+\ |_./ \
+
+_______________________________________________________________________________
+
+K O U D E L K A : W A L K T H R O U G H / F A Q
+by threetimes
+_______________________________________________________________________________
+
+Updated: November 18th 2011
+Fortify Luck tip added!
+
+NOTE: I wrote this FAQ while playing the PAL version of the game. Apparently
+the NTSC version names the TELIS as LISTEL. I don't know why they changed it,
+as it's hardly a significant thing, but there it is.
+
+Gothic horror RPGs are a rare breed, and Koudelka is one of the best, and one
+of the rarest! Fan-service aside, I thought that a FAQ for this game needed a
+slightly different approach from the "normal" RPG walkthrough. Though, ideally,
+you would play the game without using a FAQ at all. Then, as you stumble around
+a huge monastery fighting ghoulish creatures, encountering chilling sights, and
+puzzling over fiendish secrets, you would experience the thrills of being lost,
+confused, and disorientated.
+
+However, if you do need assistance with a particular puzzle, or guidance about
+where to go next, then you don't want the rest of the game to be spoiled. If
+you use this walkthrough, you won't find any spoilers for the story, and you
+can check out any particular area for help, without having to find out more
+than you need, or want, to know!
+
+Please go to the start of the walkthrough for more details about how to search
+for particular areas of the game.
+
+-------------------------------------------------------------------------------
+Table of Contents ................................................ Search Code
+------------------------------------------------
+
+### KOUDELKA : koudelka-20260702005511.json (52 sections) ###
+  [ 0] Introduction: using the guide…
+  [ 1] Game Basics…
+  [ 2] Sidequest: The Gargoyle…
+  [ 3] Sidequest: The Gargoyle .............… — CHARACTER…
+  [ 4] A1. Getting out of the Attic
+  [ 5] A2. Exploring the Attic
+  [ 6] A3. Ladder to Attic Room
+  [ 7] B5. Herb Garden
+  [ 8] C1. Exploring Upstairs
+  [ 9] C3. Bedroom and Rope Ladder
+  [10] D2. Priest's Quarters
+  [11] E N D O F D I S C O N E R E V I E W
+  [12] 2E. D U N G E O N T O S H R I N E
+  [13] E1. Behind Bars
+  [14] E3. Dungeon, Basement
+  [15] E5. Underground Shrine
+  [16] G2. Shrine Room - Holy Water Font
+  [17] G3 The Chandelier Hall
+  [18] H1. The Thief
+  [19] H2. Caretakers' Quarters Again
+  [20] 2I. R E D K E Y D O O R
+  [21] J1. Tile Floor Room
+  [22] J7. The Library - Archives
+  [23] K8. The Church
+  [24] E N D O F D I S C T W O R E V I E W
+  [25] L1. The Inner Grounds
+  [26] L2. The Centre Building
+  [27] M1. Underground Corridor and Sub Hall
+  [28] N1. The Graveyard
+  [29] O2. Charlotte's Room
+  [30] 3P. P A T R I C K ' S Q U A R T E R S
+  [31] P5. Portrait Room
+  [32] Q6. Chapel
+  [33] E N D O F D I S C T H R E E R E V I E W
+  [34] R. P R E P A R A T I O N
+  [35] 4T. T H E T O W E R
+  [36] T2. Meeting Elaine
+  [37] T3. The Final Battle
+  [38] T4 The End
+  [39] Lists…
+--- CONTENT (2000 premiers chars, pour voir l'ASCII art) ---
+Guide and Walkthrough (PS) by threetimes
+
+Version: 1.3 | Updated: 11/18/2011
+
+PRE
+| _ _ ____ |
+| .--. | \| | \ Developer: Sacnoth
+| / / \ | |___ | | / / \ Publisher: SNK/Atari
+| / [ | | | | | / / \ Release: 1999 JP
+|,/ \ /| | | | |,/ /_____\ 2000 US/EU
+/PRE
+| \ \._./ | | ./| | | \ / \
+| \ | |_./ |____|____|_ \/ \
+| \ | / | /\ \
+\ |_./ \
+
+_______________________________________________________________________________
+
+K O U D E L K A : W A L K T H R O U G H / F A Q
+by threetimes
+_______________________________________________________________________________
+
+Updated: November 18th 2011
+Fortify Luck tip added!
+
+NOTE: I wrote this FAQ while playing the PAL version of the game. Apparently
+the NTSC version names the TELIS as LISTEL. I don't know why they changed it,
+as it's hardly a significant thing, but there it is.
+
+Gothic horror RPGs are a rare breed, and Koudelka is one of the best, and one
+of the rarest! Fan-service aside, I thought that a FAQ for this game needed a
+slightly different approach from the "normal" RPG walkthrough. Though, ideally,
+you would play the game without using a FAQ at all. Then, as you stumble around
+a huge monastery fighting ghoulish creatures, encountering chilling sights, and
+puzzling over fiendish secrets, you would experience the thrills of being lost,
+confused, and disorientated.
+
+However, if you do need assistance with a particular puzzle, or guidance about
+where to go next, then you don't want the rest of the game to be spoiled. If
+you use this walkthrough, you won't find any spoilers for the story, and you
+can check out any particular area for help, without having to find out more
+than you need, or want, to know!
+
+Please go to the start of the walkthrough for more details about how to search
+for particular areas of the game.
+
+-------------------------------------------------------------------------------
+Table of Contents ................................................ Search Code
+------------------------------------------------
+
+### KOUDELKA : koudelka-20260702011705.json (52 sections) ###
+  [ 0] Introduction: using the guide…
+  [ 1] Game Basics…
+  [ 2] Sidequest: The Gargoyle…
+  [ 3] Sidequest: The Gargoyle .............… — CHARACTER…
+  [ 4] A1. Getting out of the Attic
+  [ 5] A2. Exploring the Attic
+  [ 6] A3. Ladder to Attic Room
+  [ 7] B5. Herb Garden
+  [ 8] C1. Exploring Upstairs
+  [ 9] C3. Bedroom and Rope Ladder
+  [10] D2. Priest's Quarters
+  [11] E N D O F D I S C O N E R E V I E W
+  [12] 2E. D U N G E O N T O S H R I N E
+  [13] E1. Behind Bars
+  [14] E3. Dungeon, Basement
+  [15] E5. Underground Shrine
+  [16] G2. Shrine Room - Holy Water Font
+  [17] G3 The Chandelier Hall
+  [18] H1. The Thief
+  [19] H2. Caretakers' Quarters Again
+  [20] 2I. R E D K E Y D O O R
+  [21] J1. Tile Floor Room
+  [22] J7. The Library - Archives
+  [23] K8. The Church
+  [24] E N D O F D I S C T W O R E V I E W
+  [25] L1. The Inner Grounds
+  [26] L2. The Centre Building
+  [27] M1. Underground Corridor and Sub Hall
+  [28] N1. The Graveyard
+  [29] O2. Charlotte's Room
+  [30] 3P. P A T R I C K ' S Q U A R T E R S
+  [31] P5. Portrait Room
+  [32] Q6. Chapel
+  [33] E N D O F D I S C T H R E E R E V I E W
+  [34] R. P R E P A R A T I O N
+  [35] 4T. T H E T O W E R
+  [36] T2. Meeting Elaine
+  [37] T3. The Final Battle
+  [38] T4 The End
+  [39] Lists…
+--- CONTENT (2000 premiers chars, pour voir l'ASCII art) ---
+Guide and Walkthrough (PS) by threetimes
+
+Version: 1.3 | Updated: 11/18/2011
+
+PRE
+| _ _ ____ |
+| .--. | \| | \ Developer: Sacnoth
+| / / \ | |___ | | / / \ Publisher: SNK/Atari
+| / [ | | | | | / / \ Release: 1999 JP
+|,/ \ /| | | | |,/ /_____\ 2000 US/EU
+/PRE
+| \ \._./ | | ./| | | \ / \
+| \ | |_./ |____|____|_ \/ \
+| \ | / | /\ \
+\ |_./ \
+
+_______________________________________________________________________________
+
+K O U D E L K A : W A L K T H R O U G H / F A Q
+by threetimes
+_______________________________________________________________________________
+
+Updated: November 18th 2011
+Fortify Luck tip added!
+
+NOTE: I wrote this FAQ while playing the PAL version of the game. Apparently
+the NTSC version names the TELIS as LISTEL. I don't know why they changed it,
+as it's hardly a significant thing, but there it is.
+
+Gothic horror RPGs are a rare breed, and Koudelka is one of the best, and one
+of the rarest! Fan-service aside, I thought that a FAQ for this game needed a
+slightly different approach from the "normal" RPG walkthrough. Though, ideally,
+you would play the game without using a FAQ at all. Then, as you stumble around
+a huge monastery fighting ghoulish creatures, encountering chilling sights, and
+puzzling over fiendish secrets, you would experience the thrills of being lost,
+confused, and disorientated.
+
+However, if you do need assistance with a particular puzzle, or guidance about
+where to go next, then you don't want the rest of the game to be spoiled. If
+you use this walkthrough, you won't find any spoilers for the story, and you
+can check out any particular area for help, without having to find out more
+than you need, or want, to know!
+
+Please go to the start of the walkthrough for more details about how to search
+for particular areas of the game.
+
+-------------------------------------------------------------------------------
+Table of Contents ................................................ Search Code
+------------------------------------------------
+
+### KOUDELKA : koudelka-faqs-walkthroughs-and-guides-for-playstation-20260702005429.json (0 sections) ###
+--- CONTENT (2000 premiers chars, pour voir l'ASCII art) ---
+Guide and Walkthrough (Dutch) by Patt3rson
+
+v.Final, 46KB, 2007
+
+Guide and Walkthrough (Portuguese) by o_luquinhas
+
+v.Completo, 150KB, 2008
+
+Maps and Charts
+
+Nementon Monastery 2nd Floor Map by siraronar
+
+v.1.1, 2013
+
+Nementon Monastery Basement Map by siraronar
+
+v.1.1, 2013
+
+Nementon Monastery First Floor Map by siraronar
+
+v.1.1, 2013
+
+Want to Write Your Own Guide?
+
+You can write and submit your own guide for this game using either our full-featured online editor or our basic text editor . We also accept maps and charts as well.
+
+Game Detail
+
+Platform: PlayStation
+
+Genre: Role-Playing » Japanese-Style
+
+Developer: Sacnoth
+
+Publisher: SNK
+
+Release: June 29, 2000
+
+Franchises: Shadow Hearts
+
+Game Trivia
+
+Throughout the game, Edward quotes various literary passages to his teammates. Works being referenced include Shakespeare's The Merchant of Venice (c. 1597) and Macbeth (1606), as well as Lord Byron's poems "To M.S.G." (1807) and "Euthanasia" (1812).
+
+Contributed By: Shotgunnova
+
+« See More or Submit Your Own!
+
+Games You May Like
+
+Final Fantasy VII
+Mako. The discovery of this natural resource drawn directly from the planet's life force marked the dawn of a new era...
+
+Final Fantasy IX
+At last, the hugely popular FINAL FANTASY® IX arrives on the PlayStation®4 system with additional features: trophies,...
+
+Final Fantasy VIII
+The next chapter in Final Fantasy takes the series to the next level. Final Fantasy VIII combines an epic storyline ...
+
+The Legend of Dragoon
+A peaceful beginning. The legend was born 10,000 years ago. A violent uprising. A civilization of flying creatures en...
+
+Digimon World 3
+In the near future, when computer technology has advanced...Junior, a 12 year old boy, and his friends Teddy and Ivy ...
+
+GameFAQs facebook.com/GFAQs twitter.com/GameFAQs
+
+### KOUDELKA : koudelka-faqs-walkthroughs-and-guides-for-playstation-20260702005453.json (0 sections) ###
+--- CONTENT (2000 premiers chars, pour voir l'ASCII art) ---
+Guide and Walkthrough (Dutch) by Patt3rson
+
+v.Final, 46KB, 2007
+
+Guide and Walkthrough (Portuguese) by o_luquinhas
+
+v.Completo, 150KB, 2008
+
+Maps and Charts
+
+Nementon Monastery 2nd Floor Map by siraronar
+
+v.1.1, 2013
+
+Nementon Monastery Basement Map by siraronar
+
+v.1.1, 2013
+
+Nementon Monastery First Floor Map by siraronar
+
+v.1.1, 2013
+
+Want to Write Your Own Guide?
+
+You can write and submit your own guide for this game using either our full-featured online editor or our basic text editor . We also accept maps and charts as well.
+
+Game Detail
+
+Platform: PlayStation
+
+Genre: Role-Playing » Japanese-Style
+
+Developer: Sacnoth
+
+Publisher: SNK
+
+Release: June 29, 2000
+
+Franchises: Shadow Hearts
+
+Game Trivia
+
+Throughout the game, Edward quotes various literary passages to his teammates. Works being referenced include Shakespeare's The Merchant of Venice (c. 1597) and Macbeth (1606), as well as Lord Byron's poems "To M.S.G." (1807) and "Euthanasia" (1812).
+
+Contributed By: Shotgunnova
+
+« See More or Submit Your Own!
+
+Games You May Like
+
+Final Fantasy VII
+Mako. The discovery of this natural resource drawn directly from the planet's life force marked the dawn of a new era...
+
+Final Fantasy IX
+At last, the hugely popular FINAL FANTASY® IX arrives on the PlayStation®4 system with additional features: trophies,...
+
+Final Fantasy VIII
+The next chapter in Final Fantasy takes the series to the next level. Final Fantasy VIII combines an epic storyline ...
+
+The Legend of Dragoon
+A peaceful beginning. The legend was born 10,000 years ago. A violent uprising. A civilization of flying creatures en...
+
+Digimon World 3
+In the near future, when computer technology has advanced...Junior, a 12 year old boy, and his friends Teddy and Ivy ...
+
+GameFAQs facebook.com/GFAQs twitter.com/GameFAQs
+
+### KOUDELKA : koudelka-faqs-walkthroughs-and-guides-for-playstation-20260702011649.json (0 sections) ###
+--- CONTENT (2000 premiers chars, pour voir l'ASCII art) ---
+Guide and Walkthrough (Dutch) by Patt3rson
+
+v.Final, 46KB, 2007
+
+Guide and Walkthrough (Portuguese) by o_luquinhas
+
+v.Completo, 150KB, 2008
+
+Maps and Charts
+
+Nementon Monastery 2nd Floor Map by siraronar
+
+v.1.1, 2013
+
+Nementon Monastery Basement Map by siraronar
+
+v.1.1, 2013
+
+Nementon Monastery First Floor Map by siraronar
+
+v.1.1, 2013
+
+Want to Write Your Own Guide?
+
+You can write and submit your own guide for this game using either our full-featured online editor or our basic text editor . We also accept maps and charts as well.
+
+Game Detail
+
+Platform: PlayStation
+
+Genre: Role-Playing » Japanese-Style
+
+Developer: Sacnoth
+
+Publisher: SNK
+
+Release: June 29, 2000
+
+Franchises: Shadow Hearts
+
+Game Trivia
+
+Edward : "Where all have gone, and all must go. To be the nothing that I was, ere born to life and living woe."
+James : Lord Byron, no? I am not an admirer of his. In the first place, his poetry is unrefined.
+Edward : And who gave you the right to judge the refinement of poetry?
+James : Poetry should delve into the depths of the souls of the faithful...
+[ He looks at Koudelka. ]
+James : ...and others. It should inspire the soul, as to Alexander Pope and George Herbert.
+Koudelka : If they have the power to do away with these evil spirits, I'd choose anyone -- even that dear, old carpenter's son you like so much.
+James : Blasphemous! Pagan! How dare you utter such words of sin?
+
+Contributed By: Shotgunnova
+
+« See More or Submit Your Own!
+
+Games You May Like
+
+Final Fantasy VII
+Mako. The discovery of this natural resource drawn directly from the planet's life force marked the dawn of a new era...
+
+Final Fantasy IX
+At last, the hugely popular FINAL FANTASY® IX arrives on the PlayStation®4 system with additional features: trophies,...
+
+Final Fantasy VIII
+The next chapter in Final Fantasy takes the series to the next level. Final Fantasy VIII combines an epic storyline ...
+
+The Legend of Dragoon
+A peaceful beginning. The legend was born 10,000 years ago. A violent uprising. A
+
+### KOUDELKA : koudelka-faqs-walkthroughs-and-guides-for-playstation-20260702014239.json (0 sections) ###
+--- CONTENT (2000 premiers chars, pour voir l'ASCII art) ---
+Guide and Walkthrough (Dutch) by Patt3rson
+
+v.Final, 46KB, 2007
+
+Guide and Walkthrough (Portuguese) by o_luquinhas
+
+v.Completo, 150KB, 2008
+
+Maps and Charts
+
+Nementon Monastery 2nd Floor Map by siraronar
+
+v.1.1, 2013
+
+Nementon Monastery Basement Map by siraronar
+
+v.1.1, 2013
+
+Nementon Monastery First Floor Map by siraronar
+
+v.1.1, 2013
+
+Want to Write Your Own Guide?
+
+You can write and submit your own guide for this game using either our full-featured online editor or our basic text editor . We also accept maps and charts as well.
+
+Game Detail
+
+Platform: PlayStation
+
+Genre: Role-Playing » Japanese-Style
+
+Developer: Sacnoth
+
+Publisher: SNK
+
+Release: June 29, 2000
+
+Franchises: Shadow Hearts
+
+Game Trivia
+
+Charlotte : My mother? I don't have a face, a name, where she came from, nothing. You telling me that means nothing. From the day I was born to the day I died, no-one ever loved me, and I never wanted to be loved.
+
+Just die all of you. Just die.
+
+Contributed By: threetimes
+
+« See More or Submit Your Own!
+
+Games You May Like
+
+Final Fantasy VII
+Mako. The discovery of this natural resource drawn directly from the planet's life force marked the dawn of a new era...
+
+Final Fantasy IX
+At last, the hugely popular FINAL FANTASY® IX arrives on the PlayStation®4 system with additional features: trophies,...
+
+Final Fantasy VIII
+The next chapter in Final Fantasy takes the series to the next level. Final Fantasy VIII combines an epic storyline ...
+
+The Legend of Dragoon
+A peaceful beginning. The legend was born 10,000 years ago. A violent uprising. A civilization of flying creatures en...
+
+Digimon World 3
+In the near future, when computer technology has advanced...Junior, a 12 year old boy, and his friends Teddy and Ivy ...
+
+GameFAQs facebook.com/GFAQs twitter.com/GameFAQs
