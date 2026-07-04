@@ -856,6 +856,52 @@ function GuideReader(props) {
                 return (SP_JSX.jsx("p", { style: paragraphStyle, children: renderHighlightedText(block.text, preferences.highlight_keywords, searchPattern, guide.sections, onJumpToSection) }, idx));
             })) }) }));
 }
+/**
+ * v0.43.34: build a short excerpt of `line` centred on the first occurrence of
+ * `needleLower` (already lower-cased), so a content match in the sidebar shows
+ * WHY it matched rather than just the (non-matching) section title.
+ */
+function buildContentSnippet(line, needleLower) {
+    const trimmed = line.replace(/\s+/g, " ").trim();
+    const pos = trimmed.toLowerCase().indexOf(needleLower);
+    if (pos < 0)
+        return trimmed.slice(0, 90);
+    const radius = 42;
+    const start = Math.max(0, pos - radius);
+    const end = Math.min(trimmed.length, pos + needleLower.length + radius);
+    let out = trimmed.slice(start, end);
+    if (start > 0)
+        out = "…" + out;
+    if (end < trimmed.length)
+        out = out + "…";
+    return out;
+}
+/**
+ * v0.43.34: scan every section's body (not just its title) for `needleLower`
+ * and return a Map<sectionIndex, snippet> for the sections whose CONTENT matches
+ * but whose TITLE does not — those are the rows that would otherwise be invisible
+ * to the sidebar filter. Title matches are skipped (they already surface).
+ */
+function buildContentMatches(sections, content, needleLower) {
+    const map = new Map();
+    if (!needleLower)
+        return map;
+    const lines = content.split(/\r?\n/);
+    sections.forEach((sec, idx) => {
+        if ((sec.title || "").toLowerCase().includes(needleLower))
+            return; // title already matches
+        const start = Math.max(0, sec.line_start);
+        const end = Math.min(lines.length - 1, sec.line_end);
+        for (let i = start; i <= end; i++) {
+            const l = lines[i];
+            if (l && l.toLowerCase().includes(needleLower)) {
+                map.set(idx, buildContentSnippet(l, needleLower));
+                break;
+            }
+        }
+    });
+    return map;
+}
 /** Group consecutive sections so heading_level <= 2 starts a group, deeper levels nest under it. */
 function buildTocGroups(sections) {
     const groups = [];
@@ -908,6 +954,11 @@ function TocSidebar(props) {
     };
     const groups = buildTocGroups(guide.sections);
     const filterNeedle = tocFilter.trim().toLowerCase();
+    // v0.43.34: the filter also searches section BODIES, not just titles. A section
+    // whose content matches (but whose title doesn't) shows with a snippet so the
+    // user sees why it matched. Memoised: only rescans when the query or guide changes.
+    const contentMatches = SP_REACT.useMemo(() => buildContentMatches(guide.sections, guide.content, filterNeedle), [guide.sections, guide.content, filterNeedle]);
+    const nodeMatches = (node) => (node.sec.title || "").toLowerCase().includes(filterNeedle) || contentMatches.has(node.index);
     // Apply hide filter first (unless "show hidden" toggle is on), then text filter.
     let working = showHiddenSections
         ? groups
@@ -928,10 +979,13 @@ function TocSidebar(props) {
     const filtered = filterNeedle
         ? working
             .map((g) => {
-            const parentMatches = (g.parent.sec.title || "").toLowerCase().includes(filterNeedle);
-            const matchingChildren = g.children.filter((c) => (c.sec.title || "").toLowerCase().includes(filterNeedle));
+            const parentTitleMatch = (g.parent.sec.title || "").toLowerCase().includes(filterNeedle);
+            const parentMatches = parentTitleMatch || contentMatches.has(g.parent.index);
+            const matchingChildren = g.children.filter(nodeMatches);
             if (parentMatches || matchingChildren.length > 0) {
-                return { parent: g.parent, children: parentMatches ? g.children : matchingChildren };
+                // Title match on the parent = category search → show the whole group.
+                // Body-only match → show just the parent (with snippet) + any matching children.
+                return { parent: g.parent, children: parentTitleMatch ? g.children : matchingChildren };
             }
             return null;
         })
@@ -988,7 +1042,20 @@ function TocSidebar(props) {
         color: theme.textColor,
         opacity: 0.92,
     });
-    return (SP_JSX.jsxs("div", { style: sidebarStyle, children: [SP_JSX.jsxs("div", { style: filterWrapStyle, children: [SP_JSX.jsx(DFL.TextField, { value: tocFilter, onChange: (e) => setTocFilter(e.target.value), placeholder: "Filtrer le sommaire\u2026", bShowClearAction: true }), hiddenCount > 0 ? (SP_JSX.jsx(DFL.Focusable, { onActivate: () => setShowHiddenSections((v) => !v), style: hiddenToggleStyle, children: showHiddenSections
+    // v0.43.34: sub-line under a row that matched on body text (not its title).
+    const snippetStyle = {
+        display: "block",
+        fontSize: "0.66rem",
+        fontWeight: 400,
+        lineHeight: 1.25,
+        opacity: 0.75,
+        color: "#9ecbff",
+        marginTop: "2px",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+    };
+    return (SP_JSX.jsxs("div", { style: sidebarStyle, children: [SP_JSX.jsxs("div", { style: filterWrapStyle, children: [SP_JSX.jsx(DFL.TextField, { value: tocFilter, onChange: (e) => setTocFilter(e.target.value), placeholder: "Rechercher (titres + texte)\u2026", bShowClearAction: true }), hiddenCount > 0 ? (SP_JSX.jsx(DFL.Focusable, { onActivate: () => setShowHiddenSections((v) => !v), style: hiddenToggleStyle, children: showHiddenSections
                             ? `👁 Cacher les ${hiddenCount} masquée(s)`
                             : `🙈 Afficher les ${hiddenCount} masquée(s)` })) : null] }), SP_JSX.jsxs(DFL.Focusable, { children: [filtered.length === 0 && filterNeedle ? (SP_JSX.jsxs("div", { style: { padding: "16px", textAlign: "center", opacity: 0.6, fontSize: "0.8rem" }, children: ["Aucune section ne correspond \u00E0 \u00AB ", tocFilter, " \u00BB"] })) : null, filtered.map((group) => {
                         const containsCurrent = sectionIndex === group.parent.index
@@ -1003,11 +1070,11 @@ function TocSidebar(props) {
                                         if (hasChildren && !filterNeedle)
                                             toggle(group.parent.index);
                                         setSectionIndex(group.parent.index);
-                                    }, style: parentStyle, children: [SP_JSX.jsx("span", { style: { width: "12px", display: "inline-block", opacity: hasChildren ? 0.7 : 0, fontSize: "0.7rem" }, children: hasChildren ? (effectiveCollapsed ? "▶" : "▼") : "" }), SP_JSX.jsxs("span", { style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: [parentHidden ? "🙈 " : "", sectionBadge(group.parent.index), preferences.numbered_sections ? `${group.parent.index + 1}. ` : "", group.parent.sec.title || "(sans titre)"] }), hasChildren ? (SP_JSX.jsx("span", { style: { fontSize: "0.66rem", opacity: 0.55, padding: "1px 5px", borderRadius: "3px", background: "rgba(255,255,255,0.08)" }, children: group.children.length })) : null] }), !effectiveCollapsed && group.children.map((child) => {
+                                    }, style: parentStyle, children: [SP_JSX.jsx("span", { style: { width: "12px", display: "inline-block", opacity: hasChildren ? 0.7 : 0, fontSize: "0.7rem" }, children: hasChildren ? (effectiveCollapsed ? "▶" : "▼") : "" }), SP_JSX.jsxs("span", { style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }, children: [SP_JSX.jsxs("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: [parentHidden ? "🙈 " : "", sectionBadge(group.parent.index), preferences.numbered_sections ? `${group.parent.index + 1}. ` : "", group.parent.sec.title || "(sans titre)"] }), contentMatches.has(group.parent.index) ? (SP_JSX.jsxs("span", { style: snippetStyle, children: ["\uD83D\uDD0E ", contentMatches.get(group.parent.index)] })) : null] }), hasChildren ? (SP_JSX.jsx("span", { style: { fontSize: "0.66rem", opacity: 0.55, padding: "1px 5px", borderRadius: "3px", background: "rgba(255,255,255,0.08)" }, children: group.children.length })) : null] }), !effectiveCollapsed && group.children.map((child) => {
                                     const isCurrent = child.index === sectionIndex;
                                     const childHidden = isHidden(child.sec);
                                     const childStyle = { ...childRowStyleBase(isCurrent), opacity: childHidden ? 0.45 : 0.92 };
-                                    return (SP_JSX.jsxs(DFL.Focusable, { ref: isCurrent ? currentRowRef : undefined, onActivate: () => setSectionIndex(child.index), style: childStyle, children: [childHidden ? "🙈 " : "", sectionBadge(child.index), preferences.numbered_sections ? `${child.index + 1}. ` : "", child.sec.title || "(sans titre)"] }, child.index));
+                                    return (SP_JSX.jsxs(DFL.Focusable, { ref: isCurrent ? currentRowRef : undefined, onActivate: () => setSectionIndex(child.index), style: childStyle, children: [SP_JSX.jsxs("span", { style: { display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: [childHidden ? "🙈 " : "", sectionBadge(child.index), preferences.numbered_sections ? `${child.index + 1}. ` : "", child.sec.title || "(sans titre)"] }), contentMatches.has(child.index) ? (SP_JSX.jsxs("span", { style: snippetStyle, children: ["\uD83D\uDD0E ", contentMatches.get(child.index)] })) : null] }, child.index));
                                 })] }, group.parent.index));
                     })] })] }));
 }
