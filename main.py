@@ -444,6 +444,7 @@ class GuideSearchResult:
     site: str
     snippet: str
     score: int = 0
+    game: str = ""  # v0.43.35: game name derived from the URL slug (shown prominently)
 
 
 @dataclass
@@ -1489,6 +1490,7 @@ class Plugin:
             final_results.append(GuideSearchResult(
                 title=parsed.title, url=parsed.url, site=site_label,
                 snippet=parsed.snippet, score=score,
+                game=self._game_name_from_url(parsed.url),  # v0.43.35: "which game?"
             ))
 
         # v0.43.10: collapse per-chapter fragments of the same guide (rpgsoluce/
@@ -1724,12 +1726,15 @@ class Plugin:
             r"|(?:impossible|ne\s+pourrez\s+plus|plus\s+possible)\b.{0,25}(?:plus\s+tard|par\s+la\s+suite|ensuite|apr[èe]s)"
             r"|derni[èe]re\s+(?:chance|occasion|possibilit[ée])",
             re.IGNORECASE)),
+        # v0.43.35: DROPPED bare "key item"/"objet clé" — it matched every inventory
+        # listing ("Key Item: MONASTERY MAP") and flooded item-heavy guides (Koudelka
+        # 62 flags of pure noise). Keep only genuinely-notable gear you'd seek out.
+        # Missable key items are still caught by the "missable" category above.
         ("key_item", re.compile(
-            r"\bkey\s+items?\b"
-            r"|objets?\s+cl[ée]s?\b"
-            r"|\bunique\s+(?:weapon|armou?r|accessor\w+|ring|sword|shield|item|equipment)"
-            r"|(?:ultimate|strongest|best)\s+(?:weapon|armou?r|sword|spear|shield)\b"
-            r"|arme\s+(?:ultime|unique|l[ée]gendaire)"
+            r"\bunique\s+(?:weapon|armou?r|accessor\w+|ring|sword|shield|spear|staff|item|equipment)"
+            r"|(?:ultimate|strongest|best|most\s+powerful)\s+(?:weapon|armou?r|sword|spear|shield|staff)\b"
+            r"|arme\s+(?:ultime|unique|l[ée]gendaire|la\s+plus\s+puissante)"
+            r"|meilleure\s+arme"
             r"|un\s+seul\s+exemplaire",
             re.IGNORECASE)),
         ("side_quest", re.compile(
@@ -1739,6 +1744,33 @@ class Plugin:
             r"|\b(?:facultati\w+|optionnel\w*)\b",
             re.IGNORECASE)),
     ]
+
+    # v0.43.35: lines that mention a flag word but aren't an actionable moment —
+    # tables of contents, cross-references to other pages, and banner/decoration.
+    # Dropped before flagging so hub/reference pages don't flood the checklist
+    # (IGN Disco Elysium "Side Quests" page went 78 -> ~40 real quest lines).
+    _FLAG_NOISE_RE = re.compile(
+        r"\.{4,}"                                         # dotted-leader TOC entry
+        r"|this\s+page\s+lists"
+        r"|(?:are|presented)\s+(?:presented|here|below|alphabetically)"
+        r"|(?:please\s+)?see\s+the\b.{0,45}\bpage"
+        r"|check\s+the\b.{0,45}\bpages?\b"
+        r"|for\s+(?:more|information|general\s+help)\b.{0,45}\b(?:see|page|check)"
+        r"|will\s+not\s+cover"
+        r"|listed\s+(?:as|below|here|alphabetically)"
+        r"|spoiler[-\s]free",
+        re.IGNORECASE)
+
+    def _is_flag_noise_line(self, s: str) -> bool:
+        if self._FLAG_NOISE_RE.search(s):
+            return True
+        # ASCII banner / heavy decoration (===, ----, ***, ~~~) or mostly non-letters.
+        if re.search(r"[=*_~]{3,}", s) or re.search(r"-{4,}", s):
+            return True
+        letters = sum(1 for c in s if c.isalpha())
+        if letters and letters < 0.4 * len(s):
+            return True
+        return False
 
     def _flag_snippet(self, lines: list[str], li: int) -> str:
         """The readable context for a flag: the line, widened to neighbours when
@@ -1765,6 +1797,8 @@ class Plugin:
         for li, line in enumerate(lines):
             s = line.strip()
             if len(s) < 8 or "\x01" in line:
+                continue
+            if self._is_flag_noise_line(s):  # v0.43.35: skip TOC/reference/banner lines
                 continue
             for cat, rx in self._IMPORTANT_FLAG_RES:
                 m = rx.search(s)
@@ -4447,6 +4481,7 @@ class Plugin:
                     rep_url, rep_title = rep.url, rep.title
             out.append(GuideSearchResult(
                 title=rep_title, url=rep_url, site=rep.site, snippet=rep.snippet, score=best_score,
+                game=rep.game or self._game_name_from_url(rep_url),  # v0.43.35: keep/recompute
             ))
         return out
 
@@ -6100,6 +6135,78 @@ class Plugin:
     # nav as the first content lines, so normal title derivation names every
     # section after the site. The URL slug (soluce.php / perso.php / keyitem.php)
     # is the reliable per-page signal.
+    # v0.43.35: map the URL slug of a guide to the GAME NAME, so search results and
+    # (later) the library can show which game a result concerns — the page <title>
+    # is often useless ("RPG Soluce", "Walkthrough", "Le coin de …").
+    _GAME_SLUG_FIXUPS = {
+        # slugs that titlecase badly (smushed words / abbreviations) — mostly rpgsoluce/vally8
+        "chronocross": "Chrono Cross", "wildarms3": "Wild Arms 3", "wildarms": "Wild Arms",
+        "suikoden5": "Suikoden 5", "suikoden3": "Suikoden 3",
+        "ff7": "Final Fantasy VII", "ff8": "Final Fantasy VIII", "ff9": "Final Fantasy IX",
+        "ff10": "Final Fantasy X", "ff12": "Final Fantasy XII",
+        "no-im-not-a-human": "No, I'm not a Human",
+    }
+    _GAME_SMALL_WORDS = {"of", "the", "and", "a", "an", "to", "for", "in", "on",
+                         "de", "la", "le", "les", "du", "des", "not", "im"}
+    _GAME_ROMAN_RE = re.compile(r"^(?:i{1,3}|iv|v|vi{0,3}|ix|xi{0,3}|xiv|xv|xvi{0,3})$")
+
+    def _prettify_game_slug(self, slug: str) -> str:
+        s = slug.strip().lower()
+        if s in self._GAME_SLUG_FIXUPS:
+            return self._GAME_SLUG_FIXUPS[s]
+        s = re.sub(r"\.(?:html?|php|asp)$", "", s)
+        s = re.sub(r"[-_]+", " ", s)
+        s = re.sub(r"([a-z])(\d+)$", r"\1 \2", s)  # suikoden5 -> suikoden 5
+        s = re.sub(r"\s+", " ", s).strip()
+        if not s:
+            return ""
+        words = s.split(" ")
+        out: list[str] = []
+        for i, w in enumerate(words):
+            if self._GAME_ROMAN_RE.match(w):
+                out.append(w.upper())
+            elif w.isdigit():
+                out.append(w)
+            elif i > 0 and w in self._GAME_SMALL_WORDS:
+                out.append(w)
+            else:
+                out.append(w[:1].upper() + w[1:])
+        return " ".join(out)
+
+    def _game_name_from_url(self, url: str) -> str:
+        """Best-effort game name from the URL slug, per host. Empty if none found."""
+        try:
+            p = urlparse(url)
+        except Exception:
+            return ""
+        host = (p.hostname or "").casefold()
+        segs = [s for s in p.path.split("/") if s]
+        slug = ""
+        if "gamefaqs" in host:
+            for s in segs:
+                m = re.match(r"^\d+-(.+)$", s)  # <platform>/<id>-<game>/faqs/…
+                if m:
+                    slug = m.group(1)
+                    break
+        elif "ign.com" in host and "wikis" in segs:
+            i = segs.index("wikis")
+            if i + 1 < len(segs):
+                slug = segs[i + 1]
+        elif "neoseeker" in host and segs:
+            slug = segs[0]
+        elif "rpgsoluce" in host and "soluces" in segs:
+            i = segs.index("soluces")
+            if i + 2 < len(segs):  # soluces/<platform>/<game>/…
+                slug = segs[i + 2]
+        elif ("vally8" in host or "darklevel" in host) and "jeux" in segs:
+            i = segs.index("jeux")
+            if i + 1 < len(segs):
+                slug = segs[i + 1]
+        elif "jeuxvideo.com" in host and segs:
+            last = re.sub(r"\.html?$", "", segs[-1])
+            slug = re.sub(r"^(?:wiki-de-|guide-complet-de-|soluce-de-|guide-de-)", "", last)
+        return self._prettify_game_slug(slug) if slug else ""
+
     _VALLY8_SLUG_MAP = {
         "soluce": "Soluce", "solution": "Soluce", "cheminement": "Cheminement",
         "perso": "Personnages", "persos": "Personnages", "personnages": "Personnages",

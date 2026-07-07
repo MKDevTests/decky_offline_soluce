@@ -164,6 +164,7 @@ type GuideSearchResult = {
   site: string;
   snippet: string;
   score: number;
+  game?: string;  // v0.43.35: game name derived from the URL (shown as the result heading)
 };
 
 type ScanSource = {
@@ -950,9 +951,11 @@ type GuideReaderProps = {
    * in `.dir` (+1 down, -1 up). Driven by the reader's L1/R1 shortcuts. */
   scrollPulse?: { n: number; dir: 1 | -1 };
   /** v0.43.34: when this counter increments, once the section is laid out, scroll
-   * the FIRST search <mark> into view (used by the sidebar content search so a body
-   * match focuses the actual line, not just the top of the section). */
+   * a search <mark> into view (used by the sidebar content search + the find nav so
+   * a match focuses the actual line, not just the top of the section). */
   scrollToFirstMatch?: number;
+  /** v0.43.35: which <mark> occurrence within the section to focus (0 = first). */
+  scrollMatchOcc?: number;
 };
 
 /**
@@ -964,7 +967,7 @@ function GuideReader(props: GuideReaderProps) {
     guide, sectionIndex, fontScale, preferences,
     searchPattern, scrollRestoreFraction, onScrollChange,
     maxHeight, onJumpToSection, restoreGeneration,
-    scrollPulse, scrollToFirstMatch,
+    scrollPulse, scrollToFirstMatch, scrollMatchOcc,
   } = props;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // v0.43.34: tracks the last scrollToFirstMatch value we handled, so the restore
@@ -1003,12 +1006,14 @@ function GuideReader(props: GuideReaderProps) {
       const currentMax = Math.max(1, el.scrollHeight - el.clientHeight);
       let targetTop: number;
       if (wantFind) {
-        const mark = el.querySelector("mark") as HTMLElement | null;
-        if (!mark && tries < 6) {
+        const marks = el.querySelectorAll("mark");
+        if (marks.length === 0 && tries < 6) {
           // Highlighted marks not laid out yet — retry next frame before giving up.
           rafId = window.requestAnimationFrame(() => attempt(tries + 1));
           return;
         }
+        const occ = Math.min(Math.max(0, scrollMatchOcc || 0), Math.max(0, marks.length - 1));
+        const mark = (marks[occ] || marks[0]) as HTMLElement | undefined;
         if (mark) {
           const cRect = el.getBoundingClientRect();
           const mRect = mark.getBoundingClientRect();
@@ -1190,6 +1195,44 @@ function buildContentMatches(
     }
   });
   return map;
+}
+
+/**
+ * v0.43.35: every occurrence of `needle` across the whole guide, in reading order,
+ * as {section, occ} where occ is the 0-based occurrence index WITHIN that section.
+ * `occ` aligns with the section's rendered <mark> elements (both count body-text
+ * occurrences; heading-marker lines are skipped as they render without marks), so
+ * the reader can scroll to the exact match. Powers the "i / N" find navigation.
+ */
+type SearchMatchRef = { section: number; occ: number };
+function computeSearchMatches(
+  content: string,
+  sections: GuideSection[],
+  needle: string
+): SearchMatchRef[] {
+  const n = needle.trim().toLowerCase();
+  const out: SearchMatchRef[] = [];
+  if (n.length < 2) return out;
+  const lines = content.split(/\r?\n/);
+  sections.forEach((sec, si) => {
+    let occ = 0;
+    const start = Math.max(0, sec.line_start);
+    const end = Math.min(lines.length - 1, sec.line_end);
+    for (let i = start; i <= end; i++) {
+      const raw = lines[i];
+      if (!raw || raw.includes("\x01")) continue; // heading marker → no <mark> rendered
+      const l = raw.toLowerCase();
+      let from = 0;
+      let idx = l.indexOf(n, from);
+      while (idx !== -1) {
+        out.push({ section: si, occ });
+        occ++;
+        from = idx + n.length;
+        idx = l.indexOf(n, from);
+      }
+    }
+  });
+  return out;
 }
 
 /** Group consecutive sections so heading_level <= 2 starts a group, deeper levels nest under it. */
@@ -2285,14 +2328,37 @@ function FullScreenReader() {
   const [tocFilter, setTocFilter] = useState<string>("");
   const [collapsedParents, setCollapsedParents] = useState<Set<number>>(new Set());
   const [showHiddenSections, setShowHiddenSections] = useState<boolean>(false);
-  // v0.43.34: bumped when the user taps a sidebar content-match, so the reader
-  // scrolls the first highlighted match into view (not just the section top).
+  // v0.43.34: bumped to make the reader scroll a highlighted match into view.
   const [findScrollGen, setFindScrollGen] = useState<number>(0);
-  // v0.43.34: jump from a sidebar body-match to the section AND focus the match.
-  // Sets searchPattern (so the term highlights as <mark>) then bumps findScrollGen.
+  const [scrollMatchOcc, setScrollMatchOcc] = useState<number>(0);
+  // v0.43.35: every occurrence of the reader search term across the guide, for the
+  // "i / N" find navigation (prev/next). Recomputed only when the term/guide changes.
+  const searchMatches = useMemo(
+    () => (guide ? computeSearchMatches(guide.content, guide.sections, searchPattern) : []),
+    [guide, searchPattern]
+  );
+  const [searchMatchPos, setSearchMatchPos] = useState<number>(-1);
+  // Go to the pos-th match (wraps): switch section, then focus its <mark>.
+  const goToSearchMatch = (pos: number) => {
+    if (searchMatches.length === 0) return;
+    const p = ((pos % searchMatches.length) + searchMatches.length) % searchMatches.length;
+    const m = searchMatches[p];
+    setSearchMatchPos(p);
+    setScrollMatchOcc(m.occ);
+    setSectionIndex(m.section);
+    setFindScrollGen((g) => g + 1);
+  };
+  // v0.43.34/35: jump from a sidebar body-match to the section AND focus the match.
+  // Sets searchPattern (so the term highlights as <mark>), positions the find cursor
+  // on that section's first hit, then bumps findScrollGen to scroll it into view.
   const jumpToContentMatch = (index: number) => {
-    setSearchPattern(tocFilter.trim());
+    const needle = tocFilter.trim();
+    setSearchPattern(needle);
     setShowSearch(true);
+    const matches = computeSearchMatches(guide?.content || "", guide?.sections || [], needle);
+    const pos = matches.findIndex((m) => m.section === index);
+    setSearchMatchPos(pos);
+    setScrollMatchOcc(pos >= 0 ? matches[pos].occ : 0);
     setSectionIndex(index);
     setFindScrollGen((g) => g + 1);
   };
@@ -2614,10 +2680,29 @@ function FullScreenReader() {
         <div style={{ padding: "8px 16px", background: "rgba(0,0,0,0.25)", flexShrink: 0 }}>
           <TextField
             value={searchPattern}
-            onChange={(e: any) => setSearchPattern(e.target.value)}
-            placeholder="Surligner dans la section…"
+            onChange={(e: any) => { setSearchPattern(e.target.value); setSearchMatchPos(-1); }}
+            placeholder="Rechercher dans le guide…"
             bShowClearAction
           />
+          {searchPattern.trim().length >= 2 ? (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "6px" }}>
+              <span style={{ fontSize: "0.8rem", opacity: 0.85, minWidth: "96px" }}>
+                {searchMatches.length === 0
+                  ? "Aucun résultat"
+                  : `${searchMatchPos < 0 ? "—" : searchMatchPos + 1} / ${searchMatches.length} occurrence${searchMatches.length > 1 ? "s" : ""}`}
+              </span>
+              <DialogButton
+                disabled={searchMatches.length === 0}
+                onClick={() => goToSearchMatch(searchMatchPos < 0 ? searchMatches.length - 1 : searchMatchPos - 1)}
+                style={{ minWidth: "52px", padding: "4px 8px" }}
+              >▲</DialogButton>
+              <DialogButton
+                disabled={searchMatches.length === 0}
+                onClick={() => goToSearchMatch(searchMatchPos < 0 ? 0 : searchMatchPos + 1)}
+                style={{ minWidth: "52px", padding: "4px 8px" }}
+              >▼</DialogButton>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -2735,6 +2820,7 @@ function FullScreenReader() {
             onJumpToSection={(idx) => setSectionIndex(idx)}
             scrollPulse={scrollPulse}
             scrollToFirstMatch={findScrollGen}
+            scrollMatchOcc={scrollMatchOcc}
           />
           ) : null}
         </div>
@@ -4921,11 +5007,27 @@ function Content() {
               </>
             ) : null}
 
-            {filteredResults.map((result, idx) => (
+            {filteredResults.map((result, idx) => {
+              // v0.43.35: lead with the GAME NAME (from the URL) — page titles like
+              // "RPG Soluce" / "Walkthrough" don't say which game. Keep the page title
+              // as a small "type" line, but hide it when it's generic/redundant.
+              const gameName = (result.game || "").trim();
+              const pageTitle = (result.title || "").trim();
+              const heading = gameName || pageTitle || "(sans titre)";
+              const genericTitle = /^(rpg soluce|le coin de|walkthrough|full walkthrough|guide|soluce|wiki)\b/i.test(pageTitle);
+              const showSubtitle = pageTitle
+                && pageTitle.toLowerCase() !== heading.toLowerCase()
+                && !(gameName && genericTitle && pageTitle.toLowerCase().includes(gameName.toLowerCase()));
+              return (
               <div key={result.url + idx}>
                 <PanelSectionRow>
                   <div style={{ ...boxStyle, padding: "8px 10px" }}>
-                    <div style={{ fontWeight: 700, marginBottom: "4px", fontSize: "0.86rem" }}>{result.title}</div>
+                    <div style={{ fontWeight: 700, marginBottom: "2px", fontSize: "0.95rem", color: "#ffd966" }}>
+                      🎮 {heading}
+                    </div>
+                    {showSubtitle ? (
+                      <div style={{ fontSize: "0.74rem", opacity: 0.82, marginBottom: "4px" }}>{pageTitle}</div>
+                    ) : null}
                     <div style={{ marginBottom: "4px" }}>
                       <span style={pillStyle}>{result.site}</span>
                       <span style={pillStyle}>Score {result.score}</span>
@@ -4948,7 +5050,8 @@ function Content() {
                   </ButtonItem>
                 </PanelSectionRow>
               </div>
-            ))}
+              );
+            })}
             {filteredResults.length === 0 && searchSiteFilter.size > 0 ? (
               <PanelSectionRow>
                 <div style={{ fontSize: "0.75rem", opacity: 0.7, padding: "8px 6px", textAlign: "center" }}>
