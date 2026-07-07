@@ -1872,6 +1872,9 @@ class Plugin:
             self._imports[job_id].update(msg="Découpage en sections…")
         sections, detection_method = self._sections_from_collected(content, collected)
         title = str(collected["title"])
+        # v0.43.36: fix uninformative titles ("RPG Soluce", "Walkthrough") using the
+        # game name from the URL, so the library shows which game each guide is.
+        title = self._better_guide_title(title, normalized_url)
         guide_id = self._make_id(title)
         snippet = self._make_snippet(content)
         game = self._build_game_info(
@@ -2578,7 +2581,11 @@ class Plugin:
 
         new_sections, new_method = self._sections_from_collected(new_content, collected)
 
-        # Replace content + derived fields, keep id/progress/game/title
+        # Replace content + derived fields, keep id/progress/game. v0.43.36: also
+        # upgrade a generic title ("RPG Soluce" → "Chrono Cross") so existing guides
+        # get fixed on their next re-DL. User renames are a separate custom_titles
+        # overlay, so this never clobbers a manual rename.
+        record.title = self._better_guide_title(record.title, record.url)
         record.content = new_content
         record.sections = new_sections
         record.detection_method = new_method
@@ -4641,6 +4648,12 @@ class Plugin:
         # use the sommaire's clean chapter name instead of the page's own long
         # news headline (which shares a redundant game-name prefix across pages).
         self._chapter_title_hints: dict[str, str] = {}
+        # v0.43.36: per-crawl cache of the fetch strategy that WORKED for each host.
+        # Bot-blocking sites (GameFAQs) fail attempts 1-4 and only succeed on Wayback;
+        # without this every page re-runs the whole failing gauntlet (4 dead requests
+        # + ~3s of inter-attempt sleeps). Once a host's winner is known, _download
+        # tries it FIRST, so pages 2..N of the same guide skip straight to it.
+        self._host_fetch_strategy: dict[str, str] = {}
         visited: set[str] = set()
         queued: set[str] = {start_url}
         queue: list[str] = [start_url]
@@ -5184,13 +5197,22 @@ class Plugin:
             },
         ]
 
+        # v0.43.36: if a previous page of this host revealed which strategy works
+        # (e.g. GameFAQs → wayback), try it FIRST so we skip the failing attempts and
+        # their inter-attempt sleeps. Stable sort keeps the rest in their normal order.
+        strat = getattr(self, "_host_fetch_strategy", None)
+        host_key = parsed_target.netloc.casefold()
+        if strat and host_key in strat:
+            preferred = strat[host_key]
+            attempts.sort(key=lambda a: 0 if a["name"] == preferred else 1)
+
         last_error: Exception | None = None
         for idx, attempt in enumerate(attempts):
             retried_429 = False
             while True:
                 try:
                     if idx > 0 and not retried_429:
-                        time.sleep(1.0)
+                        time.sleep(0.4)  # v0.43.36: was 1.0 — trimmed; the host cache avoids most retries
                     # v0.42.8: curl-subprocess attempt (fresh process, no shared
                     # urllib opener state). Used to bypass WAFs that flag the
                     # long-running backend's connection reuse.
@@ -5209,6 +5231,8 @@ class Plugin:
                             charset = "utf-8"
                             text = data.decode("utf-8", errors="replace")
                         self._debug_log(f"  download [curl] {len(text)} chars charset={charset} from {attempt['url'][:80]}")
+                        if strat is not None and attempt["name"] != "direct":
+                            strat[host_key] = attempt["name"]
                         return text, charset
                     request = urllib.request.Request(
                         attempt["url"],
@@ -5232,6 +5256,8 @@ class Plugin:
                                 self._debug_log(f"  download [wayback] no archive available")
                                 last_error = ValueError("Aucune archive Wayback disponible")
                                 break
+                        if strat is not None and attempt["name"] != "direct":
+                            strat[host_key] = attempt["name"]
                         return text, charset
                 except urllib.error.HTTPError as exc:
                     # Rate limit: one polite retry after a 30s wait on the SAME attempt.
@@ -6206,6 +6232,43 @@ class Plugin:
             last = re.sub(r"\.html?$", "", segs[-1])
             slug = re.sub(r"^(?:wiki-de-|guide-complet-de-|soluce-de-|guide-de-)", "", last)
         return self._prettify_game_slug(slug) if slug else ""
+
+    # v0.43.36: page <title>s that say nothing about WHICH game (site name / sub-page
+    # label). When a guide's title is one of these, we replace it with the game name
+    # derived from the URL so the library isn't full of "RPG Soluce" / "Walkthrough".
+    _GENERIC_TITLE_RE = re.compile(
+        r"^(?:rpg\s+soluce"
+        r"|soluce"
+        r"|(?:full\s+)?walkthrough(?:\s*&?\s*(?:and\s+)?guide)?"
+        r"|guide(?:\s+complet)?"
+        r"|wiki(?:\s+de\b.*)?"
+        r"|table\s+of\s+contents"
+        r"|introduction|sommaire"
+        r"|qu[êe]tes?\s+(?:annexes?|secondaires?))$",
+        re.IGNORECASE)
+    # Hosts whose page <title> is reliably NOT the game name (IGN sub-page names like
+    # "Walkthrough"/"Seekers of Truth"; rpgsoluce's site name) → always prefer the URL.
+    _TITLE_PREFER_URL_HOSTS = ("ign.com", "rpgsoluce.com")
+
+    def _looks_generic_title(self, title: str) -> bool:
+        return bool(self._GENERIC_TITLE_RE.match((title or "").strip()))
+
+    def _better_guide_title(self, current_title: str, url: str) -> str:
+        """Upgrade a useless guide title to the game name (from the URL) when the
+        page title doesn't identify the game. Leaves already-informative titles
+        (e.g. 'Koudelka', 'Bahamut Lagoon') untouched."""
+        t = (current_title or "").strip()
+        # vally8/darklevel: "Le coin de <Game>" names the game well — strip the prefix.
+        m = re.match(r"^\s*le\s+coin\s+de\s+(.+)$", t, re.IGNORECASE)
+        if m and len(m.group(1).strip()) >= 2:
+            return self._clean_inline_text(m.group(1))
+        host = (urlparse(url).hostname or "").casefold()
+        game = self._game_name_from_url(url)
+        if game and any(h in host for h in self._TITLE_PREFER_URL_HOSTS):
+            return game
+        if t and not self._looks_generic_title(t):
+            return t
+        return game or t
 
     _VALLY8_SLUG_MAP = {
         "soluce": "Soluce", "solution": "Soluce", "cheminement": "Cheminement",
