@@ -1,6 +1,6 @@
 {
   "name": "decky-offline-soluce",
-  "version": "0.43.36",
+  "version": "0.43.37",
   "description": "Decky Loader plugin to save walkthrough pages for offline reading on Steam Deck",
   "type": "module",
   "scripts": {

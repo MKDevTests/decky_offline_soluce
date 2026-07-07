@@ -1630,7 +1630,7 @@ class Plugin:
         self._imports[job_id] = {
             "state": "running", "done": 0, "total": 0, "msg": "Démarrage…",
             "guide_id": None, "error": None, "title": game_title or url, "section_count": 0,
-            "url_key": list(url_key),
+            "warning": "", "url_key": list(url_key),
         }
         loop = _asyncio.get_event_loop()
         fut = loop.run_in_executor(
@@ -1640,10 +1640,13 @@ class Plugin:
         def _done(f: Any) -> None:
             try:
                 res = f.result()
+                sc = int(res.get("section_count") or len(res.get("sections") or []))
+                wc = int(res.get("word_count") or 0)
+                warn = self._guide_quality_warning(sc, wc)
                 self._imports[job_id].update(
                     state="done", guide_id=res.get("id"),
-                    section_count=int(res.get("section_count") or len(res.get("sections") or [])),
-                    msg="Terminé ✓",
+                    section_count=sc, warning=warn,
+                    msg=("Terminé ⚠️ à vérifier" if warn else "Terminé ✓"),
                 )
             except Exception as exc:
                 self._imports[job_id].update(state="error", error=str(exc), msg=f"Échec : {exc}")
@@ -1817,6 +1820,19 @@ class Plugin:
                 ))
                 break  # one flag per line; missable (first) wins over key_item
         return flags[:250]
+
+    def _guide_quality_warning(self, section_count: int, word_count: int) -> str:
+        """v0.43.37: non-blocking "this import looks like junk" notice. A real guide
+        has several sections; 0-1 sections (or near-empty text) means the fetch got a
+        stub / nav-chrome page (jeuxvideo fragments, GameFAQs /videos/ pages, etc.).
+        We DON'T auto-delete — the user asked to be warned and decide themselves."""
+        if section_count < 2 or word_count < 150:
+            plural = "s" if section_count > 1 else ""
+            return (
+                f"⚠️ Ce guide semble vide ou incomplet ({section_count} section{plural}, "
+                f"{word_count} mots). Ouvre-le pour vérifier — et supprime-le s'il est inutilisable."
+            )
+        return ""
 
     def _do_import_sync(
         self,

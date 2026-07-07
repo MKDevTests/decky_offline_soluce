@@ -265,6 +265,7 @@ type ImportStatus = {
   state: "running" | "done" | "error" | "unknown";
   done: number; total: number; msg: string;
   guide_id: string | null; error: string | null; title: string; section_count: number;
+  warning?: string;  // v0.43.37: non-blocking "this import looks empty/junk" notice
 };
 const startImport = callable<[
   url: string, gameTitle: string, platform: string, romHint: string, aliases: string, emulator: string,
@@ -1715,7 +1716,10 @@ function FullScreenSearch() {
       if ((status.section_count || 0) === 0) {
         try { setZeroSecGuide(await getGuide(status.guide_id)); setMsg(""); return; } catch {}
       }
-      setMsg(`✓ Importé : ${status.section_count} section(s). Ouverture…`);
+      // v0.43.37: junk (thin/1-section) → warn but keep + open so the user decides.
+      setMsg(status.warning
+        ? status.warning
+        : `✓ Importé : ${status.section_count} section(s). Ouverture…`);
       openGuideId(status.guide_id);
     } catch (e) {
       setMsg(`Import échoué : ${e instanceof Error ? e.message : e}`);
@@ -2971,6 +2975,15 @@ function setCaptureInProgress(active: boolean): void {
  * screen. Polls list_imports every 2s; running jobs show a progress bar, finished
  * ones a tap-to-open (or error) row that clears itself when tapped.
  */
+// v0.43.37: non-blocking "this import looks empty/junk" notice. Mirrors the backend
+// _guide_quality_warning (keep the thresholds in sync). Empty string = looks fine.
+function guideJunkWarning(sectionCount: number, wordCount: number): string {
+  if (sectionCount < 2 || wordCount < 150) {
+    return `⚠️ Ce guide semble vide ou incomplet (${sectionCount} section${sectionCount > 1 ? "s" : ""}, ${wordCount} mots). Ouvre-le pour vérifier — supprime-le s'il est inutilisable.`;
+  }
+  return "";
+}
+
 function ActiveImports() {
   const [jobs, setJobs] = useState<ImportJob[]>([]);
   useEffect(() => {
@@ -3013,13 +3026,28 @@ function ActiveImports() {
         );
       })}
       {finished.map((j) => (
-        <PanelSectionRow key={j.job_id}>
-          <ButtonItem layout="below" onClick={() => { if (j.state === "done" && j.guide_id) openGuide(j.guide_id); clear(j.job_id); }}>
-            {j.state === "done"
-              ? `✓ ${j.title.slice(0, 30)} — ouvrir (${j.section_count} sect.)`
-              : `⚠ ${j.title.slice(0, 24)} : ${(j.error || "échec").slice(0, 26)}`}
-          </ButtonItem>
-        </PanelSectionRow>
+        <div key={j.job_id}>
+          {j.state === "done" && j.warning ? (
+            // v0.43.37: non-blocking junk warning — the guide is kept; the user
+            // opens it to check and deletes it from the guide menu if useless.
+            <PanelSectionRow>
+              <div style={{
+                width: "100%", fontSize: "0.76rem", lineHeight: 1.3, color: "#ffcf66",
+                background: "rgba(255,180,0,0.10)", border: "1px solid rgba(255,180,0,0.35)",
+                borderRadius: 6, padding: "6px 8px",
+              }}>
+                {j.warning}
+              </div>
+            </PanelSectionRow>
+          ) : null}
+          <PanelSectionRow>
+            <ButtonItem layout="below" onClick={() => { if (j.state === "done" && j.guide_id) openGuide(j.guide_id); clear(j.job_id); }}>
+              {j.state === "done"
+                ? `${j.warning ? "⚠️" : "✓"} ${j.title.slice(0, 30)} — ouvrir (${j.section_count} sect.)`
+                : `⚠ ${j.title.slice(0, 24)} : ${(j.error || "échec").slice(0, 26)}`}
+            </ButtonItem>
+          </PanelSectionRow>
+        </div>
       ))}
     </PanelSection>
   );
@@ -3626,6 +3654,11 @@ function Content() {
         result.url, importTitle, importPlatform,
         importRomHint, importAliases, importEmulator,
       );
+      // v0.43.37: warn (don't block) if the import looks empty/junk — keep the
+      // guide open so the user can inspect and delete it if it's useless.
+      const wordCount = (detail.content || "").trim().split(/\s+/).filter(Boolean).length;
+      const warn = guideJunkWarning(detail.sections?.length ?? 0, wordCount);
+      if (warn) { try { toaster.toast({ title: "Guide à vérifier", body: warn, duration: 7000 }); } catch {} }
       await loadAll();
       setGuideIndex(0);
       setSearchResults([]); setSearchResultIndex(0);
