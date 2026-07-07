@@ -2275,17 +2275,24 @@ function ActiveImports() {
     return (SP_JSX.jsxs(DFL.PanelSection, { title: "Imports en cours", children: [running.map((j) => {
                 const pct = j.total > 0 ? Math.min(100, Math.round((100 * j.done) / Math.max(1, j.total))) : 0;
                 return (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: { width: "100%", fontSize: "0.82rem" }, children: [SP_JSX.jsxs("div", { style: { fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: ["\u23F3 ", j.title] }), SP_JSX.jsxs("div", { style: { opacity: 0.8, fontSize: "0.76rem" }, children: [j.msg, j.total > 0 ? ` — ${j.done}/${j.total}` : ""] }), j.total > 0 ? (SP_JSX.jsx("div", { style: { height: 5, background: "rgba(255,255,255,0.15)", borderRadius: 3, marginTop: 5 }, children: SP_JSX.jsx("div", { style: { height: "100%", width: `${pct}%`, background: "#8be08b", borderRadius: 3, transition: "width 0.4s" } }) })) : null] }) }, j.job_id));
-            }), finished.map((j) => (SP_JSX.jsxs("div", { children: [j.state === "done" && j.warning ? (
-                    // v0.43.37: non-blocking junk warning — the guide is kept; the user
-                    // opens it to check and deletes it from the guide menu if useless.
-                    SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: {
-                                width: "100%", fontSize: "0.76rem", lineHeight: 1.3, color: "#ffcf66",
-                                background: "rgba(255,180,0,0.10)", border: "1px solid rgba(255,180,0,0.35)",
-                                borderRadius: 6, padding: "6px 8px",
-                            }, children: j.warning }) })) : null, SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => { if (j.state === "done" && j.guide_id)
-                                openGuide(j.guide_id); clear(j.job_id); }, children: j.state === "done"
-                                ? `${j.warning ? "⚠️" : "✓"} ${j.title.slice(0, 30)} — ouvrir (${j.section_count} sect.)`
-                                : `⚠ ${j.title.slice(0, 24)} : ${(j.error || "échec").slice(0, 26)}` }) })] }, j.job_id)))] }));
+            }), finished.map((j) => {
+                // v0.43.37: junk warning is for a NORMAL download only — never a Re-DL
+                // (redl- jobs), even though both share this panel. Re-DL = refreshing a
+                // guide the user already has, so no "this looks empty" notice.
+                const isRedl = j.job_id.startsWith("redl-");
+                const showWarn = j.state === "done" && !!j.warning && !isRedl;
+                return (SP_JSX.jsxs("div", { children: [showWarn ? (
+                        // Non-blocking: the guide is kept; the user opens it to check and
+                        // deletes it from the guide menu if useless.
+                        SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: {
+                                    width: "100%", fontSize: "0.76rem", lineHeight: 1.3, color: "#ffcf66",
+                                    background: "rgba(255,180,0,0.10)", border: "1px solid rgba(255,180,0,0.35)",
+                                    borderRadius: 6, padding: "6px 8px",
+                                }, children: j.warning }) })) : null, SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => { if (j.state === "done" && j.guide_id)
+                                    openGuide(j.guide_id); clear(j.job_id); }, children: j.state === "done"
+                                    ? `${showWarn ? "⚠️" : "✓"} ${j.title.slice(0, 30)} — ouvrir (${j.section_count} sect.)`
+                                    : `⚠ ${j.title.slice(0, 24)} : ${(j.error || "échec").slice(0, 26)}` }) })] }, j.job_id));
+            })] }));
 }
 // ========== Main Content component ==========
 function Content() {

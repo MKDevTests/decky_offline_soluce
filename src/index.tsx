@@ -3025,11 +3025,17 @@ function ActiveImports() {
           </PanelSectionRow>
         );
       })}
-      {finished.map((j) => (
+      {finished.map((j) => {
+        // v0.43.37: junk warning is for a NORMAL download only — never a Re-DL
+        // (redl- jobs), even though both share this panel. Re-DL = refreshing a
+        // guide the user already has, so no "this looks empty" notice.
+        const isRedl = j.job_id.startsWith("redl-");
+        const showWarn = j.state === "done" && !!j.warning && !isRedl;
+        return (
         <div key={j.job_id}>
-          {j.state === "done" && j.warning ? (
-            // v0.43.37: non-blocking junk warning — the guide is kept; the user
-            // opens it to check and deletes it from the guide menu if useless.
+          {showWarn ? (
+            // Non-blocking: the guide is kept; the user opens it to check and
+            // deletes it from the guide menu if useless.
             <PanelSectionRow>
               <div style={{
                 width: "100%", fontSize: "0.76rem", lineHeight: 1.3, color: "#ffcf66",
@@ -3043,12 +3049,13 @@ function ActiveImports() {
           <PanelSectionRow>
             <ButtonItem layout="below" onClick={() => { if (j.state === "done" && j.guide_id) openGuide(j.guide_id); clear(j.job_id); }}>
               {j.state === "done"
-                ? `${j.warning ? "⚠️" : "✓"} ${j.title.slice(0, 30)} — ouvrir (${j.section_count} sect.)`
+                ? `${showWarn ? "⚠️" : "✓"} ${j.title.slice(0, 30)} — ouvrir (${j.section_count} sect.)`
                 : `⚠ ${j.title.slice(0, 24)} : ${(j.error || "échec").slice(0, 26)}`}
             </ButtonItem>
           </PanelSectionRow>
         </div>
-      ))}
+        );
+      })}
     </PanelSection>
   );
 }
