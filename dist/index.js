@@ -733,8 +733,11 @@ function renderHighlightedText(text, highlightKeywords, searchPattern, sections,
  * search-match highlighting, and monospace rendering for ASCII-art blocks.
  */
 function GuideReader(props) {
-    const { guide, sectionIndex, fontScale, preferences, searchPattern, scrollRestoreFraction, onScrollChange, maxHeight, onJumpToSection, restoreGeneration, scrollPulse, } = props;
+    const { guide, sectionIndex, fontScale, preferences, searchPattern, scrollRestoreFraction, onScrollChange, maxHeight, onJumpToSection, restoreGeneration, scrollPulse, scrollToFirstMatch, } = props;
     const scrollRef = SP_REACT.useRef(null);
+    // v0.43.34: tracks the last scrollToFirstMatch value we handled, so the restore
+    // effect can tell a "focus the search match" fire from a normal section change.
+    const lastFindScrollRef = SP_REACT.useRef(0);
     const raw = SP_REACT.useMemo(() => getSectionText(guide, sectionIndex), [guide, sectionIndex]);
     const blocks = SP_REACT.useMemo(() => parseBlocks(raw), [raw]);
     const theme = themeStyle(preferences.theme);
@@ -758,13 +761,36 @@ function GuideReader(props) {
         // Snapshot the target fraction at effect-run time so a subsequent prop change can't
         // override our intent mid-restore.
         const targetFrac = scrollRestoreFraction;
+        // v0.43.34: is this a "focus the search match" fire? (sidebar content search)
+        // Consume the counter so a later normal restore doesn't re-trigger the mark scroll.
+        const wantFind = (scrollToFirstMatch || 0) !== lastFindScrollRef.current;
+        lastFindScrollRef.current = scrollToFirstMatch || 0;
         const attempt = (tries) => {
             if (cancelled)
                 return;
             const currentMax = Math.max(1, el.scrollHeight - el.clientHeight);
-            const targetTop = targetFrac !== null
-                ? currentMax * targetFrac
-                : 0;
+            let targetTop;
+            if (wantFind) {
+                const mark = el.querySelector("mark");
+                if (!mark && tries < 6) {
+                    // Highlighted marks not laid out yet — retry next frame before giving up.
+                    rafId = window.requestAnimationFrame(() => attempt(tries + 1));
+                    return;
+                }
+                if (mark) {
+                    const cRect = el.getBoundingClientRect();
+                    const mRect = mark.getBoundingClientRect();
+                    // Place the match ~30% down the viewport so surrounding context is visible.
+                    targetTop = el.scrollTop + (mRect.top - cRect.top) - el.clientHeight * 0.3;
+                    targetTop = Math.max(0, Math.min(currentMax, targetTop));
+                }
+                else {
+                    targetTop = 0;
+                }
+            }
+            else {
+                targetTop = targetFrac !== null ? currentMax * targetFrac : 0;
+            }
             el.scrollTop = targetTop;
             // Re-check next frame: if scrollHeight changed (content still rendering), redo with new max
             rafId = window.requestAnimationFrame(() => {
@@ -782,7 +808,7 @@ function GuideReader(props) {
         rafId = window.requestAnimationFrame(() => attempt(0));
         return () => { cancelled = true; window.cancelAnimationFrame(rafId); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sectionIndex, guide.id, restoreGeneration]);
+    }, [sectionIndex, guide.id, restoreGeneration, scrollToFirstMatch]);
     // v0.43.6: page scroll (L1/R1) — jump ~80% of a screen when the pulse changes.
     SP_REACT.useEffect(() => {
         const el = scrollRef.current;
@@ -920,7 +946,15 @@ function buildTocGroups(sections) {
 }
 /** Sidebar TOC with filter + collapsible groups + hide-section toggle + auto-scroll. */
 function TocSidebar(props) {
-    const { guide, preferences, theme, sidebarStyle, sectionIndex, setSectionIndex, tocFilter, setTocFilter, collapsedParents, setCollapsedParents, showHiddenSections, setShowHiddenSections, } = props;
+    const { guide, preferences, theme, sidebarStyle, sectionIndex, setSectionIndex, tocFilter, setTocFilter, collapsedParents, setCollapsedParents, showHiddenSections, setShowHiddenSections, onJumpToMatch, } = props;
+    // v0.43.34: activate a row — a body-only match focuses the matched line via the
+    // reader; a title match just switches section.
+    const activateSection = (index) => {
+        if (contentMatches.has(index) && onJumpToMatch)
+            onJumpToMatch(index);
+        else
+            setSectionIndex(index);
+    };
     const currentRowRef = SP_REACT.useRef(null);
     // L3: auto-scroll the sidebar so the current section's row is visible whenever sectionIndex changes
     SP_REACT.useEffect(() => {
@@ -1069,12 +1103,12 @@ function TocSidebar(props) {
                         return (SP_JSX.jsxs("div", { children: [SP_JSX.jsxs(DFL.Focusable, { ref: parentIsCurrent ? currentRowRef : undefined, onActivate: () => {
                                         if (hasChildren && !filterNeedle)
                                             toggle(group.parent.index);
-                                        setSectionIndex(group.parent.index);
+                                        activateSection(group.parent.index);
                                     }, style: parentStyle, children: [SP_JSX.jsx("span", { style: { width: "12px", display: "inline-block", opacity: hasChildren ? 0.7 : 0, fontSize: "0.7rem" }, children: hasChildren ? (effectiveCollapsed ? "▶" : "▼") : "" }), SP_JSX.jsxs("span", { style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }, children: [SP_JSX.jsxs("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: [parentHidden ? "🙈 " : "", sectionBadge(group.parent.index), preferences.numbered_sections ? `${group.parent.index + 1}. ` : "", group.parent.sec.title || "(sans titre)"] }), contentMatches.has(group.parent.index) ? (SP_JSX.jsxs("span", { style: snippetStyle, children: ["\uD83D\uDD0E ", contentMatches.get(group.parent.index)] })) : null] }), hasChildren ? (SP_JSX.jsx("span", { style: { fontSize: "0.66rem", opacity: 0.55, padding: "1px 5px", borderRadius: "3px", background: "rgba(255,255,255,0.08)" }, children: group.children.length })) : null] }), !effectiveCollapsed && group.children.map((child) => {
                                     const isCurrent = child.index === sectionIndex;
                                     const childHidden = isHidden(child.sec);
                                     const childStyle = { ...childRowStyleBase(isCurrent), opacity: childHidden ? 0.45 : 0.92 };
-                                    return (SP_JSX.jsxs(DFL.Focusable, { ref: isCurrent ? currentRowRef : undefined, onActivate: () => setSectionIndex(child.index), style: childStyle, children: [SP_JSX.jsxs("span", { style: { display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: [childHidden ? "🙈 " : "", sectionBadge(child.index), preferences.numbered_sections ? `${child.index + 1}. ` : "", child.sec.title || "(sans titre)"] }), contentMatches.has(child.index) ? (SP_JSX.jsxs("span", { style: snippetStyle, children: ["\uD83D\uDD0E ", contentMatches.get(child.index)] })) : null] }, child.index));
+                                    return (SP_JSX.jsxs(DFL.Focusable, { ref: isCurrent ? currentRowRef : undefined, onActivate: () => activateSection(child.index), style: childStyle, children: [SP_JSX.jsxs("span", { style: { display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: [childHidden ? "🙈 " : "", sectionBadge(child.index), preferences.numbered_sections ? `${child.index + 1}. ` : "", child.sec.title || "(sans titre)"] }), contentMatches.has(child.index) ? (SP_JSX.jsxs("span", { style: snippetStyle, children: ["\uD83D\uDD0E ", contentMatches.get(child.index)] })) : null] }, child.index));
                                 })] }, group.parent.index));
                     })] })] }));
 }
@@ -1694,6 +1728,17 @@ function FullScreenReader() {
     const [tocFilter, setTocFilter] = SP_REACT.useState("");
     const [collapsedParents, setCollapsedParents] = SP_REACT.useState(new Set());
     const [showHiddenSections, setShowHiddenSections] = SP_REACT.useState(false);
+    // v0.43.34: bumped when the user taps a sidebar content-match, so the reader
+    // scrolls the first highlighted match into view (not just the section top).
+    const [findScrollGen, setFindScrollGen] = SP_REACT.useState(0);
+    // v0.43.34: jump from a sidebar body-match to the section AND focus the match.
+    // Sets searchPattern (so the term highlights as <mark>) then bumps findScrollGen.
+    const jumpToContentMatch = (index) => {
+        setSearchPattern(tocFilter.trim());
+        setShowSearch(true);
+        setSectionIndex(index);
+        setFindScrollGen((g) => g + 1);
+    };
     SP_REACT.useEffect(() => {
         const id = guideIdRef.current;
         if (!id) {
@@ -1931,7 +1976,7 @@ function FullScreenReader() {
                                         background: "rgba(255,255,255,0.05)", borderLeft: `3px solid ${meta.color}`,
                                         fontSize: "0.76rem", lineHeight: 1.3,
                                     }, children: [SP_JSX.jsx("div", { style: { opacity: 0.6, fontSize: "0.68rem" }, children: f.section_index >= 0 && guide.sections[f.section_index] ? `▸ ${guide.sections[f.section_index].title.slice(0, 34)}` : "▸ (guide)" }), SP_JSX.jsx("div", { children: f.snippet })] }, `${cat}-${i}`)))] }, cat));
-                    })] })) : null, showDisplay ? (SP_JSX.jsxs("div", { style: { padding: "10px 16px", background: "rgba(0,0,0,0.3)", flexShrink: 0, display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }, children: [SP_JSX.jsx("span", { style: { fontSize: "0.8rem", opacity: 0.7 }, children: "Affichage :" }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("theme", ["dark", "sepia"]), children: ["Th\u00E8me : ", prefLabels[preferences.theme]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("font_family", ["sans", "serif", "mono"]), children: ["Police : ", prefLabels[preferences.font_family]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("line_height", ["tight", "normal", "airy"]), children: ["Interligne : ", prefLabels[preferences.line_height]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("max_width", ["narrow", "normal", "full"]), children: ["Largeur : ", prefLabels[preferences.max_width]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => savePrefs({ ...preferences, highlight_keywords: !preferences.highlight_keywords }), children: ["Surlignage : ", preferences.highlight_keywords ? "Oui" : "Non"] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => savePrefs({ ...preferences, numbered_sections: !preferences.numbered_sections }), children: ["Num\u00E9ros : ", preferences.numbered_sections ? "Oui" : "Non"] }), SP_JSX.jsx(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: toggleConfort, children: confortOn ? "🛋 Confort ✓ (désactiver)" : "🛋 Confort Deck" })] })) : null, showSearch ? (SP_JSX.jsx("div", { style: { padding: "8px 16px", background: "rgba(0,0,0,0.25)", flexShrink: 0 }, children: SP_JSX.jsx(DFL.TextField, { value: searchPattern, onChange: (e) => setSearchPattern(e.target.value), placeholder: "Surligner dans la section\u2026", bShowClearAction: true }) })) : null, SP_JSX.jsxs("div", { style: mainAreaStyle, children: [showToc ? (SP_JSX.jsx(TocSidebar, { guide: guide, preferences: preferences, theme: theme, sidebarStyle: sidebarStyle, sectionIndex: sectionIndex, setSectionIndex: setSectionIndex, tocFilter: tocFilter, setTocFilter: setTocFilter, collapsedParents: collapsedParents, setCollapsedParents: setCollapsedParents, showHiddenSections: showHiddenSections, setShowHiddenSections: setShowHiddenSections })) : null, SP_JSX.jsxs("div", { style: readerPaneStyle, children: [showBookmarksPanel ? (SP_JSX.jsx(NamedBookmarksPanel, { guide: guide, currentSectionIndex: sectionIndex, currentScrollFraction: lastScrollFractionRef.current, busy: bookmarksBusy, theme: theme, onClose: () => setShowBookmarksPanel(false), onAdd: async () => {
+                    })] })) : null, showDisplay ? (SP_JSX.jsxs("div", { style: { padding: "10px 16px", background: "rgba(0,0,0,0.3)", flexShrink: 0, display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }, children: [SP_JSX.jsx("span", { style: { fontSize: "0.8rem", opacity: 0.7 }, children: "Affichage :" }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("theme", ["dark", "sepia"]), children: ["Th\u00E8me : ", prefLabels[preferences.theme]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("font_family", ["sans", "serif", "mono"]), children: ["Police : ", prefLabels[preferences.font_family]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("line_height", ["tight", "normal", "airy"]), children: ["Interligne : ", prefLabels[preferences.line_height]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("max_width", ["narrow", "normal", "full"]), children: ["Largeur : ", prefLabels[preferences.max_width]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => savePrefs({ ...preferences, highlight_keywords: !preferences.highlight_keywords }), children: ["Surlignage : ", preferences.highlight_keywords ? "Oui" : "Non"] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => savePrefs({ ...preferences, numbered_sections: !preferences.numbered_sections }), children: ["Num\u00E9ros : ", preferences.numbered_sections ? "Oui" : "Non"] }), SP_JSX.jsx(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: toggleConfort, children: confortOn ? "🛋 Confort ✓ (désactiver)" : "🛋 Confort Deck" })] })) : null, showSearch ? (SP_JSX.jsx("div", { style: { padding: "8px 16px", background: "rgba(0,0,0,0.25)", flexShrink: 0 }, children: SP_JSX.jsx(DFL.TextField, { value: searchPattern, onChange: (e) => setSearchPattern(e.target.value), placeholder: "Surligner dans la section\u2026", bShowClearAction: true }) })) : null, SP_JSX.jsxs("div", { style: mainAreaStyle, children: [showToc ? (SP_JSX.jsx(TocSidebar, { guide: guide, preferences: preferences, theme: theme, sidebarStyle: sidebarStyle, sectionIndex: sectionIndex, setSectionIndex: setSectionIndex, tocFilter: tocFilter, setTocFilter: setTocFilter, collapsedParents: collapsedParents, setCollapsedParents: setCollapsedParents, showHiddenSections: showHiddenSections, setShowHiddenSections: setShowHiddenSections, onJumpToMatch: jumpToContentMatch })) : null, SP_JSX.jsxs("div", { style: readerPaneStyle, children: [showBookmarksPanel ? (SP_JSX.jsx(NamedBookmarksPanel, { guide: guide, currentSectionIndex: sectionIndex, currentScrollFraction: lastScrollFractionRef.current, busy: bookmarksBusy, theme: theme, onClose: () => setShowBookmarksPanel(false), onAdd: async () => {
                                     if (!guide)
                                         return;
                                     setBookmarksBusy(true);
@@ -2012,7 +2057,7 @@ function FullScreenReader() {
                                         const fs = latestStateRef.current.fontScale;
                                         saveProgress(guide.id, si, fs, lastScrollFractionRef.current).catch(() => { });
                                     }, 1500);
-                                }, maxHeight: `calc(100vh - ${240 + (showSearch ? 50 : 0) + (showDisplay ? 50 : 0)}px)`, onJumpToSection: (idx) => setSectionIndex(idx), scrollPulse: scrollPulse })) : null] })] }), SP_JSX.jsxs("div", { style: footerStyle, children: [SP_JSX.jsx(DFL.DialogButton, { disabled: sectionIndex <= 0, onClick: () => setSectionIndex((v) => Math.max(0, v - 1)), children: "\u25C0 Section pr\u00E9c\u00E9dente" }), SP_JSX.jsx("div", { style: { flex: 1, textAlign: "center", fontSize: "0.78rem", opacity: 0.7 }, children: sectionCount > 0 && sectionIndex >= 0 ? `${sectionIndex + 1} / ${sectionCount}` : "" }), SP_JSX.jsx(DFL.DialogButton, { onClick: () => {
+                                }, maxHeight: `calc(100vh - ${240 + (showSearch ? 50 : 0) + (showDisplay ? 50 : 0)}px)`, onJumpToSection: (idx) => setSectionIndex(idx), scrollPulse: scrollPulse, scrollToFirstMatch: findScrollGen })) : null] })] }), SP_JSX.jsxs("div", { style: footerStyle, children: [SP_JSX.jsx(DFL.DialogButton, { disabled: sectionIndex <= 0, onClick: () => setSectionIndex((v) => Math.max(0, v - 1)), children: "\u25C0 Section pr\u00E9c\u00E9dente" }), SP_JSX.jsx("div", { style: { flex: 1, textAlign: "center", fontSize: "0.78rem", opacity: 0.7 }, children: sectionCount > 0 && sectionIndex >= 0 ? `${sectionIndex + 1} / ${sectionCount}` : "" }), SP_JSX.jsx(DFL.DialogButton, { onClick: () => {
                             // v0.34: double-fire protection — ignore clicks within 800ms of last one
                             const now = Date.now();
                             if (now - lastBookmarkClickRef.current < 800) {

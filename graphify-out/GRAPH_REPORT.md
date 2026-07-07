@@ -1,16 +1,16 @@
-# Graph Report - decky-offline-soluce  (2026-07-04)
+# Graph Report - decky-offline-soluce  (2026-07-07)
 
 ## Corpus Check
-- 16 files · ~842,387 words
+- 16 files · ~842,747 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2015 nodes · 3113 edges · 103 communities (93 shown, 10 thin omitted)
+- 2015 nodes · 3113 edges · 104 communities (93 shown, 11 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 5 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `00d679e9`
+- Built from commit: `6a584df6`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -44,7 +44,6 @@
 - [[_COMMUNITY_Community 27|Community 27]]
 - [[_COMMUNITY_Community 28|Community 28]]
 - [[_COMMUNITY_Community 29|Community 29]]
-- [[_COMMUNITY_Community 30|Community 30]]
 - [[_COMMUNITY_Community 31|Community 31]]
 - [[_COMMUNITY_Community 32|Community 32]]
 - [[_COMMUNITY_Community 33|Community 33]]
@@ -116,6 +115,7 @@
 - [[_COMMUNITY_Community 100|Community 100]]
 - [[_COMMUNITY_Community 101|Community 101]]
 - [[_COMMUNITY_Community 102|Community 102]]
+- [[_COMMUNITY_Community 103|Community 103]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `Plugin` - 203 edges
@@ -130,16 +130,18 @@
 10. `_ReadableTextParser` - 14 edges
 
 ## Surprising Connections (you probably didn't know these)
+- `_html_unescape()` --references--> `str`  [EXTRACTED]
+  main.py → main.py  _Bridges community 89 → community 90_
 - `_regex_extract_links()` --calls--> `_html_unescape()`  [EXTRACTED]
-  main.py → main.py  _Bridges community 90 → community 85_
+  main.py → main.py  _Bridges community 89 → community 85_
 - `_regex_strip_tags()` --calls--> `_html_unescape()`  [EXTRACTED]
+  main.py → main.py  _Bridges community 89 → community 100_
+- `_regex_extract_links()` --references--> `str`  [EXTRACTED]
+  main.py → main.py  _Bridges community 90 → community 85_
+- `_regex_strip_tags()` --references--> `str`  [EXTRACTED]
   main.py → main.py  _Bridges community 90 → community 100_
-- `_regex_parse_ddg_results()` --references--> `str`  [EXTRACTED]
-  main.py → main.py  _Bridges community 90 → community 89_
-- `_ReadableTextParser` --inherits--> `_StdHTMLParser`  [EXTRACTED]
-  main.py → main.py  _Bridges community 90 → community 93_
 
-## Communities (103 total, 10 thin omitted)
+## Communities (104 total, 11 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.02
@@ -154,8 +156,8 @@ Cohesion: 0.05
 Nodes (37): Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real (+29 more)
 
 ### Community 3 - "Community 3"
-Cohesion: 0.20
-Nodes (4): Any, GuideRecord, float, int
+Cohesion: 0.18
+Nodes (5): Any, GuideRecord, The readable context for a flag: the line, widened to neighbours when         th, float, int
 
 ### Community 4 - "Community 4"
 Cohesion: 0.10
@@ -228,10 +230,6 @@ Nodes (18): Detect a running emulator and extract the loaded ROM/ISO as a game-t
 ### Community 29 - "Community 29"
 Cohesion: 0.04
 Nodes (42): Perform a real search on each engine and report raw result counts., Perform a real search on each engine and report raw result counts., Perform a real search on each engine and report raw result counts., Perform a real search on each engine and report raw result counts., Perform a real search on each engine and report raw result counts., Perform a real search on each engine and report raw result counts., Test network connectivity by trying multiple URLs and reporting detailed results, Test network connectivity by trying multiple URLs and reporting detailed results (+34 more)
-
-### Community 30 - "Community 30"
-Cohesion: 0.13
-Nodes (3): Plugin, The readable context for a flag: the line, widened to neighbours when         th, ReaderPreferences
 
 ### Community 31 - "Community 31"
 Cohesion: 0.11
@@ -454,12 +452,12 @@ Cohesion: 0.33
 Nodes (6): code:powershell (@'), code:powershell (@'), code:powershell (if (-not (Test-Path graphify-out\.graphify_extract.json)) {), code:powershell (@'), code:powershell (@'), For --update (incremental re-extraction)
 
 ### Community 89 - "Community 89"
-Cohesion: 0.12
-Nodes (16): GuideFlag, GuideGameInfo, GuideReadingProgress, GuideSearchResult, GuideSectionNote, GuideSourcePage, LibraryGameEntry, NamedBookmark (+8 more)
+Cohesion: 0.11
+Nodes (19): GuideFlag, GuideGameInfo, GuideReadingProgress, GuideSearchResult, GuideSectionNote, GuideSourcePage, _html_unescape(), LibraryGameEntry (+11 more)
 
 ### Community 90 - "Community 90"
-Cohesion: 0.09
-Nodes (9): bool, _DuckDuckGoSearchParser, _html_unescape(), _LinkParser, v0.43.27: True if `url` is a GameFAQs GAME landing page (…/<platform>/         <, Minimal HTML entity unescaping fallback., Dummy fallback when html.parser is not available., _StdHTMLParser (+1 more)
+Cohesion: 0.10
+Nodes (7): bool, _DuckDuckGoSearchParser, _LinkParser, v0.43.27: True if `url` is a GameFAQs GAME landing page (…/<platform>/         <, Dummy fallback when html.parser is not available., _StdHTMLParser, str
 
 ### Community 91 - "Community 91"
 Cohesion: 0.50
@@ -508,14 +506,14 @@ Nodes (3): v0.43.31: modern IGN wikis (Next.js) put the walkthrough content in t
 ## Knowledge Gaps
 - **210 isolated node(s):** `guide_export.sh script`, `name`, `version`, `description`, `type` (+205 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **10 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **11 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Plugin` connect `Community 30` to `Community 1`, `Community 2`, `Community 3`, `Community 6`, `Community 8`, `Community 14`, `Community 26`, `Community 28`, `Community 29`, `Community 31`, `Community 32`, `Community 33`, `Community 34`, `Community 35`, `Community 36`, `Community 37`, `Community 38`, `Community 39`, `Community 40`, `Community 41`, `Community 42`, `Community 43`, `Community 44`, `Community 45`, `Community 46`, `Community 47`, `Community 48`, `Community 49`, `Community 50`, `Community 51`, `Community 52`, `Community 53`, `Community 54`, `Community 55`, `Community 56`, `Community 57`, `Community 58`, `Community 59`, `Community 60`, `Community 61`, `Community 62`, `Community 63`, `Community 64`, `Community 65`, `Community 66`, `Community 67`, `Community 68`, `Community 69`, `Community 70`, `Community 71`, `Community 72`, `Community 73`, `Community 74`, `Community 75`, `Community 76`, `Community 77`, `Community 78`, `Community 79`, `Community 80`, `Community 82`, `Community 83`, `Community 84`, `Community 86`, `Community 88`, `Community 89`, `Community 90`, `Community 94`, `Community 99`, `Community 101`?**
+- **Why does `Plugin` connect `Community 68` to `Community 1`, `Community 2`, `Community 3`, `Community 6`, `Community 8`, `Community 14`, `Community 26`, `Community 28`, `Community 29`, `Community 30`, `Community 31`, `Community 32`, `Community 33`, `Community 34`, `Community 35`, `Community 36`, `Community 37`, `Community 38`, `Community 39`, `Community 40`, `Community 41`, `Community 42`, `Community 43`, `Community 44`, `Community 45`, `Community 46`, `Community 47`, `Community 48`, `Community 49`, `Community 50`, `Community 51`, `Community 52`, `Community 53`, `Community 54`, `Community 55`, `Community 56`, `Community 57`, `Community 58`, `Community 59`, `Community 60`, `Community 61`, `Community 62`, `Community 63`, `Community 64`, `Community 65`, `Community 66`, `Community 67`, `Community 69`, `Community 70`, `Community 71`, `Community 72`, `Community 73`, `Community 74`, `Community 75`, `Community 76`, `Community 77`, `Community 78`, `Community 79`, `Community 80`, `Community 82`, `Community 83`, `Community 84`, `Community 86`, `Community 88`, `Community 89`, `Community 90`, `Community 94`, `Community 99`, `Community 101`, `Community 103`?**
   _High betweenness centrality (0.330) - this node is a cross-community bridge._
-- **Why does `str` connect `Community 90` to `Community 2`, `Community 3`, `Community 6`, `Community 8`, `Community 28`, `Community 29`, `Community 30`, `Community 31`, `Community 32`, `Community 33`, `Community 35`, `Community 36`, `Community 37`, `Community 38`, `Community 39`, `Community 40`, `Community 41`, `Community 42`, `Community 43`, `Community 44`, `Community 46`, `Community 47`, `Community 48`, `Community 49`, `Community 51`, `Community 52`, `Community 53`, `Community 54`, `Community 55`, `Community 56`, `Community 57`, `Community 58`, `Community 59`, `Community 61`, `Community 62`, `Community 63`, `Community 64`, `Community 65`, `Community 66`, `Community 67`, `Community 68`, `Community 69`, `Community 70`, `Community 71`, `Community 72`, `Community 74`, `Community 75`, `Community 76`, `Community 77`, `Community 78`, `Community 79`, `Community 80`, `Community 82`, `Community 83`, `Community 84`, `Community 85`, `Community 86`, `Community 88`, `Community 89`, `Community 93`, `Community 94`, `Community 99`, `Community 100`, `Community 101`?**
+- **Why does `str` connect `Community 90` to `Community 2`, `Community 3`, `Community 6`, `Community 8`, `Community 28`, `Community 29`, `Community 30`, `Community 31`, `Community 32`, `Community 33`, `Community 35`, `Community 36`, `Community 37`, `Community 38`, `Community 39`, `Community 40`, `Community 41`, `Community 42`, `Community 43`, `Community 44`, `Community 46`, `Community 47`, `Community 48`, `Community 49`, `Community 51`, `Community 52`, `Community 53`, `Community 54`, `Community 55`, `Community 56`, `Community 57`, `Community 58`, `Community 59`, `Community 61`, `Community 62`, `Community 63`, `Community 64`, `Community 65`, `Community 66`, `Community 67`, `Community 68`, `Community 69`, `Community 70`, `Community 71`, `Community 72`, `Community 74`, `Community 75`, `Community 76`, `Community 77`, `Community 78`, `Community 79`, `Community 80`, `Community 82`, `Community 83`, `Community 84`, `Community 85`, `Community 86`, `Community 88`, `Community 89`, `Community 93`, `Community 94`, `Community 99`, `Community 100`, `Community 101`, `Community 103`?**
   _High betweenness centrality (0.237) - this node is a cross-community bridge._
 - **Why does `GuideSection` connect `Community 57` to `Community 2`, `Community 8`, `Community 14`, `Community 26`, `Community 32`, `Community 33`, `Community 34`, `Community 35`, `Community 42`, `Community 43`, `Community 44`, `Community 45`, `Community 46`, `Community 50`, `Community 52`, `Community 53`, `Community 60`, `Community 86`, `Community 89`?**
   _High betweenness centrality (0.017) - this node is a cross-community bridge._

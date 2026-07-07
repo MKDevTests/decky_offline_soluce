@@ -949,6 +949,10 @@ type GuideReaderProps = {
   /** v0.43.6: page-scroll pulse. When `.n` increments, scroll ~80% of a screen
    * in `.dir` (+1 down, -1 up). Driven by the reader's L1/R1 shortcuts. */
   scrollPulse?: { n: number; dir: 1 | -1 };
+  /** v0.43.34: when this counter increments, once the section is laid out, scroll
+   * the FIRST search <mark> into view (used by the sidebar content search so a body
+   * match focuses the actual line, not just the top of the section). */
+  scrollToFirstMatch?: number;
 };
 
 /**
@@ -960,9 +964,12 @@ function GuideReader(props: GuideReaderProps) {
     guide, sectionIndex, fontScale, preferences,
     searchPattern, scrollRestoreFraction, onScrollChange,
     maxHeight, onJumpToSection, restoreGeneration,
-    scrollPulse,
+    scrollPulse, scrollToFirstMatch,
   } = props;
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // v0.43.34: tracks the last scrollToFirstMatch value we handled, so the restore
+  // effect can tell a "focus the search match" fire from a normal section change.
+  const lastFindScrollRef = useRef<number>(0);
   const raw = useMemo(() => getSectionText(guide, sectionIndex), [guide, sectionIndex]);
   const blocks = useMemo(() => parseBlocks(raw), [raw]);
 
@@ -987,12 +994,33 @@ function GuideReader(props: GuideReaderProps) {
     // Snapshot the target fraction at effect-run time so a subsequent prop change can't
     // override our intent mid-restore.
     const targetFrac = scrollRestoreFraction;
+    // v0.43.34: is this a "focus the search match" fire? (sidebar content search)
+    // Consume the counter so a later normal restore doesn't re-trigger the mark scroll.
+    const wantFind = (scrollToFirstMatch || 0) !== lastFindScrollRef.current;
+    lastFindScrollRef.current = scrollToFirstMatch || 0;
     const attempt = (tries: number) => {
       if (cancelled) return;
       const currentMax = Math.max(1, el.scrollHeight - el.clientHeight);
-      const targetTop = targetFrac !== null
-        ? currentMax * targetFrac
-        : 0;
+      let targetTop: number;
+      if (wantFind) {
+        const mark = el.querySelector("mark") as HTMLElement | null;
+        if (!mark && tries < 6) {
+          // Highlighted marks not laid out yet — retry next frame before giving up.
+          rafId = window.requestAnimationFrame(() => attempt(tries + 1));
+          return;
+        }
+        if (mark) {
+          const cRect = el.getBoundingClientRect();
+          const mRect = mark.getBoundingClientRect();
+          // Place the match ~30% down the viewport so surrounding context is visible.
+          targetTop = el.scrollTop + (mRect.top - cRect.top) - el.clientHeight * 0.3;
+          targetTop = Math.max(0, Math.min(currentMax, targetTop));
+        } else {
+          targetTop = 0;
+        }
+      } else {
+        targetTop = targetFrac !== null ? currentMax * targetFrac : 0;
+      }
       el.scrollTop = targetTop;
       // Re-check next frame: if scrollHeight changed (content still rendering), redo with new max
       rafId = window.requestAnimationFrame(() => {
@@ -1009,7 +1037,7 @@ function GuideReader(props: GuideReaderProps) {
     rafId = window.requestAnimationFrame(() => attempt(0));
     return () => { cancelled = true; window.cancelAnimationFrame(rafId); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sectionIndex, guide.id, restoreGeneration]);
+  }, [sectionIndex, guide.id, restoreGeneration, scrollToFirstMatch]);
 
   // v0.43.6: page scroll (L1/R1) — jump ~80% of a screen when the pulse changes.
   useEffect(() => {
@@ -1194,12 +1222,21 @@ function TocSidebar(props: {
   setCollapsedParents: (next: Set<number> | ((c: Set<number>) => Set<number>)) => void;
   showHiddenSections: boolean;
   setShowHiddenSections: (next: boolean | ((c: boolean) => boolean)) => void;
+  /** v0.43.34: called instead of setSectionIndex for a row that matched on BODY
+   * text, so the reader jumps to the section AND scrolls to the matched line. */
+  onJumpToMatch?: (index: number) => void;
 }) {
   const {
     guide, preferences, theme, sidebarStyle, sectionIndex, setSectionIndex,
     tocFilter, setTocFilter, collapsedParents, setCollapsedParents,
-    showHiddenSections, setShowHiddenSections,
+    showHiddenSections, setShowHiddenSections, onJumpToMatch,
   } = props;
+  // v0.43.34: activate a row — a body-only match focuses the matched line via the
+  // reader; a title match just switches section.
+  const activateSection = (index: number) => {
+    if (contentMatches.has(index) && onJumpToMatch) onJumpToMatch(index);
+    else setSectionIndex(index);
+  };
   const currentRowRef = useRef<any>(null);
   // L3: auto-scroll the sidebar so the current section's row is visible whenever sectionIndex changes
   useEffect(() => {
@@ -1384,7 +1421,7 @@ function TocSidebar(props: {
                 ref={parentIsCurrent ? currentRowRef : undefined}
                 onActivate={() => {
                   if (hasChildren && !filterNeedle) toggle(group.parent.index);
-                  setSectionIndex(group.parent.index);
+                  activateSection(group.parent.index);
                 }}
                 style={parentStyle}
               >
@@ -1415,7 +1452,7 @@ function TocSidebar(props: {
                   <Focusable
                     key={child.index}
                     ref={isCurrent ? currentRowRef : undefined}
-                    onActivate={() => setSectionIndex(child.index)}
+                    onActivate={() => activateSection(child.index)}
                     style={childStyle}
                   >
                     <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -2248,6 +2285,17 @@ function FullScreenReader() {
   const [tocFilter, setTocFilter] = useState<string>("");
   const [collapsedParents, setCollapsedParents] = useState<Set<number>>(new Set());
   const [showHiddenSections, setShowHiddenSections] = useState<boolean>(false);
+  // v0.43.34: bumped when the user taps a sidebar content-match, so the reader
+  // scrolls the first highlighted match into view (not just the section top).
+  const [findScrollGen, setFindScrollGen] = useState<number>(0);
+  // v0.43.34: jump from a sidebar body-match to the section AND focus the match.
+  // Sets searchPattern (so the term highlights as <mark>) then bumps findScrollGen.
+  const jumpToContentMatch = (index: number) => {
+    setSearchPattern(tocFilter.trim());
+    setShowSearch(true);
+    setSectionIndex(index);
+    setFindScrollGen((g) => g + 1);
+  };
 
   useEffect(() => {
     const id = guideIdRef.current;
@@ -2588,6 +2636,7 @@ function FullScreenReader() {
             setCollapsedParents={setCollapsedParents}
             showHiddenSections={showHiddenSections}
             setShowHiddenSections={setShowHiddenSections}
+            onJumpToMatch={jumpToContentMatch}
           />
         ) : null}
 
@@ -2685,6 +2734,7 @@ function FullScreenReader() {
             maxHeight={`calc(100vh - ${240 + (showSearch ? 50 : 0) + (showDisplay ? 50 : 0)}px)`}
             onJumpToSection={(idx) => setSectionIndex(idx)}
             scrollPulse={scrollPulse}
+            scrollToFirstMatch={findScrollGen}
           />
           ) : null}
         </div>
