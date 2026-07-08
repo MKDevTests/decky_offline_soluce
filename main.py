@@ -1706,6 +1706,7 @@ class Plugin:
             page_secs = self._truncate_long_titles(page_secs)
             page_secs = self._group_pages_by_chapter(page_secs)  # v0.43.40: collapsible chapters
             page_secs = self._cap_sections(page_secs, lines)
+            page_secs = self._group_pages_by_hub(page_secs, lines)  # v0.43.42: content-link grouping (Disco)
             self._debug_log(f"  per-page sectioning: {len(page_boundaries)} pages -> {len(page_secs)} sections")
             return page_secs, "pages"
         return self._build_sections_with_method(content)
@@ -4687,6 +4688,20 @@ class Plugin:
         base_prefix = self._compute_base_prefix(start_url)
         self._debug_log(f"  base_prefix={base_prefix or '(none)'}")
 
+        # v0.43.41: if the user imported a deep SUB-page (e.g. a Neoseeker
+        # /<game>/walkthrough/<Chapter> instead of the /<game>/walkthrough root),
+        # also seed the guide ROOT so its full chapter list gets crawled. A sub-page
+        # often links to only a couple of neighbours (Not a Human imported this way
+        # got a single page). Harmless when start_url already IS the root.
+        if base_prefix:
+            _ps = urlparse(start_url)
+            if _ps.path.rstrip("/") != base_prefix.rstrip("/"):
+                _root = f"{_ps.scheme}://{_ps.netloc}{base_prefix}"
+                if _root not in queued:
+                    queue.append(_root)
+                    queued.add(_root)
+                    self._debug_log(f"  seeded guide root for discovery: {_root}")
+
         total_content_chars = 0
         while queue and len(visited) < MAX_FETCHED_PAGES:
             current_url = queue.pop(0)
@@ -7516,6 +7531,92 @@ class Plugin:
                 for j in run:
                     sections[j].heading_level = 3
         return sections
+
+    def _group_pages_by_hub(self, sections: list[GuideSection], lines: list[str]) -> list[GuideSection]:
+        """v0.43.42: group flat per-page guides (IGN Disco Elysium) by CONTENT links,
+        not position. A "hub" page (Walkthrough / Attributes & Skills / Side Quests)
+        lists its sub-pages in its own text; a page whose title appears in a hub's
+        content becomes that hub's child (L3), and children are reordered to sit under
+        their hub. Strong signal (real links), not positional guessing. Conservative:
+        only runs when there are NO 'Chapter N' markers (those use chapter grouping)."""
+        if len(sections) < 12:
+            return sections
+        marker_re = re.compile(r"^\s*(?:chapter|chapitre|part|partie|act|acte|episode|disc|disque|day)\b\s*\d", re.IGNORECASE)
+        if sum(1 for s in sections if marker_re.match(s.title or "")) >= 3:
+            return sections  # chapter-marker guides use _group_pages_by_chapter
+
+        def norm(t: str) -> str:
+            return re.sub(r"\s+", " ", (t or "").lower()).strip()
+
+        # Work on UNITS (a top-level page + its trailing "— k/N" pagination parts) so
+        # reordering keeps a paginated page whole.
+        units: list[list[int]] = []
+        for i, s in enumerate(sections):
+            if (s.heading_level or 2) <= 2 or not units:
+                units.append([i])
+            else:
+                units[-1].append(i)
+        n = len(units)
+        if n < 12:
+            return sections
+        titles = [norm(sections[u[0]].title) for u in units]
+        texts: list[str] = []
+        for u in units:
+            a = max(0, sections[u[0]].line_start)
+            b = min(len(lines) - 1, sections[u[-1]].line_end)
+            texts.append(re.sub(r"\s+", " ", " ".join(lines[a:b + 1]).lower()))
+        refs = [set() for _ in range(n)]
+        for i in range(n):
+            for j in range(n):
+                if j != i and len(titles[j]) >= 8 and titles[j] in texts[i]:
+                    refs[i].add(j)
+        # A hub is a category/landing page: it sits among the FIRST few pages and
+        # references >=5 later ones. This isolates the hub-and-spoke layout (IGN
+        # Disco Elysium) from linear walkthroughs where nearby locations merely
+        # cross-mention each other (which would otherwise false-trigger + get the
+        # guide destructively reordered).
+        HUB_ZONE = 6
+        is_hub = [i < HUB_ZONE and len(refs[i]) >= 5 for i in range(n)]
+        if not (2 <= sum(is_hub) <= 5):     # a clean hub-and-spoke has a handful of hubs
+            return sections
+        child_of = [-1] * n
+        claimed = [False] * n
+        for i in range(n):                                       # hubs appear early → index order
+            if not is_hub[i]:
+                continue
+            # only claim pages that come AFTER the hub and aren't hubs themselves
+            kids = [j for j in refs[i] if j > i and not claimed[j] and not is_hub[j]]
+            if len(kids) >= 3:
+                for j in kids:
+                    child_of[j] = i
+                    claimed[j] = True
+        real = {c for c in child_of if c != -1}
+        if not real:
+            return sections
+        # Reorder by UNIT: each hub unit (L2) immediately followed by its child units
+        # (child page L3 + its pagination parts kept at their level). Line ranges are
+        # untouched — the reader renders each section by its own range.
+        def emit(u: int, as_child: bool) -> None:
+            for k, si in enumerate(units[u]):
+                sections[si].heading_level = 3 if (as_child and k == 0) else sections[si].heading_level
+                if not as_child and k == 0:
+                    sections[si].heading_level = 2
+                out.append(sections[si])
+        emitted: set[int] = set()
+        out: list[GuideSection] = []
+        for i in range(n):
+            if i in emitted:
+                continue
+            if i in real:
+                emit(i, as_child=False); emitted.add(i)
+                for j in range(n):
+                    if child_of[j] == i:
+                        emit(j, as_child=True); emitted.add(j)
+            elif child_of[i] >= 0:
+                continue
+            else:
+                emit(i, as_child=False); emitted.add(i)
+        return out
 
     def _sections_from_asterisk_toc(self, lines: list[str]) -> list[GuideSection]:
         """v0.43.38: GameFAQs TOC that anchors sections with *CODE search markers
