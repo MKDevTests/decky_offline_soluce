@@ -6611,6 +6611,16 @@ class Plugin:
             star_sections = self._polish_section_titles(star_sections)
             return self._cap_sections(star_sections, lines), "toc_codes"
 
+        # --- PASS 2a-dot: GameFAQs TOC with "Title …dots… CODE" + |CODE| body ---
+        # French FF IX FAQ etc.: clean titles in the TOC, codes re-stated as |CODE|
+        # in the body. Without this it falls to banners with garbage titles.
+        dot_sections = self._sections_from_dotcode_toc(lines)
+        if len(dot_sections) >= 2:
+            # No split/merge: the TOC already anchors each location; splitting would
+            # re-derive garbage titles from the |CODE| body banners.
+            dot_sections = self._polish_section_titles(dot_sections)
+            return self._cap_sections(dot_sections, lines), "toc_codes"
+
         # --- PASS 2b: numbered/lettered TOC without [CODE] markers ---
         # Older GameFAQs FAQs (pre-2005-ish, dan_crenshaw era) use a TOC like
         # "4a. Hugo Chapter 1" / "4b. Chris Chapter 1" with no bracketed code.
@@ -7580,6 +7590,104 @@ class Plugin:
             if not deduped or item[0] - deduped[-1][0] >= MIN_SECTION_SPAN_LINES:
                 deduped.append(item)
         if len(deduped) < 2:
+            return []
+        return self._sections_from_starts(deduped, lines)
+
+    def _sections_from_dotcode_toc(self, lines: list[str]) -> list[GuideSection]:
+        """v0.43.39: GameFAQs TOC where each entry is "<Clean Title> …dots… CODE"
+        (bare uppercase code, no bracket/asterisk) and the body re-states the code
+        wrapped like |CODE| (French FF IX FAQ etc.):
+
+            Introduction - Alexandrie.............DISC1P01
+            Château d'Alexandrie..................DISC1P02
+            *Quêtes Secondaires...................QUETESEC
+
+        The banner detector otherwise produces garbage titles ('|CHÂTEAUD'ALEX… |
+        DISC1P02|', '|ENEMIS||OBJETS|'). We use the guide's own clean TOC titles and
+        group the walkthrough by disc (DISC<n>P… codes); reference lists (weapons,
+        items, skills) become their own top-level sections."""
+        toc_re = re.compile(r"^\s*\*?\s*(?P<title>.+?)\s*\.{3,}\s*(?P<code>[A-Z][A-Z0-9]{4,9})\s*$")
+        # 1) collect candidate "title…dots…CODE" lines near the top
+        cands: list[tuple[int, str, str]] = []
+        for i in range(min(len(lines), 700)):
+            m = toc_re.match(lines[i])
+            if not m:
+                continue
+            title = m.group("title").strip().lstrip("*").strip()
+            if 2 <= len(title) <= 90 and sum(c.isalpha() for c in title) >= 2:
+                cands.append((i, title, m.group("code")))
+        if len(cands) < 8:
+            return []
+        # 2) the TOC is the densest contiguous run (line gaps <= 5)
+        runs: list[list[tuple[int, str, str]]] = []
+        cur = [cands[0]]
+        for c in cands[1:]:
+            if c[0] - cur[-1][0] <= 5:
+                cur.append(c)
+            else:
+                runs.append(cur)
+                cur = [c]
+        runs.append(cur)
+        runs.sort(key=len, reverse=True)
+        toc = runs[0]
+        if len(toc) < 8:
+            return []
+        toc_end = toc[-1][0]
+
+        # 3) unique codes in TOC order, then anchor each in the body (|CODE| / [CODE]
+        #    / bare CODE) below the TOC zone.
+        seen: set[str] = set()
+        entries: list[tuple[str, str]] = []
+        for _, t, c in toc:
+            if c in seen:
+                continue
+            seen.add(c)
+            entries.append((t, c))
+
+        starts: list[tuple[int, str, str]] = []
+        used: set[int] = set()
+        for title, code in entries:
+            wrapped = re.compile(r"[|\[]\s*" + re.escape(code) + r"\s*[|\]]")
+            bare = re.compile(r"\b" + re.escape(code) + r"\b")
+            best = -1
+            for rx in (wrapped, bare):
+                for idx in range(toc_end + 1, len(lines)):
+                    if idx in used:
+                        continue
+                    if rx.search(lines[idx]):
+                        best = idx
+                        break
+                if best >= 0:
+                    break
+            if best >= 0:
+                used.add(best)
+                starts.append((best, title, code))
+
+        if len(starts) < 4:
+            return []
+        starts.sort(key=lambda item: item[0])
+
+        # 4) levels: walkthrough grouped by disc (first entry of a disc = L2 parent,
+        #    rest = L3); reference lists (weapons/items/skills) = their own L2.
+        ref_re = re.compile(r"^(?:COMP|ARME|OBJET|LIST|ENNEMI|BESTI|CREDIT|MAGIE)", re.IGNORECASE)
+        leveled: list[tuple[int, str, int]] = []
+        cur_disc: str | None = None
+        for pos, title, code in starts:
+            md = re.match(r"^DISC(\d)", code)
+            if md:
+                level = 2 if md.group(1) != cur_disc else 3
+                cur_disc = md.group(1)
+            elif ref_re.match(code):
+                level, cur_disc = 2, None
+            else:
+                level = 3 if cur_disc else 2
+            leveled.append((pos, title, level))
+
+        deduped: list[tuple[int, str, int]] = []
+        for item in leveled:
+            if not deduped or item[0] - deduped[-1][0] >= MIN_SECTION_SPAN_LINES:
+                deduped.append(item)
+        if len(deduped) < 4:
             return []
         return self._sections_from_starts(deduped, lines)
 
