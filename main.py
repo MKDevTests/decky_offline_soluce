@@ -6979,18 +6979,24 @@ class Plugin:
     # v0.42.3: titles of FAQ meta-sections that pollute the sidebar without
     # carrying walkthrough content. Pre-populated in hidden_section_titles
     # at import time; user can unhide via the "Afficher masquées" toggle.
-    _META_FAQ_TITLE_RES = [
-        re.compile(r"^(?:AUTEUR|AUTHOR|AUTHORS?)\s*$", re.IGNORECASE),
-        re.compile(r"^(?:CR[ÉE]DITS?|CREDITS?|REMERCIEMENTS?|ACKNOWLEDG(?:E?MENTS?))\s*$", re.IGNORECASE),
-        re.compile(r"^(?:VERSION|VERSION\s+HISTORY|REVISION\s+HISTORY|CHANGELOG|HISTORIQUE)\s*$", re.IGNORECASE),
-        re.compile(r"^(?:DISCLAIMER|DISCLAIMERS?|MENTIONS?\s+L[ÉE]GALES?|D[ÉE]NI\s+DE\s+RESPONSABILIT[ÉE])\s*$", re.IGNORECASE),
-        re.compile(r"^(?:LICEN[CS]E|LICEN[CS]E\s+AGREEMENT|DROITS?(?:\s+D['']AUTEUR)?|COPYRIGHT)\s*$", re.IGNORECASE),
+    # v0.43.43: two tiers. AMBIGUOUS titles must FULL-match (don't hide
+    # "Introduction to combat"); clearly-meta ones PREFIX-match so combined/tail
+    # titles are caught too ("Legal Stuff/Contact", "FAQs and Tidbits",
+    # "Acknowledgements/Thanks", "Updates & Contributors"). A leading roman/number
+    # ("V. ", "9) ") is stripped before matching (GameFAQs numbers its meta sections).
+    _META_FAQ_TITLE_FULL_RES = [
+        re.compile(r"^(?:AUTEUR|AUTHORS?)\s*$", re.IGNORECASE),
         re.compile(r"^(?:INTRO|INTRODUCTION|PR[ÉE]FACE|PREAMBULE|PR[ÉE]AMBULE|FOREWORD|FOREWARD|AVANT[\-\s]PROPOS)\s*$", re.IGNORECASE),
         re.compile(r"^(?:TABLE\s+(?:DES?\s+)?MATI[ÈE]RES?|TABLE\s+OF\s+CONTENTS?|TOC|CONTENTS?|SOMMAIRE|INDEX)\s*$", re.IGNORECASE),
-        re.compile(r"^(?:CONTACT|CONTACT\s+(?:INFO|ME)|FEEDBACK|EMAIL|E-?MAIL|COURRIEL)\s*$", re.IGNORECASE),
-        re.compile(r"^(?:FAQ\s*-?\s*INFO|FAQ\s+INFORMATIONS?|GUIDE\s+INFO)\s*$", re.IGNORECASE),
-        re.compile(r"^(?:LEGAL|LEGAL\s+(?:INFO|STUFF|NOTICE)|TERMS\s+(?:OF\s+USE)?)\s*$", re.IGNORECASE),
-        re.compile(r"^(?:UPDATES?\s+HISTORY|UPDATE\s+LOG)\s*$", re.IGNORECASE),
+    ]
+    _META_FAQ_TITLE_PREFIX_RES = [
+        re.compile(r"^(?:CR[ÉE]DITS?|CREDITS?|REMERCIEMENTS?|ACKNOWLEDG|THANKS)\b", re.IGNORECASE),
+        re.compile(r"^(?:VERSION|REVISION|CHANGELOG|HISTORIQUE|UPDATES?|UPDATE\s+LOG)\b", re.IGNORECASE),
+        re.compile(r"^(?:DISCLAIMER|MENTIONS?\s+L[ÉE]GALES?|D[ÉE]NI\s+DE\s+RESPONSABILIT[ÉE])\b", re.IGNORECASE),
+        re.compile(r"^(?:LICEN[CS]E|COPYRIGHT|LEGAL|LEGALITY|L[ÉE]GAL|DROITS?\s+D)\b", re.IGNORECASE),
+        re.compile(r"^(?:CONTACT|FEEDBACK|E-?MAIL|COURRIEL)\b", re.IGNORECASE),
+        re.compile(r"^(?:F\.?\s?A\.?\s?Q|FREQUENTLY\s+ASKED|FOIRE\s+AUX)\b", re.IGNORECASE),
+        re.compile(r"^(?:CONTRIBUTORS?|CONTRIBUTEURS?)\b", re.IGNORECASE),
     ]
 
     def _detect_meta_faq_section_titles(
@@ -7017,11 +7023,15 @@ class Plugin:
             title = (sec.title or "").strip()
             if not title or title in seen:
                 continue
-            for pattern in self._META_FAQ_TITLE_RES:
-                if pattern.match(title):
-                    out.append(title)
-                    seen.add(title)
-                    break
+            # strip a leading roman/number prefix ("V. ", "9) ") before matching
+            stripped = re.sub(r"^\s*(?:[IVXLCDM]{1,6}|\d{1,3})[.)]\s+", "", title, flags=re.IGNORECASE).strip()
+            matched = (
+                any(p.match(title) or p.match(stripped) for p in self._META_FAQ_TITLE_FULL_RES)
+                or any(p.match(title) or p.match(stripped) for p in self._META_FAQ_TITLE_PREFIX_RES)
+            )
+            if matched:
+                out.append(title)
+                seen.add(title)
         if out:
             try: self._debug_log(f"  auto-hide meta-FAQ sections: {out}")
             except Exception: pass
@@ -7161,9 +7171,11 @@ class Plugin:
 
     SPLIT_LARGE_THRESHOLD = 350       # lines — sections beyond this get sub-segmented if possible
     SPLIT_MIN_SUB_LINES = 30          # don't create sub-sections shorter than this — avoids over-splitting
-    # Tightened in v0.20: force-paginate ANY oversized section that semantic split can't break down.
-    # Previously 800 left a "no-man's land" (sections 350-800 with no inner banners stayed huge).
-    FORCED_PAGINATION_THRESHOLD = 350
+    # v0.43.43: raised 350→500 (only the FORCED gate, not SPLIT_LARGE_THRESHOLD — so
+    # real semantic/banner sub-splits like Koudelka's rooms still happen at 350+).
+    # Prose sections of 350-500 lines with NO inner headings now stay WHOLE instead of
+    # becoming meaningless "X — 2/12" chunks (487 fake-pagination sections library-wide).
+    FORCED_PAGINATION_THRESHOLD = 500
     FORCED_PAGINATION_CHUNK = 250     # forced page size in lines (UX sweet spot for Steam Deck reader)
     # v0.42.18: char-based thresholds. Some sources (jeuxvideo.com news articles)
     # are char-heavy but line-light — long paragraphs, few line breaks — so the
@@ -7178,7 +7190,9 @@ class Plugin:
     CHAR_SPLIT_THRESHOLD = 2000       # chars — prose sections beyond this get paginated
     CHAR_PAGINATION_CHUNK = 1200      # target chars per forced page (≈ one Deck screen)
     CHAR_SPLIT_MIN_AVG_LINE = 130     # only char-split when avg line length exceeds this (prose, not FAQ)
-    MAX_SECTION_SUBPAGES = 12         # v0.43.23: cap pages ONE section paginates into.
+    MAX_SECTION_SUBPAGES = 6          # v0.43.43: was 12. The per-part char budget is
+    # total/MAX_SUBPAGES, so this directly halves how many "— k/N" parts a forced-
+    # paginated section makes. 6 larger parts read better than 12 tiny ones.
     # A 95k-char prose block was becoming 79 pages of 1200 chars ("BIG FREAKING
     # ALIEN (7/79)") — unnavigable. The per-page budget grows so no single section
     # yields more than this many pages.
