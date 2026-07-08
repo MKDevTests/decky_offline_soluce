@@ -7630,7 +7630,22 @@ class Plugin:
         DISC1P02|', '|ENEMIS||OBJETS|'). We use the guide's own clean TOC titles, and
         the TOC's own group-header lines ('Disque 1', 'Armes', 'Objets'…) become the
         collapsible L2 chapters with each entry under them as L3."""
-        toc_re = re.compile(r"^\s*\*?\s*(?P<title>.+?)\s*\.{3,}\s*(?P<code>[A-Z][A-Z0-9!&]{4,9})\s*$")
+        toc_re = re.compile(r"^\s*\*?\s*(?P<title>.+?)\s*\.{3,}\s*(?P<code>[A-Z][A-Z0-9!&]{2,9})\s*$")
+        # Spaced-dot GROUP header with a trailing code (Wild Arms 3: "III. WALKTHROUGH
+        # [CHAPTER ONE] . . . . CHP", "IV. APPENDICES . . . APP") — the walkthrough's
+        # own chapter dividers. Solid-dot entries never match this (kw-gated).
+        group_hdr_re = re.compile(
+            r"^\s*(?:[IVXLC]{1,5}\.\s*)?(?P<h>.*?(?:walkthrough|chapter|chapitre|appendi\w*"
+            r"|partie|disque|section)\b.*?)\s*[.\s]{4,}\s*[A-Z][A-Z0-9]{2,9}\s*$",
+            re.IGNORECASE)
+
+        def clean_hdr(h: str) -> str:
+            mb = re.search(r"\[([^\]]+)\]", h)   # prefer the "[CHAPTER ONE]" part
+            if mb:
+                h = mb.group(1)
+            h = re.sub(r"\bwalkthrough\b", "", h, flags=re.IGNORECASE).strip(" -–—:[]")
+            h = re.sub(r"\s+", " ", h).strip()
+            return (h.title() if h.isupper() else h) or "Chapitre"
         # 1) TOC region = span of "title…dots…CODE" lines. (Body headers use |CODE|,
         #    no dotted leader, so they never match — the region is the TOC alone.)
         idxs = [i for i in range(min(len(lines), 700)) if toc_re.match(lines[i])]
@@ -7661,10 +7676,15 @@ class Plugin:
                     pending_header = None
                     start_new = False
                 groups[-1][1].append((title, m.group("code")))
-            elif not re.search(r"[=~*_-]{4,}", s) and "...." not in s \
-                    and 3 <= len(s) <= 55 and sum(c.isalpha() for c in s) >= 3:
-                pending_header = s   # a group header → the next entry starts a new group
-                start_new = True
+            else:
+                hm = group_hdr_re.match(raw)
+                if hm:
+                    pending_header = clean_hdr(hm.group("h"))   # spaced-dot chapter header
+                    start_new = True
+                elif not re.search(r"[=~*_-]{4,}", s) and "...." not in s \
+                        and 3 <= len(s) <= 55 and sum(c.isalpha() for c in s) >= 3:
+                    pending_header = s   # plain group header → next entry starts a new group
+                    start_new = True
 
         # 3) anchor each code in the body (|CODE| / [CODE] / bare), below the TOC
         used: set[int] = set()

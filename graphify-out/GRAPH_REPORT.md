@@ -1,16 +1,16 @@
 # Graph Report - decky-offline-soluce  (2026-07-08)
 
 ## Corpus Check
-- 16 files · ~846,251 words
+- 16 files · ~846,353 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2262 nodes · 3479 edges · 108 communities (98 shown, 10 thin omitted)
+- 2268 nodes · 3485 edges · 105 communities (96 shown, 9 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 5 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `3800bcb3`
+- Built from commit: `bc9aef2a`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -91,7 +91,6 @@
 - [[_COMMUNITY_Community 75|Community 75]]
 - [[_COMMUNITY_Community 76|Community 76]]
 - [[_COMMUNITY_Community 77|Community 77]]
-- [[_COMMUNITY_Community 78|Community 78]]
 - [[_COMMUNITY_Community 79|Community 79]]
 - [[_COMMUNITY_Community 80|Community 80]]
 - [[_COMMUNITY_Community 81|Community 81]]
@@ -112,13 +111,11 @@
 - [[_COMMUNITY_Community 96|Community 96]]
 - [[_COMMUNITY_Community 97|Community 97]]
 - [[_COMMUNITY_Community 98|Community 98]]
-- [[_COMMUNITY_Community 99|Community 99]]
 - [[_COMMUNITY_Community 100|Community 100]]
 - [[_COMMUNITY_Community 101|Community 101]]
 - [[_COMMUNITY_Community 102|Community 102]]
 - [[_COMMUNITY_Community 103|Community 103]]
 - [[_COMMUNITY_Community 104|Community 104]]
-- [[_COMMUNITY_Community 105|Community 105]]
 - [[_COMMUNITY_Community 106|Community 106]]
 - [[_COMMUNITY_Community 107|Community 107]]
 
@@ -136,32 +133,30 @@
 
 ## Surprising Connections (you probably didn't know these)
 - `_html_unescape()` --references--> `str`  [EXTRACTED]
-  main.py → main.py  _Bridges community 105 → community 30_
+  main.py → main.py  _Bridges community 68 → community 28_
 - `_regex_extract_links()` --calls--> `_html_unescape()`  [EXTRACTED]
-  main.py → main.py  _Bridges community 105 → community 84_
+  main.py → main.py  _Bridges community 68 → community 84_
 - `_regex_extract_links()` --references--> `str`  [EXTRACTED]
-  main.py → main.py  _Bridges community 30 → community 84_
-- `_regex_parse_ddg_results()` --references--> `str`  [EXTRACTED]
-  main.py → main.py  _Bridges community 30 → community 28_
+  main.py → main.py  _Bridges community 28 → community 84_
 - `_ReadableTextParser` --inherits--> `_StdHTMLParser`  [EXTRACTED]
   main.py → main.py  _Bridges community 28 → community 93_
 
-## Communities (108 total, 10 thin omitted)
+## Communities (105 total, 9 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.02
 Nodes (94): addNamedBookmark, BACKUP_INTERVAL_CHOICES, BackupConfig, boxStyle, cleanExistingGuide, clearBookmark, clearDebugLog, clearProgress (+86 more)
 
 ### Community 1 - "Community 1"
-Cohesion: 0.11
-Nodes (17): v0.43.10: for the fragment-heavy French sites, keep ONE result per         guid, v0.43.10: for the fragment-heavy French sites, keep ONE result per         guid, v0.43.10: for the fragment-heavy French sites, keep ONE result per         guid, v0.43.10: for the fragment-heavy French sites, keep ONE result per         guid, v0.43.10: for the fragment-heavy French sites, keep ONE result per         guid, v0.43.10: for the fragment-heavy French sites, keep ONE result per         guid, v0.43.10: for the fragment-heavy French sites, keep ONE result per         guid, v0.43.10: for the fragment-heavy French sites, keep ONE result per         guid (+9 more)
+Cohesion: 0.12
+Nodes (16): v0.43.10: for the fragment-heavy French sites, keep ONE result per         guid, v0.43.10: for the fragment-heavy French sites, keep ONE result per         guid, v0.43.10: for the fragment-heavy French sites, keep ONE result per         guid, v0.43.10: for the fragment-heavy French sites, keep ONE result per         guid, v0.43.10: for the fragment-heavy French sites, keep ONE result per         guid, v0.43.10: for the fragment-heavy French sites, keep ONE result per         guid, v0.43.10: for the fragment-heavy French sites, keep ONE result per         guid, v0.43.10: for the fragment-heavy French sites, keep ONE result per         guid (+8 more)
 
 ### Community 2 - "Community 2"
 Cohesion: 0.05
-Nodes (40): Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Iterative wrapper around _split_large_sections_once: re-applies the         sam, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real (+32 more)
+Nodes (41): Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real (+33 more)
 
 ### Community 3 - "Community 3"
-Cohesion: 0.22
+Cohesion: 0.18
 Nodes (5): Any, GuideRecord, v0.43.37: non-blocking "this import looks like junk" notice. A real guide, float, int
 
 ### Community 4 - "Community 4"
@@ -174,7 +169,7 @@ Nodes (18): code:block1 (/graphify                                             #
 
 ### Community 6 - "Community 6"
 Cohesion: 0.07
-Nodes (26): Determine the URL path prefix used to discover sibling guide pages.          S, Determine the URL path prefix used to discover sibling guide pages.          S, Determine the URL path prefix used to discover sibling guide pages.          S, Determine the URL path prefix used to discover sibling guide pages.          S, Determine the URL path prefix used to discover sibling guide pages.          S, Determine the URL path prefix used to discover sibling guide pages.          S, Determine the URL path prefix used to discover sibling guide pages.          S, Determine the URL path prefix used to discover sibling guide pages.          S (+18 more)
+Nodes (27): Determine the URL path prefix used to discover sibling guide pages.          S, Determine the URL path prefix used to discover sibling guide pages.          S, Determine the URL path prefix used to discover sibling guide pages.          S, Determine the URL path prefix used to discover sibling guide pages.          S, Determine the URL path prefix used to discover sibling guide pages.          S, Determine the URL path prefix used to discover sibling guide pages.          S, Determine the URL path prefix used to discover sibling guide pages.          S, Determine the URL path prefix used to discover sibling guide pages.          S (+19 more)
 
 ### Community 7 - "Community 7"
 Cohesion: 0.08
@@ -182,7 +177,7 @@ Nodes (25): author, dependencies, @decky/api, react-icons, tslib, description, d
 
 ### Community 8 - "Community 8"
 Cohesion: 0.05
-Nodes (36): Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Co, Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Co, Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Co, Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Co, Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Co, Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Co, Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Co, Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Co (+28 more)
+Nodes (37): Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Co, Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Co, Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Co, Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Co, Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Co, Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Co, Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Co, Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Co (+29 more)
 
 ### Community 9 - "Community 9"
 Cohesion: 0.11
@@ -206,7 +201,7 @@ Nodes (10): consumeFullScreenGuideId(), fontFamily(), FullScreenGameLibrary(), F
 
 ### Community 14 - "Community 14"
 Cohesion: 0.06
-Nodes (32): v0.42.0: clean up section titles for sidebar readability.          Three trans, v0.42.0: clean up section titles for sidebar readability.          Three trans, v0.42.0: clean up section titles for sidebar readability.          Three trans, v0.42.0: clean up section titles for sidebar readability.          Three trans, v0.42.0: clean up section titles for sidebar readability.          Three trans, v0.42.0: clean up section titles for sidebar readability.          Three trans, v0.42.0: clean up section titles for sidebar readability.          Three trans, v0.42.0: clean up section titles for sidebar readability.          Three trans (+24 more)
+Nodes (30): v0.42.0: clean up section titles for sidebar readability.          Three trans, v0.42.0: clean up section titles for sidebar readability.          Three trans, v0.42.0: clean up section titles for sidebar readability.          Three trans, v0.42.0: clean up section titles for sidebar readability.          Three trans, v0.42.0: clean up section titles for sidebar readability.          Three trans, v0.42.0: clean up section titles for sidebar readability.          Three trans, v0.42.0: clean up section titles for sidebar readability.          Three trans, v0.42.0: clean up section titles for sidebar readability.          Three trans (+22 more)
 
 ### Community 15 - "Community 15"
 Cohesion: 0.50
@@ -229,16 +224,12 @@ Cohesion: 0.50
 Nodes (4): getReaderPreferences, setCurrentResumeButton(), setCurrentResumeEnabled(), setupListener()
 
 ### Community 28 - "Community 28"
-Cohesion: 0.09
-Nodes (12): _DuckDuckGoSearchParser, GuideSearchResult, Dummy fallback when html.parser is not available., Multi-engine search result parser.          Strategy: First try engine-specifi, Multi-engine search result parser.          Strategy: First try engine-specifi, Multi-engine search result parser.          Strategy: First try engine-specifi, Multi-engine search result parser.          Strategy: First try engine-specific, Multi-engine search result parser.          Strategy: First try engine-specifi (+4 more)
+Cohesion: 0.08
+Nodes (14): _DuckDuckGoSearchParser, GuideSearchResult, _LinkParser, Dummy fallback when html.parser is not available., Multi-engine search result parser.          Strategy: First try engine-specifi, Multi-engine search result parser.          Strategy: First try engine-specifi, Multi-engine search result parser.          Strategy: First try engine-specifi, Multi-engine search result parser.          Strategy: First try engine-specific (+6 more)
 
 ### Community 29 - "Community 29"
 Cohesion: 0.08
 Nodes (25): Create SSL context. Falls back to unverified if default context fails (Decky san, Create SSL context. Falls back to unverified if default context fails (Decky san, Create SSL context. Falls back to unverified if default context fails (Decky san, Create SSL context. Falls back to unverified if default context fails (Decky san, Create SSL context. Falls back to unverified if default context fails (Decky san, Create SSL context. Falls back to unverified if default context fails (Decky san, Create SSL context. Falls back to unverified if default context fails (Decky san, Create SSL context. Falls back to unverified if default context fails (Decky san (+17 more)
-
-### Community 30 - "Community 30"
-Cohesion: 0.17
-Nodes (4): GuideGameInfo, _LinkParser, ScanSource, str
 
 ### Community 31 - "Community 31"
 Cohesion: 0.09
@@ -246,7 +237,7 @@ Nodes (21): Trigger an export immediately and stamp last_backup_at., Trigger an 
 
 ### Community 32 - "Community 32"
 Cohesion: 0.05
-Nodes (39): Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typica, Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typica, Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typica, Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typica, Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typica, Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typica, Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typica, Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typica (+31 more)
+Nodes (40): Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typica, Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typica, Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typica, Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typica, Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typica, Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typica, Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typica, Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typica (+32 more)
 
 ### Community 33 - "Community 33"
 Cohesion: 0.05
@@ -261,16 +252,16 @@ Cohesion: 0.05
 Nodes (40): Last-resort heuristic. Stricter than before:          - ALL-CAPS lines must hav, Last-resort heuristic. Stricter than before:          - ALL-CAPS lines must hav, Last-resort heuristic. Stricter than before:          - ALL-CAPS lines must hav, Last-resort heuristic. Stricter than before:          - ALL-CAPS lines must hav, Last-resort heuristic. Stricter than before:          - ALL-CAPS lines must hav, Last-resort heuristic. Stricter than before:          - ALL-CAPS lines must hav, Last-resort heuristic. Stricter than before:          - ALL-CAPS lines must hav, Last-resort heuristic. Stricter than before:          - ALL-CAPS lines must hav (+32 more)
 
 ### Community 36 - "Community 36"
-Cohesion: 0.07
-Nodes (29): Strip Wayback Machine capture chrome that wraps the actual page.          When, Strip Wayback Machine capture chrome that wraps the actual page.          When, Strip Wayback Machine capture chrome that wraps the actual page.          When, Strip Wayback Machine capture chrome that wraps the actual page.          When, Strip Wayback Machine capture chrome that wraps the actual page.          When, Strip Wayback Machine capture chrome that wraps the actual page.          When, Strip Wayback Machine capture chrome that wraps the actual page.          When, Strip Wayback Machine capture chrome that wraps the actual page.          When (+21 more)
+Cohesion: 0.06
+Nodes (30): Strip Wayback Machine capture chrome that wraps the actual page.          When, Strip Wayback Machine capture chrome that wraps the actual page.          When, Strip Wayback Machine capture chrome that wraps the actual page.          When, Strip Wayback Machine capture chrome that wraps the actual page.          When, Strip Wayback Machine capture chrome that wraps the actual page.          When, Strip Wayback Machine capture chrome that wraps the actual page.          When, Strip Wayback Machine capture chrome that wraps the actual page.          When, Strip Wayback Machine capture chrome that wraps the actual page.          When (+22 more)
 
 ### Community 37 - "Community 37"
 Cohesion: 0.06
-Nodes (30): Detect dense runs of non-prose lines (tables, ascii-art) and wrap them, Detect dense runs of non-prose lines (tables, ascii-art) and wrap them, Detect dense runs of non-prose lines (tables, ascii-art) and wrap them, Detect dense runs of non-prose lines (tables, ascii-art) and wrap them, Detect dense runs of non-prose lines (tables, ascii-art) and wrap them, Detect dense runs of non-prose lines (tables, ascii-art) and wrap them, Detect dense runs of non-prose lines (tables, ascii-art) and wrap them, Detect dense runs of non-prose lines (tables, ascii-art) and wrap them (+22 more)
+Nodes (31): Detect dense runs of non-prose lines (tables, ascii-art) and wrap them, Detect dense runs of non-prose lines (tables, ascii-art) and wrap them, Detect dense runs of non-prose lines (tables, ascii-art) and wrap them, Detect dense runs of non-prose lines (tables, ascii-art) and wrap them, Detect dense runs of non-prose lines (tables, ascii-art) and wrap them, Detect dense runs of non-prose lines (tables, ascii-art) and wrap them, Detect dense runs of non-prose lines (tables, ascii-art) and wrap them, Detect dense runs of non-prose lines (tables, ascii-art) and wrap them (+23 more)
 
 ### Community 38 - "Community 38"
 Cohesion: 0.05
-Nodes (40): Find a TOC by detecting a run of code-bearing lines without a header., Find a TOC by detecting a run of code-bearing lines without a header., Find a TOC by detecting a run of code-bearing lines without a header., Find a TOC by detecting a run of code-bearing lines without a header., Find a TOC by detecting a run of code-bearing lines without a header., Find a TOC by detecting a run of code-bearing lines without a header., Find a TOC by detecting a run of code-bearing lines without a header., Find a TOC by detecting a run of code-bearing lines without a header. (+32 more)
+Nodes (41): Find a TOC by detecting a run of code-bearing lines without a header., Find a TOC by detecting a run of code-bearing lines without a header., Find a TOC by detecting a run of code-bearing lines without a header., Find a TOC by detecting a run of code-bearing lines without a header., Find a TOC by detecting a run of code-bearing lines without a header., Find a TOC by detecting a run of code-bearing lines without a header., Find a TOC by detecting a run of code-bearing lines without a header., Find a TOC by detecting a run of code-bearing lines without a header. (+33 more)
 
 ### Community 39 - "Community 39"
 Cohesion: 0.07
@@ -278,7 +269,7 @@ Nodes (28): Collapse runs of 3+ consecutive newlines down to exactly 2.         
 
 ### Community 40 - "Community 40"
 Cohesion: 0.06
-Nodes (30): v0.41.1: drop the GameFAQs sidebar/nav/widget noise (~55 lines)         that si, v0.41.1: drop the GameFAQs sidebar/nav/widget noise (~55 lines)         that si, v0.41.1: drop the GameFAQs sidebar/nav/widget noise (~55 lines)         that si, v0.41.1: drop the GameFAQs sidebar/nav/widget noise (~55 lines)         that si, v0.41.1: drop the GameFAQs sidebar/nav/widget noise (~55 lines)         that si, v0.41.1: drop the GameFAQs sidebar/nav/widget noise (~55 lines)         that si, v0.41.1: drop the GameFAQs sidebar/nav/widget noise (~55 lines)         that si, v0.41.1: drop the GameFAQs sidebar/nav/widget noise (~55 lines)         that si (+22 more)
+Nodes (31): v0.41.1: drop the GameFAQs sidebar/nav/widget noise (~55 lines)         that si, Return internal URLs whose path starts with base_prefix.          Used to follow, v0.41.1: drop the GameFAQs sidebar/nav/widget noise (~55 lines)         that si, v0.41.1: drop the GameFAQs sidebar/nav/widget noise (~55 lines)         that si, v0.41.1: drop the GameFAQs sidebar/nav/widget noise (~55 lines)         that si, v0.41.1: drop the GameFAQs sidebar/nav/widget noise (~55 lines)         that si, v0.41.1: drop the GameFAQs sidebar/nav/widget noise (~55 lines)         that si, v0.41.1: drop the GameFAQs sidebar/nav/widget noise (~55 lines)         that si (+23 more)
 
 ### Community 41 - "Community 41"
 Cohesion: 0.10
@@ -286,7 +277,7 @@ Nodes (19): Re-run the section detector on an existing guide's content.         
 
 ### Community 42 - "Community 42"
 Cohesion: 0.06
-Nodes (30): Turn a list of (line_index, title, heading_level) into GuideSection         rec, Turn a list of (line_index, title, heading_level) into GuideSection         rec, Turn a list of (line_index, title, heading_level) into GuideSection         rec, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Targe, Turn a list of (line_index, title, heading_level) into GuideSection         rec, Turn a list of (line_index, title, heading_level) into GuideSection         rec, Detect section boundaries in a guide's plain text. Returns (sections, method)., Turn a list of (line_index, title, heading_level) into GuideSection         rec (+22 more)
+Nodes (31): Turn a list of (line_index, title, heading_level) into GuideSection         rec, Turn a list of (line_index, title, heading_level) into GuideSection         rec, Turn a list of (line_index, title, heading_level) into GuideSection         rec, Turn a list of (line_index, title, heading_level) into GuideSection         rec, Turn a list of (line_index, title, heading_level) into GuideSection         rec, Detect section boundaries in a guide's plain text. Returns (sections, method)., Turn a list of (line_index, title, heading_level) into GuideSection         rec, v0.42.0: clean up section titles for sidebar readability.          Three trans (+23 more)
 
 ### Community 43 - "Community 43"
 Cohesion: 0.07
@@ -294,35 +285,35 @@ Nodes (28): v0.42.3: identify section titles that look like FAQ meta-content    
 
 ### Community 44 - "Community 44"
 Cohesion: 0.05
-Nodes (40): Detect banner-style headings common in plain-text FAQs:          Pattern A (bo, Detect banner-style headings common in plain-text FAQs:          Pattern A (bo, Detect banner-style headings common in plain-text FAQs:          Pattern A (bo, Detect banner-style headings common in plain-text FAQs:          Pattern A (bo, Detect banner-style headings common in plain-text FAQs:          Pattern A (bo, Detect banner-style headings common in plain-text FAQs:          Pattern A (bo, Detect banner-style headings common in plain-text FAQs:          Pattern A (bo, Detect banner-style headings common in plain-text FAQs:          Pattern A (bo (+32 more)
+Nodes (41): Detect banner-style headings common in plain-text FAQs:          Pattern A (bo, Detect banner-style headings common in plain-text FAQs:          Pattern A (bo, Detect banner-style headings common in plain-text FAQs:          Pattern A (bo, Detect banner-style headings common in plain-text FAQs:          Pattern A (bo, Detect banner-style headings common in plain-text FAQs:          Pattern A (bo, Detect banner-style headings common in plain-text FAQs:          Pattern A (bo, Detect banner-style headings common in plain-text FAQs:          Pattern A (bo, Detect banner-style headings common in plain-text FAQs:          Pattern A (bo (+33 more)
 
 ### Community 45 - "Community 45"
 Cohesion: 0.05
 Nodes (36): When 3+ consecutive sections share a prefix of >= 25 chars ending at         a, When 3+ consecutive sections share a prefix of >= 25 chars ending at         a, When 3+ consecutive sections share a prefix of >= 25 chars ending at         a, When 3+ consecutive sections share a prefix of >= 25 chars ending at         a, When 3+ consecutive sections share a prefix of >= 25 chars ending at         a, When 3+ consecutive sections share a prefix of >= 25 chars ending at         a, When 3+ consecutive sections share a prefix of >= 25 chars ending at         a, When 3+ consecutive sections share a prefix of >= 25 chars ending at         a (+28 more)
 
 ### Community 46 - "Community 46"
-Cohesion: 0.05
-Nodes (36): Detect section boundaries in a guide's plain text. Returns (sections, method)., Detect section boundaries in a guide's plain text. Returns (sections, method)., Detect section boundaries in a guide's plain text. Returns (sections, method)., Detect section boundaries in a guide's plain text. Returns (sections, method)., Detect section boundaries in a guide's plain text. Returns (sections, method)., Detect section boundaries in a guide's plain text. Returns (sections, method)., Detect section boundaries in a guide's plain text. Returns (sections, method)., Detect section boundaries in a guide's plain text. Returns (sections, method). (+28 more)
+Cohesion: 0.06
+Nodes (35): Detect section boundaries in a guide's plain text. Returns (sections, method)., Detect section boundaries in a guide's plain text. Returns (sections, method)., Detect section boundaries in a guide's plain text. Returns (sections, method)., Detect section boundaries in a guide's plain text. Returns (sections, method)., Detect section boundaries in a guide's plain text. Returns (sections, method)., Detect section boundaries in a guide's plain text. Returns (sections, method)., Detect section boundaries in a guide's plain text. Returns (sections, method)., Detect section boundaries in a guide's plain text. Returns (sections, method). (+27 more)
 
 ### Community 47 - "Community 47"
 Cohesion: 0.05
 Nodes (39): Toggle the "hidden" flag on a section. Stored by title (not index) so it, Toggle the "hidden" flag on a section. Stored by title (not index) so it, Clear all hidden flags for this guide., Clear all hidden flags for this guide., Toggle the "hidden" flag on a section. Stored by title (not index) so it, Toggle the "hidden" flag on a section. Stored by title (not index) so it, Clear all hidden flags for this guide., Clear all hidden flags for this guide. (+31 more)
 
 ### Community 48 - "Community 48"
-Cohesion: 0.06
-Nodes (30): v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use, v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use, v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use, v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use, v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use, v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use, v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use, v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use (+22 more)
+Cohesion: 0.07
+Nodes (29): v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use, v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use, v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use, v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use, v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use, v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use, v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use, v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use (+21 more)
 
 ### Community 49 - "Community 49"
 Cohesion: 0.07
-Nodes (29): Return internal URLs whose path starts with base_prefix.          Used to foll, Return internal URLs whose path starts with base_prefix.          Used to foll, Return internal URLs whose path starts with base_prefix.          Used to foll, Return internal URLs whose path starts with base_prefix.          Used to foll, Return internal URLs whose path starts with base_prefix.          Used to foll, Return internal URLs whose path starts with base_prefix.          Used to foll, Return internal URLs whose path starts with base_prefix.          Used to foll, Return internal URLs whose path starts with base_prefix.          Used to foll (+21 more)
+Nodes (28): Return internal URLs whose path starts with base_prefix.          Used to foll, Return internal URLs whose path starts with base_prefix.          Used to foll, Return internal URLs whose path starts with base_prefix.          Used to foll, Return internal URLs whose path starts with base_prefix.          Used to foll, Return internal URLs whose path starts with base_prefix.          Used to foll, Return internal URLs whose path starts with base_prefix.          Used to foll, Return internal URLs whose path starts with base_prefix.          Used to foll, Return internal URLs whose path starts with base_prefix.          Used to foll (+20 more)
 
 ### Community 50 - "Community 50"
 Cohesion: 0.07
-Nodes (27): Strip Wayback Machine capture chrome that wraps the actual page.          When a, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Targe, v0.42.9: absorb prose-titled sections into their neighbor (previous,         or, v0.42.9: absorb prose-titled sections into their neighbor (previous,         or, Collapse runs of 3+ consecutive newlines down to exactly 2.          HTML extrac, v0.42.9: absorb prose-titled sections into their neighbor (previous,         or, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Targe, v0.42.9: absorb prose-titled sections into their neighbor (previous,         or (+19 more)
+Nodes (28): Strip Wayback Machine capture chrome that wraps the actual page.          When a, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Targe, v0.42.9: absorb prose-titled sections into their neighbor (previous,         or, v0.42.9: absorb prose-titled sections into their neighbor (previous,         or, Collapse runs of 3+ consecutive newlines down to exactly 2.          HTML extrac, v0.42.9: absorb prose-titled sections into their neighbor (previous,         or, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Targe, Detect dense runs of non-prose lines (tables, ascii-art) and wrap them         w (+20 more)
 
 ### Community 51 - "Community 51"
-Cohesion: 0.06
-Nodes (30): Detect and remove the rpgsoluce sidebar nav menu block.          Signature: a, v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use, Detect and remove the rpgsoluce sidebar nav menu block.          Signature: a, v0.42.3: detect the Wayback Machine "Organization: Alexa Crawls"         page t, Detect and remove the rpgsoluce sidebar nav menu block.          Signature: a, Detect and remove the rpgsoluce sidebar nav menu block.          Signature: a, Detect and remove the rpgsoluce sidebar nav menu block.          Signature: a, Detect and remove the rpgsoluce sidebar nav menu block.          Signature: a (+22 more)
+Cohesion: 0.07
+Nodes (29): Detect and remove the rpgsoluce sidebar nav menu block.          Signature: a, v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         Use, Detect and remove the rpgsoluce sidebar nav menu block.          Signature: a, v0.42.3: detect the Wayback Machine "Organization: Alexa Crawls"         page t, Detect and remove the rpgsoluce sidebar nav menu block.          Signature: a, Detect and remove the rpgsoluce sidebar nav menu block.          Signature: a, Detect and remove the rpgsoluce sidebar nav menu block.          Signature: a, Detect and remove the rpgsoluce sidebar nav menu block.          Signature: a (+21 more)
 
 ### Community 52 - "Community 52"
 Cohesion: 0.06
@@ -330,15 +321,15 @@ Nodes (32): Back-compat wrapper that drops the detection method.         Prefer 
 
 ### Community 53 - "Community 53"
 Cohesion: 0.05
-Nodes (36): Iterative wrapper around _split_large_sections_once: re-applies the         sam, Iterative wrapper around _split_large_sections_once: re-applies the         sam, Iterative wrapper around _split_large_sections_once: re-applies the         sam, Iterative wrapper around _split_large_sections_once: re-applies the         sam, Iterative wrapper around _split_large_sections_once: re-applies the         sam, Iterative wrapper around _split_large_sections_once: re-applies the         sam, Iterative wrapper around _split_large_sections_once: re-applies the         sam, Iterative wrapper around _split_large_sections_once: re-applies the         sam (+28 more)
+Nodes (37): Iterative wrapper around _split_large_sections_once: re-applies the         sam, Iterative wrapper around _split_large_sections_once: re-applies the         sam, Iterative wrapper around _split_large_sections_once: re-applies the         sam, Iterative wrapper around _split_large_sections_once: re-applies the         sam, Iterative wrapper around _split_large_sections_once: re-applies the         sam, Iterative wrapper around _split_large_sections_once: re-applies the         sam, Iterative wrapper around _split_large_sections_once: re-applies the         sam, Iterative wrapper around _split_large_sections_once: re-applies the         sam (+29 more)
 
 ### Community 54 - "Community 54"
 Cohesion: 0.06
-Nodes (30): Remove rpgsoluce.com boilerplate that the generic strippers miss.          Tar, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Tar, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Tar, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Tar, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Tar, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Tar, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Tar, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Tar (+22 more)
+Nodes (31): Remove rpgsoluce.com boilerplate that the generic strippers miss.          Tar, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Tar, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Tar, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Tar, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Tar, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Tar, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Tar, Remove rpgsoluce.com boilerplate that the generic strippers miss.          Tar (+23 more)
 
 ### Community 55 - "Community 55"
 Cohesion: 0.07
-Nodes (28): v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bo, v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bo, v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bo, v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bo, v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bo, v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bo, v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bo, v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bo (+20 more)
+Nodes (27): v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bo, v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bo, v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bo, v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bo, v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bo, v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bo, v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bo, v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bo (+19 more)
 
 ### Community 56 - "Community 56"
 Cohesion: 0.15
@@ -374,7 +365,7 @@ Nodes (27): Detect dense runs of non-prose lines (tables, ascii-art) and wrap th
 
 ### Community 65 - "Community 65"
 Cohesion: 0.08
-Nodes (25): Fetch a guide and all related pages.          BFS queue strategy:           -, Fetch a guide and all related pages.          BFS queue strategy:           -, Fetch a guide and all related pages.          BFS queue strategy:           -, Fetch a guide and all related pages.          BFS queue strategy:           -, Fetch a guide and all related pages.          BFS queue strategy:           -, Fetch a guide and all related pages.          BFS queue strategy:           -, Fetch a guide and all related pages.          BFS queue strategy:           -, Fetch a guide and all related pages.          BFS queue strategy:           - (+17 more)
+Nodes (24): Fetch a guide and all related pages.          BFS queue strategy:           -, Fetch a guide and all related pages.          BFS queue strategy:           -, Fetch a guide and all related pages.          BFS queue strategy:           -, Fetch a guide and all related pages.          BFS queue strategy:           -, Fetch a guide and all related pages.          BFS queue strategy:           -, Fetch a guide and all related pages.          BFS queue strategy:           -, Fetch a guide and all related pages.          BFS queue strategy:           -, Fetch a guide and all related pages.          BFS queue strategy:           - (+16 more)
 
 ### Community 66 - "Community 66"
 Cohesion: 0.07
@@ -385,8 +376,8 @@ Cohesion: 0.07
 Nodes (26): v0.43.8: True if `title` is a GameFAQs-style letter-spaced ALL-CAPS         ban, v0.43.8: True if `title` is a GameFAQs-style letter-spaced ALL-CAPS         ban, v0.43.8: True if `title` is a GameFAQs-style letter-spaced ALL-CAPS         ban, v0.43.8: True if `title` is a GameFAQs-style letter-spaced ALL-CAPS         ban, v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bou, Detect dense runs of non-prose lines (tables, ascii-art) and wrap them         w, v0.42.9: absorb prose-titled sections into their neighbor (previous,         or, v0.43.8: True if `title` is a GameFAQs-style letter-spaced ALL-CAPS         ban (+18 more)
 
 ### Community 68 - "Community 68"
-Cohesion: 0.11
-Nodes (14): GuideFlag, GuideReadingProgress, GuideSectionNote, GuideSourcePage, LibraryGameEntry, NamedBookmark, v0.43.14: run the (blocking, possibly multi-page) import in a thread         po, v0.43.14: run the (blocking, possibly multi-page) import in a thread         po (+6 more)
+Cohesion: 0.09
+Nodes (16): GuideFlag, GuideReadingProgress, GuideSectionNote, GuideSourcePage, _html_unescape(), LibraryGameEntry, NamedBookmark, v0.43.14: run the (blocking, possibly multi-page) import in a thread         po (+8 more)
 
 ### Community 69 - "Community 69"
 Cohesion: 0.08
@@ -402,7 +393,7 @@ Nodes (21): Detect a running emulator and extract the loaded ROM/ISO as a game-t
 
 ### Community 72 - "Community 72"
 Cohesion: 0.12
-Nodes (15): v0.43.10: map a guide URL path to its guide-root key so per-chapter         fra, v0.43.9: parse a SERP HTML page with both the stdlib and the regex         pars, v0.43.10: map a guide URL path to its guide-root key so per-chapter         fra, v0.43.10: map a guide URL path to its guide-root key so per-chapter         fra, v0.43.10: map a guide URL path to its guide-root key so per-chapter         fra, v0.43.10: map a guide URL path to its guide-root key so per-chapter         fra, v0.43.10: map a guide URL path to its guide-root key so per-chapter         fra, v0.43.10: map a guide URL path to its guide-root key so per-chapter         fra (+7 more)
+Nodes (16): v0.43.10: map a guide URL path to its guide-root key so per-chapter         fra, v0.43.9: parse a SERP HTML page with both the stdlib and the regex         pars, v0.43.10: map a guide URL path to its guide-root key so per-chapter         fra, v0.43.10: map a guide URL path to its guide-root key so per-chapter         fra, v0.43.10: map a guide URL path to its guide-root key so per-chapter         fra, v0.43.10: map a guide URL path to its guide-root key so per-chapter         fra, v0.43.10: map a guide URL path to its guide-root key so per-chapter         fra, v0.43.10: map a guide URL path to its guide-root key so per-chapter         fra (+8 more)
 
 ### Community 73 - "Community 73"
 Cohesion: 0.09
@@ -410,7 +401,7 @@ Nodes (22): Wait 30s after plugin load, then run auto-backup if due. Fire-and-fo
 
 ### Community 74 - "Community 74"
 Cohesion: 0.08
-Nodes (19): v0.43.20: sync body of Re-DL — runs in a thread pool so re-downloading a, v0.43.20: sync body of Re-DL — runs in a thread pool so re-downloading a, v0.43.20: sync body of Re-DL — runs in a thread pool so re-downloading a, v0.43.20: sync body of Re-DL — runs in a thread pool so re-downloading a, v0.43.20: sync body of Re-DL — runs in a thread pool so re-downloading a, v0.43.20: sync body of Re-DL — runs in a thread pool so re-downloading a, v0.43.20: sync body of Re-DL — runs in a thread pool so re-downloading a, v0.43.20: sync body of Re-DL — runs in a thread pool so re-downloading a (+11 more)
+Nodes (20): The readable context for a flag: the line, widened to neighbours when         th, v0.43.33: scan the guide for missable / key-item / side-quest phrases., The readable context for a flag: the line, widened to neighbours when         th, The readable context for a flag: the line, widened to neighbours when         th, The readable context for a flag: the line, widened to neighbours when         th, v0.43.33: scan the guide for missable / key-item / side-quest phrases., v0.43.33: scan the guide for missable / key-item / side-quest phrases., v0.43.33: scan the guide for missable / key-item / side-quest phrases. (+12 more)
 
 ### Community 75 - "Community 75"
 Cohesion: 0.07
@@ -418,15 +409,11 @@ Nodes (26): v0.43.8: drop the dotted-leader TOC tail, then un-space if the title
 
 ### Community 76 - "Community 76"
 Cohesion: 0.11
-Nodes (18): v0.41+: re-apply site-specific noise stripping to a stored guide.          Use, v0.42.2: batch reconstruct + polish for every stored guide.          For each, v0.41+: re-apply site-specific noise stripping to a stored guide.          Use, v0.41+: re-apply site-specific noise stripping to a stored guide.          Use, v0.41+: re-apply site-specific noise stripping to a stored guide.          Use, v0.41+: re-apply site-specific noise stripping to a stored guide.          Use, v0.41+: re-apply site-specific noise stripping to a stored guide.          Use, v0.41+: re-apply site-specific noise stripping to a stored guide.          Use (+10 more)
+Nodes (18): v0.41+: re-apply site-specific noise stripping to a stored guide.          Use, v0.41+: re-apply site-specific noise stripping to a stored guide.          Use, v0.41+: re-apply site-specific noise stripping to a stored guide.          Use, v0.41+: re-apply site-specific noise stripping to a stored guide.          Use, v0.41+: re-apply site-specific noise stripping to a stored guide.          Use, v0.41+: re-apply site-specific noise stripping to a stored guide.          Use, v0.41+: re-apply site-specific noise stripping to a stored guide.          Use, v0.41+: re-apply site-specific noise stripping to a stored guide.          Use (+10 more)
 
 ### Community 77 - "Community 77"
 Cohesion: 0.11
 Nodes (18): v0.42.2: batch reconstruct + polish for every stored guide.          For each, v0.42.2: batch reconstruct + polish for every stored guide.          For each, v0.42.2: batch reconstruct + polish for every stored guide.          For each, v0.42.2: batch reconstruct + polish for every stored guide.          For each, v0.42.2: batch reconstruct + polish for every stored guide.          For each, v0.42.2: batch reconstruct + polish for every stored guide.          For each, v0.42.2: batch reconstruct + polish for every stored guide.          For each, v0.42.2: batch reconstruct + polish for every stored guide.          For each (+10 more)
-
-### Community 78 - "Community 78"
-Cohesion: 0.18
-Nodes (10): v0.43.14: SYNC import body (validate → crawl → sections → save). Runs         i, v0.43.14: SYNC import body (validate → crawl → sections → save). Runs         i, v0.43.14: SYNC import body (validate → crawl → sections → save). Runs         i, v0.43.14: SYNC import body (validate → crawl → sections → save). Runs         i, v0.43.14: SYNC import body (validate → crawl → sections → save). Runs         i, v0.43.14: SYNC import body (validate → crawl → sections → save). Runs         in, v0.43.14: SYNC import body (validate → crawl → sections → save). Runs         in, v0.43.14: SYNC import body (validate → crawl → sections → save). Runs         in (+2 more)
 
 ### Community 79 - "Community 79"
 Cohesion: 0.25
@@ -453,8 +440,8 @@ Cohesion: 0.13
 Nodes (15): Fallback HTML-to-text when html.parser is unavailable., Fallback HTML-to-text when html.parser is unavailable., Fallback link extractor when html.parser is unavailable., Fallback link extractor when html.parser is unavailable., Fallback HTML-to-text when html.parser is unavailable., Fallback HTML-to-text when html.parser is unavailable., Fallback HTML-to-text when html.parser is unavailable., Fallback HTML-to-text when html.parser is unavailable. (+7 more)
 
 ### Community 85 - "Community 85"
-Cohesion: 0.15
-Nodes (11): GuideSection, v0.43.20: shared sectioning used by BOTH import and Re-DL/reload.          MUL, v0.43.20: shared sectioning used by BOTH import and Re-DL/reload.          MUL, v0.43.20: shared sectioning used by BOTH import and Re-DL/reload.          MUL, v0.43.20: shared sectioning used by BOTH import and Re-DL/reload.          MULTI, v0.43.20: shared sectioning used by BOTH import and Re-DL/reload.          MULTI, v0.43.20: shared sectioning used by BOTH import and Re-DL/reload.          MULTI, v0.43.20: shared sectioning used by BOTH import and Re-DL/reload.          MULTI (+3 more)
+Cohesion: 0.11
+Nodes (19): GuideSection, v0.43.14: SYNC import body (validate → crawl → sections → save). Runs         i, v0.43.20: shared sectioning used by BOTH import and Re-DL/reload.          MUL, v0.43.20: shared sectioning used by BOTH import and Re-DL/reload.          MUL, v0.43.14: SYNC import body (validate → crawl → sections → save). Runs         i, v0.43.14: SYNC import body (validate → crawl → sections → save). Runs         i, v0.43.14: SYNC import body (validate → crawl → sections → save). Runs         i, v0.43.20: shared sectioning used by BOTH import and Re-DL/reload.          MUL (+11 more)
 
 ### Community 86 - "Community 86"
 Cohesion: 0.14
@@ -471,6 +458,10 @@ Nodes (8): Switch subsequent _debug_log writes to a different file., Switch subs
 ### Community 89 - "Community 89"
 Cohesion: 0.22
 Nodes (8): Test network connectivity by trying multiple URLs and reporting detailed results, Test network connectivity by trying multiple URLs and reporting detailed results, Test network connectivity by trying multiple URLs and reporting detailed results, Test network connectivity by trying multiple URLs and reporting detailed results, Test network connectivity by trying multiple URLs and reporting detailed results, Test network connectivity by trying multiple URLs and reporting detailed results, Test network connectivity by trying multiple URLs and reporting detailed results, Test network connectivity by trying multiple URLs and reporting detailed results
+
+### Community 90 - "Community 90"
+Cohesion: 0.10
+Nodes (4): GuideGameInfo, Plugin, ScanSource, Path
 
 ### Community 91 - "Community 91"
 Cohesion: 0.50
@@ -504,13 +495,9 @@ Nodes (3): code:powershell (& (Get-Content graphify-out\.graphify_python) -m gra
 Cohesion: 0.67
 Nodes (3): code:powershell (@'), code:block26 (Graph complete. Outputs in PATH_TO_DIR/graphify-out/), Step 9 - Save manifest, update cost tracker, clean up, and report
 
-### Community 99 - "Community 99"
-Cohesion: 0.20
-Nodes (8): The readable context for a flag: the line, widened to neighbours when         th, v0.43.33: scan the guide for missable / key-item / side-quest phrases., The readable context for a flag: the line, widened to neighbours when         th, The readable context for a flag: the line, widened to neighbours when         th, The readable context for a flag: the line, widened to neighbours when         th, v0.43.33: scan the guide for missable / key-item / side-quest phrases., v0.43.33: scan the guide for missable / key-item / side-quest phrases., v0.43.33: scan the guide for missable / key-item / side-quest phrases.
-
 ### Community 100 - "Community 100"
-Cohesion: 0.11
-Nodes (5): bool, Plugin, v0.43.27: True if `url` is a GameFAQs GAME landing page (…/<platform>/         <, v0.43.27: True if `url` is a GameFAQs GAME landing page (…/<platform>/         <, ReaderPreferences
+Cohesion: 0.10
+Nodes (11): bool, v0.43.27: True if `url` is a GameFAQs GAME landing page (…/<platform>/         <, v0.43.27: True if `url` is a GameFAQs GAME landing page (…/<platform>/         <, Best-effort game name from the URL slug, per host. Empty if none found., Best-effort game name from the URL slug, per host. Empty if none found., Best-effort game name from the URL slug, per host. Empty if none found., Best-effort game name from the URL slug, per host. Empty if none found., Upgrade a useless guide title to the game name (from the URL) when the         p (+3 more)
 
 ### Community 101 - "Community 101"
 Cohesion: 0.22
@@ -525,8 +512,8 @@ Cohesion: 0.25
 Nodes (7): v0.43.31: modern IGN wikis (Next.js) put the walkthrough content in the, v0.43.31: modern IGN wikis (Next.js) put the walkthrough content in the, v0.43.31: modern IGN wikis (Next.js) put the walkthrough content in the, v0.43.31: modern IGN wikis (Next.js) put the walkthrough content in the, v0.43.31: modern IGN wikis (Next.js) put the walkthrough content in the, v0.43.31: modern IGN wikis (Next.js) put the walkthrough content in the, v0.43.31: modern IGN wikis (Next.js) put the walkthrough content in the
 
 ### Community 106 - "Community 106"
-Cohesion: 0.50
-Nodes (3): v0.43.38: is `code` a genuine sub-entry of the top-level `parent` code?, v0.43.38: is `code` a genuine sub-entry of the top-level `parent` code?, v0.43.38: is `code` a genuine sub-entry of the top-level `parent` code?
+Cohesion: 0.40
+Nodes (4): v0.43.38: is `code` a genuine sub-entry of the top-level `parent` code?, v0.43.38: is `code` a genuine sub-entry of the top-level `parent` code?, v0.43.38: is `code` a genuine sub-entry of the top-level `parent` code?, v0.43.38: is `code` a genuine sub-entry of the top-level `parent` code?
 
 ### Community 107 - "Community 107"
 Cohesion: 0.50
@@ -535,22 +522,22 @@ Nodes (3): v0.43.38: GameFAQs TOC that anchors sections with *CODE search marker
 ## Knowledge Gaps
 - **211 isolated node(s):** `guide_export.sh script`, `name`, `version`, `description`, `type` (+206 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **10 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **9 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Plugin` connect `Community 100` to `Community 1`, `Community 2`, `Community 3`, `Community 6`, `Community 8`, `Community 14`, `Community 26`, `Community 28`, `Community 29`, `Community 30`, `Community 31`, `Community 32`, `Community 33`, `Community 34`, `Community 35`, `Community 36`, `Community 37`, `Community 38`, `Community 39`, `Community 40`, `Community 41`, `Community 42`, `Community 43`, `Community 44`, `Community 45`, `Community 46`, `Community 47`, `Community 48`, `Community 49`, `Community 50`, `Community 51`, `Community 52`, `Community 53`, `Community 54`, `Community 55`, `Community 56`, `Community 57`, `Community 58`, `Community 59`, `Community 60`, `Community 61`, `Community 62`, `Community 63`, `Community 64`, `Community 65`, `Community 66`, `Community 67`, `Community 68`, `Community 69`, `Community 70`, `Community 71`, `Community 72`, `Community 73`, `Community 74`, `Community 75`, `Community 76`, `Community 77`, `Community 78`, `Community 79`, `Community 80`, `Community 82`, `Community 83`, `Community 85`, `Community 86`, `Community 88`, `Community 89`, `Community 90`, `Community 94`, `Community 99`, `Community 101`, `Community 103`, `Community 104`, `Community 105`, `Community 106`, `Community 107`?**
-  _High betweenness centrality (0.323) - this node is a cross-community bridge._
-- **Why does `str` connect `Community 30` to `Community 2`, `Community 3`, `Community 6`, `Community 8`, `Community 28`, `Community 31`, `Community 32`, `Community 33`, `Community 35`, `Community 36`, `Community 37`, `Community 38`, `Community 39`, `Community 40`, `Community 41`, `Community 42`, `Community 43`, `Community 44`, `Community 46`, `Community 47`, `Community 48`, `Community 49`, `Community 51`, `Community 52`, `Community 53`, `Community 54`, `Community 55`, `Community 56`, `Community 57`, `Community 58`, `Community 59`, `Community 61`, `Community 62`, `Community 63`, `Community 64`, `Community 65`, `Community 66`, `Community 67`, `Community 68`, `Community 69`, `Community 70`, `Community 71`, `Community 72`, `Community 74`, `Community 75`, `Community 76`, `Community 77`, `Community 78`, `Community 79`, `Community 80`, `Community 82`, `Community 83`, `Community 84`, `Community 85`, `Community 86`, `Community 88`, `Community 89`, `Community 90`, `Community 93`, `Community 94`, `Community 99`, `Community 100`, `Community 101`, `Community 103`, `Community 104`, `Community 105`, `Community 106`, `Community 107`?**
-  _High betweenness centrality (0.240) - this node is a cross-community bridge._
-- **Why does `_ReadableTextParser` connect `Community 93` to `Community 57`, `Community 28`, `Community 68`?**
-  _High betweenness centrality (0.020) - this node is a cross-community bridge._
+- **Why does `Plugin` connect `Community 90` to `Community 1`, `Community 2`, `Community 3`, `Community 6`, `Community 8`, `Community 14`, `Community 26`, `Community 28`, `Community 29`, `Community 30`, `Community 31`, `Community 32`, `Community 33`, `Community 34`, `Community 35`, `Community 36`, `Community 37`, `Community 38`, `Community 39`, `Community 40`, `Community 41`, `Community 42`, `Community 43`, `Community 44`, `Community 45`, `Community 46`, `Community 47`, `Community 48`, `Community 49`, `Community 50`, `Community 51`, `Community 52`, `Community 53`, `Community 54`, `Community 55`, `Community 56`, `Community 57`, `Community 58`, `Community 59`, `Community 60`, `Community 61`, `Community 62`, `Community 63`, `Community 64`, `Community 65`, `Community 66`, `Community 67`, `Community 68`, `Community 69`, `Community 70`, `Community 71`, `Community 72`, `Community 73`, `Community 74`, `Community 75`, `Community 76`, `Community 77`, `Community 79`, `Community 80`, `Community 82`, `Community 83`, `Community 85`, `Community 86`, `Community 88`, `Community 89`, `Community 94`, `Community 100`, `Community 101`, `Community 103`, `Community 104`, `Community 106`, `Community 107`?**
+  _High betweenness centrality (0.321) - this node is a cross-community bridge._
+- **Why does `str` connect `Community 28` to `Community 2`, `Community 3`, `Community 6`, `Community 8`, `Community 30`, `Community 31`, `Community 32`, `Community 33`, `Community 35`, `Community 36`, `Community 37`, `Community 38`, `Community 39`, `Community 40`, `Community 41`, `Community 42`, `Community 43`, `Community 44`, `Community 46`, `Community 47`, `Community 48`, `Community 49`, `Community 51`, `Community 52`, `Community 53`, `Community 54`, `Community 55`, `Community 56`, `Community 57`, `Community 58`, `Community 59`, `Community 61`, `Community 62`, `Community 63`, `Community 64`, `Community 65`, `Community 66`, `Community 67`, `Community 68`, `Community 69`, `Community 70`, `Community 71`, `Community 72`, `Community 74`, `Community 75`, `Community 76`, `Community 77`, `Community 79`, `Community 80`, `Community 82`, `Community 83`, `Community 84`, `Community 85`, `Community 86`, `Community 88`, `Community 89`, `Community 90`, `Community 93`, `Community 94`, `Community 100`, `Community 101`, `Community 103`, `Community 104`, `Community 106`, `Community 107`?**
+  _High betweenness centrality (0.238) - this node is a cross-community bridge._
+- **Why does `GuideSection` connect `Community 85` to `Community 2`, `Community 8`, `Community 14`, `Community 26`, `Community 30`, `Community 32`, `Community 33`, `Community 34`, `Community 35`, `Community 42`, `Community 43`, `Community 44`, `Community 45`, `Community 46`, `Community 50`, `Community 52`, `Community 53`, `Community 60`, `Community 68`, `Community 74`, `Community 86`, `Community 107`?**
+  _High betweenness centrality (0.019) - this node is a cross-community bridge._
 - **What connects `guide_export.sh script`, `Minimal HTML entity unescaping fallback.`, `Dummy fallback when html.parser is not available.` to the rest of the system?**
-  _1594 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _1600 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
   _Cohesion score 0.017241379310344827 - nodes in this community are weakly interconnected._
 - **Should `Community 1` be split into smaller, more focused modules?**
-  _Cohesion score 0.1111111111111111 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.11764705882352941 - nodes in this community are weakly interconnected._
 - **Should `Community 2` be split into smaller, more focused modules?**
-  _Cohesion score 0.04878048780487805 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.047619047619047616 - nodes in this community are weakly interconnected._
