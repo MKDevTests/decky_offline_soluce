@@ -6599,6 +6599,18 @@ class Plugin:
                 toc_sections = self._polish_section_titles(toc_sections)
                 return self._cap_sections(toc_sections, lines), "toc_codes"
 
+        # --- PASS 2a-star: GameFAQs TOC with *CODE search markers (Koudelka) ---
+        # Some GameFAQs FAQs anchor sections with *CODE (asterisk) instead of
+        # [CODE] brackets, with a real 2-level hierarchy (Walkthrough → Disc One…).
+        star_sections = self._sections_from_asterisk_toc(lines)
+        if len(star_sections) >= 2:
+            # NB: no _merge_small_sections here — every *CODE entry is an intentional
+            # TOC section, and merging would swallow short parent headings like the
+            # "Lists" intro (breaking the Lists → i-viii hierarchy). Only split large.
+            star_sections = self._split_large_sections(star_sections, lines)
+            star_sections = self._polish_section_titles(star_sections)
+            return self._cap_sections(star_sections, lines), "toc_codes"
+
         # --- PASS 2b: numbered/lettered TOC without [CODE] markers ---
         # Older GameFAQs FAQs (pre-2005-ish, dan_crenshaw era) use a TOC like
         # "4a. Hugo Chapter 1" / "4b. Chris Chapter 1" with no bracketed code.
@@ -7471,6 +7483,120 @@ class Plugin:
             return []
         return self._sections_from_starts(deduped, lines)
 
+    def _sections_from_asterisk_toc(self, lines: list[str]) -> list[GuideSection]:
+        """v0.43.38: GameFAQs TOC that anchors sections with *CODE search markers
+        (Koudelka etc.) instead of [CODE] brackets:
+
+            Table of Contents
+             1. Introduction ....................... *INTRO
+             4. The Walkthrough .................... *WALK
+                Disc One ........................... *DISC/1
+             6. Lists .............................. *LIST
+                i. Puzzles and Key Items ........... *LIST1
+
+        Each *CODE reappears in the body as the section header. Numbered entries
+        are top-level (L2); unnumbered or roman-numbered entries nest under the
+        preceding numbered one (L3). This is the guide's OWN structure — far more
+        logical than letting numbered_toc mis-anchor it (which buried the whole
+        main walkthrough inside the 'Sidequest' section)."""
+        # 1) locate the TOC header
+        toc_start = -1
+        for idx, raw in enumerate(lines[:min(len(lines), 400)]):
+            if re.match(r"^\s*(?:table of contents|contents|sommaire|table des mati[eè]res)\b",
+                        raw.strip(), re.IGNORECASE):
+                toc_start = idx
+                break
+        if toc_start < 0:
+            return []
+
+        # 2) collect TOC entries: "<opt num/roman>. <title> …dots/spaces… *CODE"
+        entry_re = re.compile(
+            r"^\s*(?P<title>.*?)\s*[.\s]{2,}\*(?P<code>[A-Za-z0-9][A-Za-z0-9/_\-]{1,10})\s*$")
+        toc_entries: list[tuple[str, str, int]] = []  # (title, code, level)
+        seen_codes: set[str] = set()
+        non_toc = 0
+        body_start = -1
+        scan_end = min(len(lines), toc_start + 120)
+        for idx in range(toc_start + 1, scan_end):
+            line = lines[idx].rstrip()
+            if not line.strip():
+                non_toc += 1
+                if non_toc >= 4 and toc_entries:
+                    break
+                continue
+            m = entry_re.match(line)
+            if not m:
+                non_toc += 1
+                if non_toc >= 4 and toc_entries:
+                    break
+                continue
+            code = m.group("code")
+            # A repeated code means we've scrolled past the TOC into the body (body
+            # section headers use the same "title …dots… *CODE" format). Stop here
+            # and treat this line as where the body begins.
+            if code in seen_codes:
+                body_start = idx
+                break
+            non_toc = 0
+            raw_title = m.group("title").strip()
+            if re.match(r"^\d{1,2}[.)]", raw_title):            # "4. The Walkthrough" → top level
+                level = 2
+                title = re.sub(r"^\d{1,2}[.)]\s*", "", raw_title).strip()
+            elif re.match(r"^[ivxlc]{1,5}[.)]", raw_title, re.IGNORECASE):  # "i. Puzzles" → child
+                level = 3
+                title = re.sub(r"^[ivxlc]{1,5}[.)]\s*", "", raw_title, flags=re.IGNORECASE).strip()
+            else:                                              # "Disc One" (no prefix) → child
+                level = 3
+                title = raw_title
+            if title and len(title) < 120:
+                toc_entries.append((title, code, level))
+                seen_codes.add(code)
+
+        if len(toc_entries) < 4:
+            return []
+        if body_start < 0:
+            body_start = min(scan_end, toc_start + len(toc_entries) + 2)
+
+        # 3) body anchors — find each *CODE at/after body_start. Match the code with
+        # a trailing boundary so "*LIST" doesn't hit the "*LIST1" line.
+        starts: list[tuple[int, str, int]] = []
+        used: set[int] = set()
+        for title, code, level in toc_entries:
+            anchor_re = re.compile(r"\*" + re.escape(code) + r"(?![A-Za-z0-9/])")
+            best = -1
+            for idx in range(body_start, len(lines)):
+                if idx in used:
+                    continue
+                if anchor_re.search(lines[idx]):
+                    best = idx
+                    break
+            if best >= 0:
+                used.add(best)
+                starts.append((best, title, level))
+
+        starts.sort(key=lambda item: item[0])
+        deduped: list[tuple[int, str, int]] = []
+        for item in starts:
+            if not deduped or item[0] - deduped[-1][0] >= MIN_SECTION_SPAN_LINES:
+                deduped.append(item)
+        if len(deduped) < 2:
+            return []
+        return self._sections_from_starts(deduped, lines)
+
+    def _is_toc_subcode(self, code: str, parent: str) -> bool:
+        """v0.43.38: is `code` a genuine sub-entry of the top-level `parent` code?
+        e.g. "4b" under "4", "vi.1"/"vi.26.a" under "vi". A lettered room code like
+        "a1" is NOT a sub-code of "3" — it just happens to have a letter."""
+        code = code.lower()
+        parent = parent.lower()
+        m = re.match(r"^(\d{1,3})[a-z]$", code)         # digit sub: "4b"
+        if m:
+            return m.group(1) == parent
+        m = re.match(r"^([ivxlc]{1,5})[.\s\d]", code)   # roman sub: "vi.1", "vi.26.a"
+        if m:
+            return m.group(1) == parent
+        return False
+
     def _sections_from_numbered_toc(self, lines: list[str]) -> list[GuideSection]:
         """Detect TOCs that use numbered/lettered IDs without [CODE] markers.
 
@@ -7550,7 +7676,7 @@ class Plugin:
             return []  # nothing meaningful in body
 
         # Step 4: for each TOC entry, find its body anchor
-        starts: list[tuple[int, str, int]] = []
+        raw_starts: list[tuple[int, str, str]] = []  # (pos, title, id_)
         used_positions: set[int] = set()
         for _, id_, title in toc_run:
             # v0.43.26: flexible separator after the code (". " for digit/roman-top,
@@ -7565,16 +7691,35 @@ class Plugin:
                     break
             if best_pos >= 0:
                 used_positions.add(best_pos)
-                # Heading level: top-level codes (roman "VI" / digit "4") are level 2;
-                # sub-entries (digit "4b", roman "VI.1" / "VI.26.A") are children (3).
-                level = 2 if re.fullmatch(r"[ivxlc]{1,5}|\d{1,3}", id_) else 3
-                starts.append((best_pos, title, level))
+                raw_starts.append((best_pos, title, id_))
+
+        if len(raw_starts) < 2:
+            return []
+
+        # v0.43.38: assign heading levels in READING order with parent tracking. A
+        # code is a CHILD (level 3) only when it's a genuine sub-code of the current
+        # top-level code ("4b" under "4", "VI.1" under "VI") — NOT merely because its
+        # format has a letter. This fixes guides (Koudelka) whose walkthrough uses
+        # lettered room codes (A1, B5, C1…) that were wrongly nested under the last
+        # numeric section ("3. Sidequest: The Gargoyle") instead of being siblings.
+        raw_starts.sort(key=lambda item: item[0])
+        starts: list[tuple[int, str, int]] = []
+        current_parent: str | None = None  # the open top-level code sub-codes attach to
+        for pos, title, id_ in raw_starts:
+            if re.fullmatch(r"\d{1,3}", id_) or re.fullmatch(r"[ivxlc]{1,5}", id_):
+                current_parent = id_
+                level = 2
+            elif current_parent and self._is_toc_subcode(id_, current_parent):
+                level = 3
+            else:
+                current_parent = None  # a non-sub top-level breaks the numeric chain
+                level = 2
+            starts.append((pos, title, level))
 
         if len(starts) < 2:
             return []
 
         # Dedup positions too close together
-        starts.sort(key=lambda item: item[0])
         deduped: list[tuple[int, str, int]] = []
         for item in starts:
             if not deduped or item[0] - deduped[-1][0] >= MIN_SECTION_SPAN_LINES:
