@@ -1704,6 +1704,7 @@ class Plugin:
             page_secs = self._normalize_gamefaqs_titles(page_secs)
             page_secs = self._number_consecutive_duplicates(page_secs)
             page_secs = self._truncate_long_titles(page_secs)
+            page_secs = self._group_pages_by_chapter(page_secs)  # v0.43.40: collapsible chapters
             page_secs = self._cap_sections(page_secs, lines)
             self._debug_log(f"  per-page sectioning: {len(page_boundaries)} pages -> {len(page_secs)} sections")
             return page_secs, "pages"
@@ -7493,6 +7494,29 @@ class Plugin:
             return []
         return self._sections_from_starts(deduped, lines)
 
+    def _group_pages_by_chapter(self, sections: list[GuideSection]) -> list[GuideSection]:
+        """v0.43.40: nest a short run of per-page sections under a preceding
+        'Chapter/Part/Act/Disc/Day N' page, turning long flat neoseeker/IGN page
+        lists (Octopath: 60 flat pages) into collapsible chapters. Conservative on
+        purpose: needs >=3 markers, and a marker only adopts its following run when
+        that run is SHORT (<=5). A long run means a different phase (Octopath's area
+        explorations / town pages) that must NOT be buried under a chapter."""
+        marker_re = re.compile(
+            r"^\s*(?:chapter|chapitre|part|partie|act|acte|episode|épisode|disc|disque|day|jour)"
+            r"\b\s*\d",
+            re.IGNORECASE)
+        markers = [i for i, s in enumerate(sections)
+                   if (s.heading_level or 2) <= 2 and marker_re.match(s.title or "")]
+        if len(markers) < 3:
+            return sections
+        for k, m in enumerate(markers):
+            nxt = markers[k + 1] if k + 1 < len(markers) else len(sections)
+            run = [j for j in range(m + 1, nxt) if (sections[j].heading_level or 2) <= 2]
+            if 1 <= len(run) <= 5:  # a real chapter's sub-pages; long runs = other phase
+                for j in run:
+                    sections[j].heading_level = 3
+        return sections
+
     def _sections_from_asterisk_toc(self, lines: list[str]) -> list[GuideSection]:
         """v0.43.38: GameFAQs TOC that anchors sections with *CODE search markers
         (Koudelka etc.) instead of [CODE] brackets:
@@ -7603,88 +7627,81 @@ class Plugin:
             *Quêtes Secondaires...................QUETESEC
 
         The banner detector otherwise produces garbage titles ('|CHÂTEAUD'ALEX… |
-        DISC1P02|', '|ENEMIS||OBJETS|'). We use the guide's own clean TOC titles and
-        group the walkthrough by disc (DISC<n>P… codes); reference lists (weapons,
-        items, skills) become their own top-level sections."""
-        toc_re = re.compile(r"^\s*\*?\s*(?P<title>.+?)\s*\.{3,}\s*(?P<code>[A-Z][A-Z0-9]{4,9})\s*$")
-        # 1) collect candidate "title…dots…CODE" lines near the top
-        cands: list[tuple[int, str, str]] = []
-        for i in range(min(len(lines), 700)):
-            m = toc_re.match(lines[i])
-            if not m:
-                continue
-            title = m.group("title").strip().lstrip("*").strip()
-            if 2 <= len(title) <= 90 and sum(c.isalpha() for c in title) >= 2:
-                cands.append((i, title, m.group("code")))
-        if len(cands) < 8:
+        DISC1P02|', '|ENEMIS||OBJETS|'). We use the guide's own clean TOC titles, and
+        the TOC's own group-header lines ('Disque 1', 'Armes', 'Objets'…) become the
+        collapsible L2 chapters with each entry under them as L3."""
+        toc_re = re.compile(r"^\s*\*?\s*(?P<title>.+?)\s*\.{3,}\s*(?P<code>[A-Z][A-Z0-9!&]{4,9})\s*$")
+        # 1) TOC region = span of "title…dots…CODE" lines. (Body headers use |CODE|,
+        #    no dotted leader, so they never match — the region is the TOC alone.)
+        idxs = [i for i in range(min(len(lines), 700)) if toc_re.match(lines[i])]
+        if len(idxs) < 8:
             return []
-        # 2) the TOC is the densest contiguous run (line gaps <= 5)
-        runs: list[list[tuple[int, str, str]]] = []
-        cur = [cands[0]]
-        for c in cands[1:]:
-            if c[0] - cur[-1][0] <= 5:
-                cur.append(c)
-            else:
-                runs.append(cur)
-                cur = [c]
-        runs.append(cur)
-        runs.sort(key=len, reverse=True)
-        toc = runs[0]
-        if len(toc) < 8:
+        toc_lo, toc_hi = idxs[0], idxs[-1]
+        if (toc_hi - toc_lo) > len(idxs) * 8:  # too sparse → not a real TOC block
             return []
-        toc_end = toc[-1][0]
 
-        # 3) unique codes in TOC order, then anchor each in the body (|CODE| / [CODE]
-        #    / bare CODE) below the TOC zone.
-        seen: set[str] = set()
-        entries: list[tuple[str, str]] = []
-        for _, t, c in toc:
-            if c in seen:
+        # 2) walk the region, grouping entries under their nearest preceding header
+        #    line ('Disque 1', 'Armes'…). "Partie N" is overwritten by the more
+        #    specific header that follows it (last-header-before-entries wins).
+        groups: list[tuple[str | None, list[tuple[str, str]]]] = []
+        pending_header: str | None = None
+        start_new = True
+        # Start a few lines early so the FIRST group's header ('Disque 1'), which
+        # sits just above the first entry, is picked up too.
+        for i in range(max(0, toc_lo - 4), toc_hi + 1):
+            raw = lines[i]
+            s = raw.strip()
+            if not s:
                 continue
-            seen.add(c)
-            entries.append((t, c))
+            m = toc_re.match(raw)
+            if m:
+                title = m.group("title").strip().lstrip("*").strip()
+                if start_new or not groups:
+                    groups.append((pending_header, []))
+                    pending_header = None
+                    start_new = False
+                groups[-1][1].append((title, m.group("code")))
+            elif not re.search(r"[=~*_-]{4,}", s) and "...." not in s \
+                    and 3 <= len(s) <= 55 and sum(c.isalpha() for c in s) >= 3:
+                pending_header = s   # a group header → the next entry starts a new group
+                start_new = True
 
-        starts: list[tuple[int, str, str]] = []
+        # 3) anchor each code in the body (|CODE| / [CODE] / bare), below the TOC
         used: set[int] = set()
-        for title, code in entries:
-            wrapped = re.compile(r"[|\[]\s*" + re.escape(code) + r"\s*[|\]]")
-            bare = re.compile(r"\b" + re.escape(code) + r"\b")
-            best = -1
-            for rx in (wrapped, bare):
-                for idx in range(toc_end + 1, len(lines)):
-                    if idx in used:
-                        continue
-                    if rx.search(lines[idx]):
-                        best = idx
-                        break
-                if best >= 0:
-                    break
-            if best >= 0:
-                used.add(best)
-                starts.append((best, title, code))
+
+        def anchor(code: str) -> int:
+            # Prefer the |CODE| pipe form (how these guides mark real section headers)
+            # over [CODE] (which also appears in changelog cross-refs) then bare.
+            piped = re.compile(r"\|\s*" + re.escape(code) + r"\s*\|")
+            bracket = re.compile(r"\[\s*" + re.escape(code) + r"\s*\]")
+            bare = re.compile(r"(?<![A-Z0-9])" + re.escape(code) + r"(?![A-Z0-9])")
+            for rx in (piped, bracket, bare):
+                for idx in range(toc_hi + 1, len(lines)):
+                    if idx not in used and rx.search(lines[idx]):
+                        return idx
+            return -1
+
+        # 4) emit: first anchored entry of a group = L2 (labelled by the group header
+        #    when present, else its own title); the rest = L3 children.
+        starts: list[tuple[int, str, int]] = []
+        for header, entries in groups:
+            first = True
+            for title, code in entries:
+                pos = anchor(code)
+                if pos < 0:
+                    continue
+                used.add(pos)
+                if first:
+                    starts.append((pos, header or title, 2))
+                    first = False
+                else:
+                    starts.append((pos, title, 3))
 
         if len(starts) < 4:
             return []
         starts.sort(key=lambda item: item[0])
-
-        # 4) levels: walkthrough grouped by disc (first entry of a disc = L2 parent,
-        #    rest = L3); reference lists (weapons/items/skills) = their own L2.
-        ref_re = re.compile(r"^(?:COMP|ARME|OBJET|LIST|ENNEMI|BESTI|CREDIT|MAGIE)", re.IGNORECASE)
-        leveled: list[tuple[int, str, int]] = []
-        cur_disc: str | None = None
-        for pos, title, code in starts:
-            md = re.match(r"^DISC(\d)", code)
-            if md:
-                level = 2 if md.group(1) != cur_disc else 3
-                cur_disc = md.group(1)
-            elif ref_re.match(code):
-                level, cur_disc = 2, None
-            else:
-                level = 3 if cur_disc else 2
-            leveled.append((pos, title, level))
-
         deduped: list[tuple[int, str, int]] = []
-        for item in leveled:
+        for item in starts:
             if not deduped or item[0] - deduped[-1][0] >= MIN_SECTION_SPAN_LINES:
                 deduped.append(item)
         if len(deduped) < 4:
