@@ -1795,10 +1795,27 @@ function FullScreenSearch() {
                   <div style={{ fontSize: "0.72rem", fontWeight: 700, color: dup ? "#8be08b" : theme.headingColor }}>
                     {dup ? "✓ Déjà importé — ouvrir" : "▶ Importer"}
                   </div>
-                  {/* v0.43.16: full title WRAPS (was nowrap → overflowed the card, unreadable) */}
-                  <div style={{ fontWeight: 700, color: theme.textColor, whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.25 }}>
-                    {r.title}
-                  </div>
+                  {/* v0.43.46: lead with the GAME NAME (from the URL). Page titles here
+                      are often useless breadcrumbs ("wikis-soluce-astuces › 1221575 › …"). */}
+                  {(() => {
+                    const gameName = (r.game || "").trim();
+                    const pageTitle = (r.title || "").trim();
+                    const heading = gameName || pageTitle || "(sans titre)";
+                    const uglyTitle = pageTitle.includes("›") || /wikis-soluce-astuces/i.test(pageTitle)
+                      || /^(rpg soluce|le coin de|walkthrough|full walkthrough|guide|soluce|wiki)\b/i.test(pageTitle);
+                    const showSub = pageTitle && pageTitle.toLowerCase() !== heading.toLowerCase()
+                      && !(gameName && (uglyTitle || pageTitle.toLowerCase().includes(gameName.toLowerCase())));
+                    return (
+                      <>
+                        <div style={{ fontWeight: 700, color: "#ffd966", fontSize: "0.98rem", whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.25 }}>
+                          🎮 {heading}
+                        </div>
+                        {showSub ? (
+                          <div style={{ fontSize: "0.8rem", color: theme.textColor, opacity: 0.85, whiteSpace: "normal", overflowWrap: "anywhere" }}>{pageTitle}</div>
+                        ) : null}
+                      </>
+                    );
+                  })()}
                   <div style={{ fontSize: "0.72rem", opacity: 0.75 }}>{r.site}</div>
                   {r.snippet ? <div style={{ fontSize: "0.78rem", opacity: 0.85, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{r.snippet}</div> : null}
                 </Focusable>
@@ -1824,6 +1841,7 @@ function FullScreenSearch() {
  */
 function FullScreenGameLibrary() {
   const [items, setItems] = useState<LibraryItem[]>([]);
+  const [refreshing, setRefreshing] = useState<boolean>(false);  // v0.43.46: rescan installed games
   const [guides, setGuides] = useState<GuideSummary[]>([]);
   const [preferences, setPreferences] = useState<ReaderPreferences | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -1987,6 +2005,14 @@ function FullScreenGameLibrary() {
       <div style={headerStyle}>
         <DialogButton onClick={() => safeNavigateBack()} style={{ minWidth: "auto", width: "auto" }}>← Retour</DialogButton>
         <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>🎮 Mes jeux ({filtered.length}/{items.length})</div>
+        {/* v0.43.46: rescan installed games (re-detect after install/uninstall) */}
+        <DialogButton style={{ minWidth: "auto", width: "auto" }} disabled={refreshing}
+          onClick={() => void (async () => {
+            setRefreshing(true);
+            try { await rescanLibrary(); setItems(await listLibraryItems()); } catch { /* keep old list */ } finally { setRefreshing(false); }
+          })()}>
+          {refreshing ? "⏳ Analyse…" : "🔄 Actualiser"}
+        </DialogButton>
         <div style={{ flex: 1 }} />
         <div style={{ width: "200px" }}>
           <TextField value={textFilter} onChange={(e: any) => setTextFilter(e.target.value)} placeholder="Filtrer…" bShowClearAction />

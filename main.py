@@ -6295,8 +6295,18 @@ class Plugin:
             if i + 1 < len(segs):
                 slug = segs[i + 1]
         elif "jeuxvideo.com" in host and segs:
-            last = re.sub(r"\.html?$", "", segs[-1])
-            slug = re.sub(r"^(?:wiki-de-|guide-complet-de-|soluce-de-|guide-de-)", "", last)
+            # pages are /wikis-soluce-astuces/<id>/<slug>.htm OR /<slug>/<id>, so the
+            # game slug is the LAST NON-NUMERIC segment (not the wiki id), then strip
+            # the guide-type prefix ("wiki-de-", "astuces-et-soluce-"…).
+            cand = ""
+            for s in segs:
+                s2 = re.sub(r"\.html?$", "", s)
+                if s2 and not s2.isdigit() and s2 not in ("wikis-soluce-astuces", "wikis"):
+                    cand = s2
+            slug = re.sub(
+                r"^(?:wiki-de-|guide-complet-de-|soluce-complete-de-|soluce-de-|guide-de-"
+                r"|astuces-et-soluce-de-|astuces-et-soluce-|astuces-et-guides?-|solution-complete-de-|solution-complete-)",
+                "", cand)
         return self._prettify_game_slug(slug) if slug else ""
 
     # v0.43.36: page <title>s that say nothing about WHICH game (site name / sub-page
