@@ -150,6 +150,7 @@ const getImportStatus = callable("get_import_status");
 const listImports = callable("list_imports");
 const dismissImport = callable("dismiss_import");
 const deleteGuide = callable("delete_guide");
+const findJunkGuides = callable("find_junk_guides");
 const saveProgress = callable("save_progress");
 const setBookmark = callable("set_bookmark");
 const clearBookmark = callable("clear_bookmark");
@@ -1007,8 +1008,18 @@ function TocSidebar(props) {
         if (n.flagged)
             flaggedIndices.add(n.section_index);
     }
+    // v0.43.44: sections holding a MISSABLE flag get a 🔴 in the sidebar so the
+    // "à ne pas rater" moments are visible at a glance. Only missable (≈4% of
+    // sections) — key-item/side-quest are too common and would clutter the TOC.
+    const missableIndices = new Set();
+    for (const f of guide.important_flags || []) {
+        if (f.category === "missable" && f.section_index >= 0)
+            missableIndices.add(f.section_index);
+    }
     const sectionBadge = (idx) => {
         let out = "";
+        if (missableIndices.has(idx))
+            out += "🔴 ";
         if (doneIndices.has(idx))
             out += "✅ ";
         if (flaggedIndices.has(idx))
@@ -2338,6 +2349,37 @@ function Content() {
     const [guideTextFilter, setGuideTextFilter] = SP_REACT.useState("");
     const [guideLetterFilter, setGuideLetterFilter] = SP_REACT.useState("");
     const [guideSortMode, setGuideSortMode] = SP_REACT.useState("recent");
+    // v0.43.44: library cleanup scan results (null = not yet scanned)
+    const [junkGuides, setJunkGuides] = SP_REACT.useState(null);
+    const runJunkScan = async () => {
+        setIsBusy(true);
+        try {
+            setJunkGuides(await findJunkGuides());
+        }
+        catch (e) {
+            setError(e instanceof Error ? e.message : "Scan impossible");
+        }
+        finally {
+            setIsBusy(false);
+        }
+    };
+    const deleteJunkGuide = async (id) => {
+        setIsBusy(true);
+        try {
+            await deleteGuide(id);
+            setJunkGuides((prev) => (prev || []).filter((g) => g.id !== id));
+            try {
+                setGuides(await listGuides());
+            }
+            catch { }
+        }
+        catch (e) {
+            setError(e instanceof Error ? e.message : "Suppression impossible");
+        }
+        finally {
+            setIsBusy(false);
+        }
+    };
     // Reader preferences
     const [preferences, setPreferences] = SP_REACT.useState({
         theme: "dark", font_family: "sans", line_height: "normal",
@@ -3787,7 +3829,7 @@ function Content() {
         const sortLabel = guideSortMode === "recent" ? "Récemment ouvert"
             : guideSortMode === "name" ? "Nom (A→Z)" : "Plateforme";
         const anyFilter = !!(guideTextFilter.trim() || guideLetterFilter);
-        return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [!expandedReader ? (SP_JSX.jsxs(DFL.PanelSection, { title: `Filtrer (${filteredGuides.length}/${guides.length})`, children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => {
+        return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [!expandedReader ? (SP_JSX.jsxs(DFL.PanelSection, { title: "\uD83E\uDDF9 Nettoyage", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void runJunkScan(), children: "Chercher les guides vides / incomplets" }) }), junkGuides !== null ? (junkGuides.length === 0 ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.78rem", opacity: 0.75, padding: "4px 6px" }, children: "\u2713 Aucun guide suspect (tous ont \u2265 2 sections et assez de contenu)." }) })) : (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: { fontSize: "0.76rem", opacity: 0.85, padding: "2px 6px" }, children: [junkGuides.length, " guide(s) suspect(s) (< 2 sections ou < 150 mots). V\u00E9rifie et supprime si besoin."] }) }), junkGuides.map((g) => (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: { ...boxStyle, padding: "6px 8px" }, children: [SP_JSX.jsx("div", { style: { fontWeight: 700, fontSize: "0.82rem" }, children: g.title || g.id }), SP_JSX.jsxs("div", { style: { fontSize: "0.7rem", opacity: 0.7 }, children: [g.site, " \u00B7 ", g.section_count, " section(s) \u00B7 ", g.word_count, " mots"] }), SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void deleteJunkGuide(g.id), children: "\uD83D\uDDD1 Supprimer" })] }) }, g.id)))] }))) : null] })) : null, !expandedReader ? (SP_JSX.jsxs(DFL.PanelSection, { title: `Filtrer (${filteredGuides.length}/${guides.length})`, children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", disabled: isBusy || !guides.length, onClick: () => {
                                     try {
                                         DFL.Router.CloseSideMenus();
                                     }

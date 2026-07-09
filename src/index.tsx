@@ -275,6 +275,9 @@ type ImportJob = ImportStatus & { job_id: string };
 const listImports = callable<[], ImportJob[]>("list_imports");
 const dismissImport = callable<[jobId: string], boolean>("dismiss_import");
 const deleteGuide = callable<[guideId: string], boolean>("delete_guide");
+// v0.43.44: library cleanup scan — guides that look empty/incomplete (<2 sections OR <150 words).
+type JunkGuide = { id: string; title: string; url: string; site: string; section_count: number; word_count: number };
+const findJunkGuides = callable<[], JunkGuide[]>("find_junk_guides");
 const saveProgress = callable<[guideId: string, lastSectionIndex: number, fontScale: number, scrollFraction: number], GuideDetail>("save_progress");
 const setBookmark = callable<[guideId: string, sectionIndex: number, scrollFraction: number], GuideDetail>("set_bookmark");
 const clearBookmark = callable<[guideId: string], GuideDetail>("clear_bookmark");
@@ -1300,8 +1303,16 @@ function TocSidebar(props: {
     if (n.done) doneIndices.add(n.section_index);
     if (n.flagged) flaggedIndices.add(n.section_index);
   }
+  // v0.43.44: sections holding a MISSABLE flag get a 🔴 in the sidebar so the
+  // "à ne pas rater" moments are visible at a glance. Only missable (≈4% of
+  // sections) — key-item/side-quest are too common and would clutter the TOC.
+  const missableIndices = new Set<number>();
+  for (const f of guide.important_flags || []) {
+    if (f.category === "missable" && f.section_index >= 0) missableIndices.add(f.section_index);
+  }
   const sectionBadge = (idx: number): string => {
     let out = "";
+    if (missableIndices.has(idx)) out += "🔴 ";
     if (doneIndices.has(idx)) out += "✅ ";
     if (flaggedIndices.has(idx)) out += "⚐ ";
     return out;
@@ -3106,6 +3117,23 @@ function Content() {
   const [guideTextFilter, setGuideTextFilter] = useState<string>("");
   const [guideLetterFilter, setGuideLetterFilter] = useState<string>("");
   const [guideSortMode, setGuideSortMode] = useState<"recent" | "name" | "platform">("recent");
+  // v0.43.44: library cleanup scan results (null = not yet scanned)
+  const [junkGuides, setJunkGuides] = useState<JunkGuide[] | null>(null);
+  const runJunkScan = async () => {
+    setIsBusy(true);
+    try { setJunkGuides(await findJunkGuides()); }
+    catch (e) { setError(e instanceof Error ? e.message : "Scan impossible"); }
+    finally { setIsBusy(false); }
+  };
+  const deleteJunkGuide = async (id: string) => {
+    setIsBusy(true);
+    try {
+      await deleteGuide(id);
+      setJunkGuides((prev) => (prev || []).filter((g) => g.id !== id));
+      try { setGuides(await listGuides()); } catch {}
+    } catch (e) { setError(e instanceof Error ? e.message : "Suppression impossible"); }
+    finally { setIsBusy(false); }
+  };
 
   // Reader preferences
   const [preferences, setPreferences] = useState<ReaderPreferences>({
@@ -5176,6 +5204,45 @@ function Content() {
 
     return (
       <>
+        {!expandedReader ? (
+        <PanelSection title="🧹 Nettoyage">
+          <PanelSectionRow>
+            <ButtonItem layout="below" disabled={isBusy} onClick={() => void runJunkScan()}>
+              Chercher les guides vides / incomplets
+            </ButtonItem>
+          </PanelSectionRow>
+          {junkGuides !== null ? (
+            junkGuides.length === 0 ? (
+              <PanelSectionRow>
+                <div style={{ fontSize: "0.78rem", opacity: 0.75, padding: "4px 6px" }}>
+                  ✓ Aucun guide suspect (tous ont ≥ 2 sections et assez de contenu).
+                </div>
+              </PanelSectionRow>
+            ) : (
+              <>
+                <PanelSectionRow>
+                  <div style={{ fontSize: "0.76rem", opacity: 0.85, padding: "2px 6px" }}>
+                    {junkGuides.length} guide(s) suspect(s) (&lt; 2 sections ou &lt; 150 mots). Vérifie et supprime si besoin.
+                  </div>
+                </PanelSectionRow>
+                {junkGuides.map((g) => (
+                  <PanelSectionRow key={g.id}>
+                    <div style={{ ...boxStyle, padding: "6px 8px" }}>
+                      <div style={{ fontWeight: 700, fontSize: "0.82rem" }}>{g.title || g.id}</div>
+                      <div style={{ fontSize: "0.7rem", opacity: 0.7 }}>
+                        {g.site} · {g.section_count} section(s) · {g.word_count} mots
+                      </div>
+                      <ButtonItem layout="below" disabled={isBusy} onClick={() => void deleteJunkGuide(g.id)}>
+                        🗑 Supprimer
+                      </ButtonItem>
+                    </div>
+                  </PanelSectionRow>
+                ))}
+              </>
+            )
+          ) : null}
+        </PanelSection>
+        ) : null}
         {!expandedReader ? (
         <PanelSection title={`Filtrer (${filteredGuides.length}/${guides.length})`}>
           <PanelSectionRow>

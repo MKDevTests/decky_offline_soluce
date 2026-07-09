@@ -1245,6 +1245,26 @@ class Plugin:
         guides.sort(key=lambda item: item["saved_at"], reverse=True)
         return guides
 
+    async def find_junk_guides(self) -> list[dict[str, Any]]:
+        """v0.43.44: library cleanup scan. Returns guides that look empty/incomplete
+        by the SAME general rule as the import warning (<2 sections OR <150 words) —
+        no guide-specific logic. Nothing is deleted; the UI lists them for review."""
+        out: list[dict[str, Any]] = []
+        for record in self._load_all_records():
+            sc = len(record.sections)
+            wc = record.word_count or len((record.content or "").split())
+            if self._guide_quality_warning(sc, wc):
+                out.append({
+                    "id": record.id,
+                    "title": record.title,
+                    "url": record.url,
+                    "site": record.site,
+                    "section_count": sc,
+                    "word_count": wc,
+                })
+        out.sort(key=lambda x: (x["section_count"], x["word_count"]))
+        return out
+
     async def get_guide(self, guide_id: str) -> dict[str, Any]:
         record = self._load_record_or_raise(guide_id)
         return self._record_to_payload(record)
@@ -4515,22 +4535,36 @@ class Plugin:
     _FRENCH_SITE_KEYS = {"rpgsoluce", "jeuxvideo", "vally8"}
     _ENGLISH_SITE_KEYS = {"gamefaqs", "ign", "neoseeker"}
 
+    # v0.43.44: URL paths that are never a walkthrough — media/community/meta pages
+    # that import as 0-1 empty sections. Rejected for every site (option-1 "avoid
+    # the vides at search time" — instant, no fetch). NOT /guides/ or /faqs/.
+    _JUNK_URL_RE = re.compile(
+        r"/(?:videos?|images?|media|screenshots?|screens|gallery|photos?|artwork"
+        r"|boards?|forums?|reviews?|user-reviews?|news|previews?|companies|credits"
+        r"|questions?|answers?|trailers?)(?:/|$|\?)",
+        re.IGNORECASE)
+
     def _looks_like_guide_result(self, site_key: str, title: str, url: str, snippet: str) -> bool:
         haystack = f"{title} {url} {snippet}".casefold()
+        url_cf = url.casefold()
+        if self._JUNK_URL_RE.search(url_cf):   # media/community/meta page — never a guide
+            return False
         if site_key == "gamefaqs":
             # v0.43.27: exclude bare game-landing pages (no /faqs/) — they're nav
             # chrome, not guides, and import to 0-1 garbage sections.
             if self._is_gamefaqs_game_page(url):
                 return False
-            return "/faqs/" in url or any(token in haystack for token in ["walkthrough", "guide", "faq"])
+            # v0.43.44: REQUIRE /faqs/ — that's the only place GameFAQs walkthroughs
+            # live. The old snippet-token fallback let /videos/, /data/… slip through.
+            return "/faqs/" in url_cf
         if site_key == "rpgsoluce":
-            return "/soluces/" in url or any(token in haystack for token in ["soluce", "cheminement", "solution"])
+            return "/soluces/" in url_cf
         if site_key == "neoseeker":
-            return any(token in haystack for token in ["guide", "walkthrough", "/guides/"])
+            return "/walkthrough" in url_cf or "/guides/" in url_cf or "/faqs/" in url_cf
         if site_key == "strategywiki":
             return "strategywiki" in haystack or any(token in haystack for token in ["walkthrough", "guide"])
         if site_key == "ign":
-            return any(token in haystack for token in ["walkthrough", "guide", "wiki", "/wikis/"])
+            return "/wikis/" in url_cf or "/guides/" in url_cf
         if site_key == "jeuxvideo":
             # v0.42.12: JV walkthroughs live ONLY under /wikis-soluce-astuces/
             # (or legacy /wikis/). News (/news/), forums (/forums/), tests, and
@@ -4539,7 +4573,7 @@ class Plugin:
             u = url.casefold()
             return "/wikis-soluce-astuces/" in u or "/wikis/" in u
         if site_key == "vally8":
-            return any(token in haystack for token in ["soluce", "solution", "jeux/"])
+            return "/jeux/" in url_cf
         if site_key == "darklevel":
             return any(token in haystack for token in ["soluce", "solution"])
         return True
