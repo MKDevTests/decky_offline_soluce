@@ -74,7 +74,7 @@
       "source_file": "main.py",
       "source_location": "L1",
       "id": "main_py",
-      "community": 85,
+      "community": 30,
       "norm_label": "main.py"
     },
     {
@@ -119,7 +119,7 @@
       "source_file": "main.py",
       "source_location": "L62",
       "id": "bool",
-      "community": 28,
+      "community": 100,
       "norm_label": "bool"
     },
     {
@@ -128,7 +128,7 @@
       "source_file": "main.py",
       "source_location": "L64",
       "id": "decky_offline_soluce_main_stdhtmlparser_feed",
-      "community": 113,
+      "community": 28,
       "norm_label": ".feed()"
     },
     {
@@ -173,7 +173,7 @@
       "source_file": "main.py",
       "source_location": "L322",
       "id": "decky_offline_soluce_main_guidesection",
-      "community": 68,
+      "community": 85,
       "norm_label": "guidesection"
     },
     {
@@ -182,7 +182,7 @@
       "source_file": "main.py",
       "source_location": "L331",
       "id": "decky_offline_soluce_main_namedbookmark",
-      "community": 85,
+      "community": 30,
       "norm_label": "namedbookmark"
     },
     {
@@ -191,7 +191,7 @@
       "source_file": "main.py",
       "source_location": "L340",
       "id": "decky_offline_soluce_main_guidesectionnote",
-      "community": 85,
+      "community": 30,
       "norm_label": "guidesectionnote"
     },
     {
@@ -209,7 +209,7 @@
       "source_file": "main.py",
       "source_location": "L372",
       "id": "decky_offline_soluce_main_guidesourcepage",
-      "community": 85,
+      "community": 30,
       "norm_label": "guidesourcepage"
     },
     {
@@ -218,7 +218,7 @@
       "source_file": "main.py",
       "source_location": "L378",
       "id": "decky_offline_soluce_main_guidereadingprogress",
-      "community": 85,
+      "community": 30,
       "norm_label": "guidereadingprogress"
     },
     {
@@ -227,7 +227,7 @@
       "source_file": "main.py",
       "source_location": "L395",
       "id": "decky_offline_soluce_main_guidegameinfo",
-      "community": 85,
+      "community": 30,
       "norm_label": "guidegameinfo"
     },
     {
@@ -254,7 +254,7 @@
       "source_file": "main.py",
       "source_location": "L442",
       "id": "decky_offline_soluce_main_guidesearchresult",
-      "community": 113,
+      "community": 28,
       "norm_label": "guidesearchresult"
     },
     {
@@ -272,7 +272,7 @@
       "source_file": "main.py",
       "source_location": "L463",
       "id": "decky_offline_soluce_main_scansource",
-      "community": 90,
+      "community": 113,
       "norm_label": "scansource"
     },
     {
@@ -281,7 +281,7 @@
       "source_file": "main.py",
       "source_location": "L474",
       "id": "decky_offline_soluce_main_librarygameentry",
-      "community": 85,
+      "community": 30,
       "norm_label": "librarygameentry"
     },
     {
@@ -470,7 +470,7 @@
       "source_file": "main.py",
       "source_location": "L750",
       "id": "decky_offline_soluce_main_regex_parse_ddg_results",
-      "community": 88,
+      "community": 30,
       "norm_label": "_regex_parse_ddg_results()"
     },
     {
@@ -479,7 +479,7 @@
       "source_file": "main.py",
       "source_location": "L897",
       "id": "decky_offline_soluce_main_plugin",
-      "community": 113,
+      "community": 100,
       "norm_label": "plugin"
     },
     {
@@ -524,7 +524,7 @@
       "source_file": "main.py",
       "source_location": "L976",
       "id": "any",
-      "community": 90,
+      "community": 3,
       "norm_label": "any"
     },
     {
@@ -560,7 +560,7 @@
       "source_file": "main.py",
       "source_location": "L1242",
       "id": "decky_offline_soluce_main_plugin_unload",
-      "community": 113,
+      "community": 100,
       "norm_label": "._unload()"
     },
     {
@@ -569,7 +569,7 @@
       "source_file": "main.py",
       "source_location": "L1245",
       "id": "decky_offline_soluce_main_plugin_uninstall",
-      "community": 113,
+      "community": 100,
       "norm_label": "._uninstall()"
     },
     {
@@ -578,7 +578,7 @@
       "source_file": "main.py",
       "source_location": "L1248",
       "id": "decky_offline_soluce_main_plugin_list_guides",
-      "community": 115,
+      "community": 3,
       "norm_label": ".list_guides()"
     },
     {
@@ -587,7 +587,7 @@
       "source_file": "main.py",
       "source_location": "L1253",
       "id": "decky_offline_soluce_main_plugin_find_junk_guides",
-      "community": 115,
+      "community": 3,
       "norm_label": ".find_junk_guides()"
     },
     {
@@ -605,7 +605,7 @@
       "source_file": "main.py",
       "source_location": "L1277",
       "id": "decky_offline_soluce_main_plugin_delete_guide",
-      "community": 28,
+      "community": 100,
       "norm_label": ".delete_guide()"
     },
     {
@@ -668,7 +668,7 @@
       "source_file": "main.py",
       "source_location": "L1336",
       "id": "decky_offline_soluce_main_plugin_search_guides",
-      "community": 113,
+      "community": 28,
       "norm_label": ".search_guides()"
     },
     {
@@ -758,7 +758,7 @@
       "source_file": "main.py",
       "source_location": "L1705",
       "id": "decky_offline_soluce_main_plugin_sections_from_collected",
-      "community": 68,
+      "community": 85,
       "norm_label": "._sections_from_collected()"
     },
     {
@@ -767,7 +767,7 @@
       "source_file": "main.py",
       "source_location": "L1794",
       "id": "decky_offline_soluce_main_plugin_is_flag_noise_line",
-      "community": 28,
+      "community": 100,
       "norm_label": "._is_flag_noise_line()"
     },
     {
@@ -956,7 +956,7 @@
       "source_file": "main.py",
       "source_location": "L2426",
       "id": "decky_offline_soluce_main_plugin_load_backup_config",
-      "community": 90,
+      "community": 3,
       "norm_label": "._load_backup_config()"
     },
     {
@@ -965,7 +965,7 @@
       "source_file": "main.py",
       "source_location": "L2440",
       "id": "decky_offline_soluce_main_plugin_save_backup_config",
-      "community": 90,
+      "community": 3,
       "norm_label": "._save_backup_config()"
     },
     {
@@ -983,7 +983,7 @@
       "source_file": "main.py",
       "source_location": "L2508",
       "id": "decky_offline_soluce_main_plugin_get_backup_config",
-      "community": 90,
+      "community": 3,
       "norm_label": ".get_backup_config()"
     },
     {
@@ -992,7 +992,7 @@
       "source_file": "main.py",
       "source_location": "L2511",
       "id": "decky_offline_soluce_main_plugin_set_backup_config",
-      "community": 90,
+      "community": 3,
       "norm_label": ".set_backup_config()"
     },
     {
@@ -1037,7 +1037,7 @@
       "source_file": "main.py",
       "source_location": "L2673",
       "id": "decky_offline_soluce_main_plugin_find_in_guide",
-      "community": 90,
+      "community": 3,
       "norm_label": ".find_in_guide()"
     },
     {
@@ -1055,7 +1055,7 @@
       "source_file": "main.py",
       "source_location": "L2746",
       "id": "decky_offline_soluce_main_plugin_export_all_guides",
-      "community": 115,
+      "community": 3,
       "norm_label": ".export_all_guides()"
     },
     {
@@ -1064,7 +1064,7 @@
       "source_file": "main.py",
       "source_location": "L2763",
       "id": "decky_offline_soluce_main_plugin_list_export_files",
-      "community": 90,
+      "community": 100,
       "norm_label": ".list_export_files()"
     },
     {
@@ -1073,7 +1073,7 @@
       "source_file": "main.py",
       "source_location": "L2782",
       "id": "decky_offline_soluce_main_plugin_import_guide_from_path",
-      "community": 90,
+      "community": 30,
       "norm_label": ".import_guide_from_path()"
     },
     {
@@ -1082,7 +1082,7 @@
       "source_file": "main.py",
       "source_location": "L2816",
       "id": "decky_offline_soluce_main_plugin_ensure_unique_id",
-      "community": 28,
+      "community": 100,
       "norm_label": "._ensure_unique_id()"
     },
     {
@@ -1136,7 +1136,7 @@
       "source_file": "main.py",
       "source_location": "L2917",
       "id": "decky_offline_soluce_main_plugin_get_cached_search",
-      "community": 113,
+      "community": 28,
       "norm_label": "._get_cached_search()"
     },
     {
@@ -1145,7 +1145,7 @@
       "source_file": "main.py",
       "source_location": "L2927",
       "id": "decky_offline_soluce_main_plugin_set_cached_search",
-      "community": 113,
+      "community": 28,
       "norm_label": "._set_cached_search()"
     },
     {
@@ -1154,7 +1154,7 @@
       "source_file": "main.py",
       "source_location": "L2935",
       "id": "decky_offline_soluce_main_plugin_normalize_search_language",
-      "community": 113,
+      "community": 28,
       "norm_label": "._normalize_search_language()"
     },
     {
@@ -1172,7 +1172,7 @@
       "source_file": "main.py",
       "source_location": "L2971",
       "id": "decky_offline_soluce_main_plugin_rename_library_item",
-      "community": 113,
+      "community": 100,
       "norm_label": ".rename_library_item()"
     },
     {
@@ -1181,7 +1181,7 @@
       "source_file": "main.py",
       "source_location": "L2987",
       "id": "decky_offline_soluce_main_plugin_load_custom_titles",
-      "community": 113,
+      "community": 100,
       "norm_label": "._load_custom_titles()"
     },
     {
@@ -1190,7 +1190,7 @@
       "source_file": "main.py",
       "source_location": "L2999",
       "id": "decky_offline_soluce_main_plugin_save_custom_titles",
-      "community": 113,
+      "community": 100,
       "norm_label": "._save_custom_titles()"
     },
     {
@@ -1334,7 +1334,7 @@
       "source_file": "main.py",
       "source_location": "L3302",
       "id": "decky_offline_soluce_main_plugin_scan_rom_source",
-      "community": 90,
+      "community": 113,
       "norm_label": "._scan_rom_source()"
     },
     {
@@ -1343,7 +1343,7 @@
       "source_file": "main.py",
       "source_location": "L3392",
       "id": "decky_offline_soluce_main_plugin_scan_games_source",
-      "community": 90,
+      "community": 113,
       "norm_label": "._scan_games_source()"
     },
     {
@@ -1352,7 +1352,7 @@
       "source_file": "main.py",
       "source_location": "L3435",
       "id": "decky_offline_soluce_main_plugin_scan_steam_source",
-      "community": 90,
+      "community": 113,
       "norm_label": "._scan_steam_source()"
     },
     {
@@ -1361,7 +1361,7 @@
       "source_file": "main.py",
       "source_location": "L3487",
       "id": "decky_offline_soluce_main_plugin_parse_acf_value",
-      "community": 90,
+      "community": 113,
       "norm_label": "._parse_acf_value()"
     },
     {
@@ -1370,7 +1370,7 @@
       "source_file": "main.py",
       "source_location": "L3494",
       "id": "decky_offline_soluce_main_plugin_guess_platform_from_rom_path",
-      "community": 90,
+      "community": 113,
       "norm_label": "._guess_platform_from_rom_path()"
     },
     {
@@ -1379,7 +1379,7 @@
       "source_file": "main.py",
       "source_location": "L3504",
       "id": "decky_offline_soluce_main_plugin_default_emulator_for_platform",
-      "community": 90,
+      "community": 113,
       "norm_label": "._default_emulator_for_platform()"
     },
     {
@@ -1388,7 +1388,7 @@
       "source_file": "main.py",
       "source_location": "L3507",
       "id": "decky_offline_soluce_main_plugin_merge_library_instance",
-      "community": 90,
+      "community": 113,
       "norm_label": "._merge_library_instance()"
     },
     {
@@ -1415,7 +1415,7 @@
       "source_file": "main.py",
       "source_location": "L3623",
       "id": "decky_offline_soluce_main_plugin_extract_shortcut_value",
-      "community": 113,
+      "community": 100,
       "norm_label": "._extract_shortcut_value()"
     },
     {
@@ -1460,7 +1460,7 @@
       "source_file": "main.py",
       "source_location": "L3715",
       "id": "decky_offline_soluce_main_plugin_guide_path",
-      "community": 28,
+      "community": 100,
       "norm_label": "._guide_path()"
     },
     {
@@ -1496,7 +1496,7 @@
       "source_file": "main.py",
       "source_location": "L3740",
       "id": "decky_offline_soluce_main_plugin_load_all_records",
-      "community": 115,
+      "community": 3,
       "norm_label": "._load_all_records()"
     },
     {
@@ -1514,7 +1514,7 @@
       "source_file": "main.py",
       "source_location": "L3757",
       "id": "decky_offline_soluce_main_plugin_record_from_payload",
-      "community": 85,
+      "community": 30,
       "norm_label": "._record_from_payload()"
     },
     {
@@ -1523,7 +1523,7 @@
       "source_file": "main.py",
       "source_location": "L3905",
       "id": "decky_offline_soluce_main_plugin_build_game_info",
-      "community": 85,
+      "community": 113,
       "norm_label": "._build_game_info()"
     },
     {
@@ -1559,7 +1559,7 @@
       "source_file": "main.py",
       "source_location": "L4022",
       "id": "decky_offline_soluce_main_plugin_clean_game_title",
-      "community": 85,
+      "community": 113,
       "norm_label": "._clean_game_title()"
     },
     {
@@ -1568,7 +1568,7 @@
       "source_file": "main.py",
       "source_location": "L4106",
       "id": "decky_offline_soluce_main_plugin_parse_aliases",
-      "community": 85,
+      "community": 113,
       "norm_label": "._parse_aliases()"
     },
     {
@@ -1577,7 +1577,7 @@
       "source_file": "main.py",
       "source_location": "L4111",
       "id": "decky_offline_soluce_main_plugin_generate_title_aliases",
-      "community": 85,
+      "community": 113,
       "norm_label": "._generate_title_aliases()"
     },
     {
@@ -1586,7 +1586,7 @@
       "source_file": "main.py",
       "source_location": "L4135",
       "id": "decky_offline_soluce_main_plugin_slugify_title",
-      "community": 85,
+      "community": 30,
       "norm_label": "._slugify_title()"
     },
     {
@@ -1595,7 +1595,7 @@
       "source_file": "main.py",
       "source_location": "L4140",
       "id": "decky_offline_soluce_main_plugin_dedupe_casefold",
-      "community": 85,
+      "community": 113,
       "norm_label": "._dedupe_casefold()"
     },
     {
@@ -1613,7 +1613,7 @@
       "source_file": "main.py",
       "source_location": "L4166",
       "id": "decky_offline_soluce_main_plugin_search_site",
-      "community": 113,
+      "community": 28,
       "norm_label": "._search_site()"
     },
     {
@@ -1622,7 +1622,7 @@
       "source_file": "main.py",
       "source_location": "L4237",
       "id": "decky_offline_soluce_main_plugin_build_search_keywords",
-      "community": 113,
+      "community": 28,
       "norm_label": "._build_search_keywords()"
     },
     {
@@ -1631,7 +1631,7 @@
       "source_file": "main.py",
       "source_location": "L4248",
       "id": "decky_offline_soluce_main_plugin_build_duckduckgo_search_url",
-      "community": 113,
+      "community": 28,
       "norm_label": "._build_duckduckgo_search_url()"
     },
     {
@@ -1640,7 +1640,7 @@
       "source_file": "main.py",
       "source_location": "L4251",
       "id": "decky_offline_soluce_main_plugin_download_search_page",
-      "community": 113,
+      "community": 28,
       "norm_label": "._download_search_page()"
     },
     {
@@ -1658,7 +1658,7 @@
       "source_file": "main.py",
       "source_location": "L4408",
       "id": "decky_offline_soluce_main_plugin_normalize_search_result_url",
-      "community": 113,
+      "community": 28,
       "norm_label": "._normalize_search_result_url()"
     },
     {
@@ -1694,7 +1694,7 @@
       "source_file": "main.py",
       "source_location": "L4581",
       "id": "decky_offline_soluce_main_plugin_looks_like_guide_result",
-      "community": 113,
+      "community": 28,
       "norm_label": "._looks_like_guide_result()"
     },
     {
@@ -1703,7 +1703,7 @@
       "source_file": "main.py",
       "source_location": "L4615",
       "id": "decky_offline_soluce_main_plugin_score_search_result",
-      "community": 113,
+      "community": 28,
       "norm_label": "._score_search_result()"
     },
     {
@@ -1712,7 +1712,7 @@
       "source_file": "main.py",
       "source_location": "L4679",
       "id": "decky_offline_soluce_main_plugin_strip_cross_page_boilerplate",
-      "community": 103,
+      "community": 65,
       "norm_label": "._strip_cross_page_boilerplate()"
     },
     {
@@ -1820,7 +1820,7 @@
       "source_file": "main.py",
       "source_location": "L5475",
       "id": "decky_offline_soluce_main_plugin_extract_title",
-      "community": 88,
+      "community": 30,
       "norm_label": "._extract_title()"
     },
     {
@@ -1982,7 +1982,7 @@
       "source_file": "main.py",
       "source_location": "L6022",
       "id": "decky_offline_soluce_main_plugin_is_heading_marker_line",
-      "community": 28,
+      "community": 100,
       "norm_label": "._is_heading_marker_line()"
     },
     {
@@ -2036,7 +2036,7 @@
       "source_file": "main.py",
       "source_location": "L6239",
       "id": "decky_offline_soluce_main_plugin_remove_leading_duplicate_title",
-      "community": 113,
+      "community": 100,
       "norm_label": "._remove_leading_duplicate_title()"
     },
     {
@@ -2045,7 +2045,7 @@
       "source_file": "main.py",
       "source_location": "L6279",
       "id": "decky_offline_soluce_main_plugin_prettify_game_slug",
-      "community": 28,
+      "community": 100,
       "norm_label": "._prettify_game_slug()"
     },
     {
@@ -2063,7 +2063,7 @@
       "source_file": "main.py",
       "source_location": "L6363",
       "id": "decky_offline_soluce_main_plugin_looks_generic_title",
-      "community": 28,
+      "community": 100,
       "norm_label": "._looks_generic_title()"
     },
     {
@@ -2081,7 +2081,7 @@
       "source_file": "main.py",
       "source_location": "L6396",
       "id": "decky_offline_soluce_main_plugin_vally8_slug_title",
-      "community": 28,
+      "community": 100,
       "norm_label": "._vally8_slug_title()"
     },
     {
@@ -2090,7 +2090,7 @@
       "source_file": "main.py",
       "source_location": "L6405",
       "id": "decky_offline_soluce_main_plugin_derive_page_display_title",
-      "community": 28,
+      "community": 100,
       "norm_label": "._derive_page_display_title()"
     },
     {
@@ -2099,7 +2099,7 @@
       "source_file": "main.py",
       "source_location": "L6452",
       "id": "decky_offline_soluce_main_plugin_looks_like_noise_title",
-      "community": 28,
+      "community": 100,
       "norm_label": "._looks_like_noise_title()"
     },
     {
@@ -2144,7 +2144,7 @@
       "source_file": "main.py",
       "source_location": "L6610",
       "id": "decky_offline_soluce_main_plugin_content_signature",
-      "community": 28,
+      "community": 100,
       "norm_label": "._content_signature()"
     },
     {
@@ -2178,7 +2178,7 @@
       "label": "._is_prose_heading()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L6803",
+      "source_location": "L6815",
       "id": "decky_offline_soluce_main_plugin_is_prose_heading",
       "community": 83,
       "norm_label": "._is_prose_heading()"
@@ -2187,7 +2187,7 @@
       "label": "._merge_prose_titled_sections()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L6861",
+      "source_location": "L6873",
       "id": "decky_offline_soluce_main_plugin_merge_prose_titled_sections",
       "community": 50,
       "norm_label": "._merge_prose_titled_sections()"
@@ -2196,7 +2196,7 @@
       "label": "._looks_letter_spaced()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L6910",
+      "source_location": "L6922",
       "id": "decky_offline_soluce_main_plugin_looks_letter_spaced",
       "community": 67,
       "norm_label": "._looks_letter_spaced()"
@@ -2205,7 +2205,7 @@
       "label": "._unspace_title()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L6922",
+      "source_location": "L6934",
       "id": "decky_offline_soluce_main_plugin_unspace_title",
       "community": 66,
       "norm_label": "._unspace_title()"
@@ -2214,7 +2214,7 @@
       "label": "._clean_spaced_and_leader_title()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L6950",
+      "source_location": "L6962",
       "id": "decky_offline_soluce_main_plugin_clean_spaced_and_leader_title",
       "community": 75,
       "norm_label": "._clean_spaced_and_leader_title()"
@@ -2223,7 +2223,7 @@
       "label": "._normalize_gamefaqs_titles()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L6963",
+      "source_location": "L6975",
       "id": "decky_offline_soluce_main_plugin_normalize_gamefaqs_titles",
       "community": 60,
       "norm_label": "._normalize_gamefaqs_titles()"
@@ -2232,7 +2232,7 @@
       "label": "._polish_section_titles()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L6982",
+      "source_location": "L6994",
       "id": "decky_offline_soluce_main_plugin_polish_section_titles",
       "community": 14,
       "norm_label": "._polish_section_titles()"
@@ -2241,7 +2241,7 @@
       "label": "._detect_meta_faq_section_titles()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L7086",
+      "source_location": "L7098",
       "id": "decky_offline_soluce_main_plugin_detect_meta_faq_section_titles",
       "community": 43,
       "norm_label": "._detect_meta_faq_section_titles()"
@@ -2250,7 +2250,7 @@
       "label": "._truncate_long_titles()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L7124",
+      "source_location": "L7136",
       "id": "decky_offline_soluce_main_plugin_truncate_long_titles",
       "community": 34,
       "norm_label": "._truncate_long_titles()"
@@ -2259,16 +2259,16 @@
       "label": "._trim_trailing_title_decoration()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L7156",
+      "source_location": "L7168",
       "id": "decky_offline_soluce_main_plugin_trim_trailing_title_decoration",
-      "community": 68,
+      "community": 85,
       "norm_label": "._trim_trailing_title_decoration()"
     },
     {
       "label": "._strip_inherited_prefixes()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L7172",
+      "source_location": "L7184",
       "id": "decky_offline_soluce_main_plugin_strip_inherited_prefixes",
       "community": 45,
       "norm_label": "._strip_inherited_prefixes()"
@@ -2277,7 +2277,7 @@
       "label": "._number_consecutive_duplicates()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L7212",
+      "source_location": "L7224",
       "id": "decky_offline_soluce_main_plugin_number_consecutive_duplicates",
       "community": 26,
       "norm_label": "._number_consecutive_duplicates()"
@@ -2286,7 +2286,7 @@
       "label": "._split_large_sections()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L7286",
+      "source_location": "L7298",
       "id": "decky_offline_soluce_main_plugin_split_large_sections",
       "community": 53,
       "norm_label": "._split_large_sections()"
@@ -2295,7 +2295,7 @@
       "label": "._char_chunk_boundaries()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L7326",
+      "source_location": "L7338",
       "id": "decky_offline_soluce_main_plugin_char_chunk_boundaries",
       "community": 64,
       "norm_label": "._char_chunk_boundaries()"
@@ -2304,7 +2304,7 @@
       "label": "._split_large_sections_once()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L7354",
+      "source_location": "L7366",
       "id": "decky_offline_soluce_main_plugin_split_large_sections_once",
       "community": 33,
       "norm_label": "._split_large_sections_once()"
@@ -2313,7 +2313,7 @@
       "label": "._sections_from_starts()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L7471",
+      "source_location": "L7483",
       "id": "decky_offline_soluce_main_plugin_sections_from_starts",
       "community": 42,
       "norm_label": "._sections_from_starts()"
@@ -2322,7 +2322,7 @@
       "label": "._sections_from_toc_codes()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L7493",
+      "source_location": "L7505",
       "id": "decky_offline_soluce_main_plugin_sections_from_toc_codes",
       "community": 32,
       "norm_label": "._sections_from_toc_codes()"
@@ -2331,7 +2331,7 @@
       "label": "._group_pages_by_chapter()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L7610",
+      "source_location": "L7622",
       "id": "decky_offline_soluce_main_plugin_group_pages_by_chapter",
       "community": 114,
       "norm_label": "._group_pages_by_chapter()"
@@ -2340,16 +2340,16 @@
       "label": "._group_pages_by_hub()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L7633",
+      "source_location": "L7645",
       "id": "decky_offline_soluce_main_plugin_group_pages_by_hub",
-      "community": 68,
+      "community": 88,
       "norm_label": "._group_pages_by_hub()"
     },
     {
       "label": "._sections_from_asterisk_toc()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L7719",
+      "source_location": "L7731",
       "id": "decky_offline_soluce_main_plugin_sections_from_asterisk_toc",
       "community": 107,
       "norm_label": "._sections_from_asterisk_toc()"
@@ -2358,7 +2358,7 @@
       "label": "._sections_from_dotcode_toc()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L7827",
+      "source_location": "L7839",
       "id": "decky_offline_soluce_main_plugin_sections_from_dotcode_toc",
       "community": 105,
       "norm_label": "._sections_from_dotcode_toc()"
@@ -2367,7 +2367,7 @@
       "label": "._is_toc_subcode()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L7938",
+      "source_location": "L7950",
       "id": "decky_offline_soluce_main_plugin_is_toc_subcode",
       "community": 106,
       "norm_label": "._is_toc_subcode()"
@@ -2376,16 +2376,34 @@
       "label": "._sections_from_numbered_toc()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L7952",
+      "source_location": "L7964",
       "id": "decky_offline_soluce_main_plugin_sections_from_numbered_toc",
       "community": 8,
       "norm_label": "._sections_from_numbered_toc()"
     },
     {
+      "label": "._acronym_title_case()",
+      "file_type": "code",
+      "source_file": "main.py",
+      "source_location": "L8096",
+      "id": "decky_offline_soluce_main_plugin_acronym_title_case",
+      "community": 100,
+      "norm_label": "._acronym_title_case()"
+    },
+    {
+      "label": "._sections_from_box_headers()",
+      "file_type": "code",
+      "source_file": "main.py",
+      "source_location": "L8118",
+      "id": "decky_offline_soluce_main_plugin_sections_from_box_headers",
+      "community": 100,
+      "norm_label": "._sections_from_box_headers()"
+    },
+    {
       "label": "._find_toc_dense_zone()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L8084",
+      "source_location": "L8179",
       "id": "decky_offline_soluce_main_plugin_find_toc_dense_zone",
       "community": 38,
       "norm_label": "._find_toc_dense_zone()"
@@ -2394,7 +2412,7 @@
       "label": "._sections_from_ascii_banners()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L8129",
+      "source_location": "L8224",
       "id": "decky_offline_soluce_main_plugin_sections_from_ascii_banners",
       "community": 44,
       "norm_label": "._sections_from_ascii_banners()"
@@ -2403,7 +2421,7 @@
       "label": "._sections_from_heuristic()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L8221",
+      "source_location": "L8316",
       "id": "decky_offline_soluce_main_plugin_sections_from_heuristic",
       "community": 35,
       "norm_label": "._sections_from_heuristic()"
@@ -2412,7 +2430,7 @@
       "label": "._merge_small_sections()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L8314",
+      "source_location": "L8409",
       "id": "decky_offline_soluce_main_plugin_merge_small_sections",
       "community": 2,
       "norm_label": "._merge_small_sections()"
@@ -2421,7 +2439,7 @@
       "label": "._make_id()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L8380",
+      "source_location": "L8475",
       "id": "decky_offline_soluce_main_plugin_make_id",
       "community": 30,
       "norm_label": "._make_id()"
@@ -2430,7 +2448,7 @@
       "label": "._make_snippet()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L8387",
+      "source_location": "L8482",
       "id": "decky_offline_soluce_main_plugin_make_snippet",
       "community": 30,
       "norm_label": "._make_snippet()"
@@ -2439,18 +2457,18 @@
       "label": "._site_name()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L8391",
+      "source_location": "L8486",
       "id": "decky_offline_soluce_main_plugin_site_name",
-      "community": 88,
+      "community": 30,
       "norm_label": "._site_name()"
     },
     {
       "label": "._clean_inline_text()",
       "file_type": "code",
       "source_file": "main.py",
-      "source_location": "L8395",
+      "source_location": "L8490",
       "id": "decky_offline_soluce_main_plugin_clean_inline_text",
-      "community": 113,
+      "community": 100,
       "norm_label": "._clean_inline_text()"
     },
     {
@@ -2513,7 +2531,7 @@
       "source_file": "main.py",
       "source_location": "L751",
       "id": "decky_offline_soluce_main_rationale_751",
-      "community": 88,
+      "community": 30,
       "norm_label": "multi-engine search result parser.          strategy: first try engine-specific"
     },
     {
@@ -2549,7 +2567,7 @@
       "source_file": "main.py",
       "source_location": "L1254",
       "id": "decky_offline_soluce_main_rationale_1254",
-      "community": 115,
+      "community": 3,
       "norm_label": "v0.43.44: library cleanup scan. returns guides that look empty/incomplete"
     },
     {
@@ -2639,7 +2657,7 @@
       "source_file": "main.py",
       "source_location": "L1706",
       "id": "decky_offline_soluce_main_rationale_1706",
-      "community": 68,
+      "community": 85,
       "norm_label": "v0.43.20: shared sectioning used by both import and re-dl/reload.          multi"
     },
     {
@@ -2810,7 +2828,7 @@
       "source_file": "main.py",
       "source_location": "L4680",
       "id": "decky_offline_soluce_main_rationale_4680",
-      "community": 103,
+      "community": 65,
       "norm_label": "v0.43.24: remove nav/footer lines a multi-page site repeats on nearly         ev"
     },
     {
@@ -2873,7 +2891,7 @@
       "source_file": "main.py",
       "source_location": "L5136",
       "id": "decky_offline_soluce_main_rationale_5136",
-      "community": 49,
+      "community": 39,
       "norm_label": "return internal urls whose path starts with base_prefix.          used to follow"
     },
     {
@@ -3033,8 +3051,8 @@
       "label": "v0.42.9: True if `title` looks like a prose sentence / mid-content         fragm",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L6804",
-      "id": "decky_offline_soluce_main_rationale_6804",
+      "source_location": "L6816",
+      "id": "decky_offline_soluce_main_rationale_6816",
       "community": 83,
       "norm_label": "v0.42.9: true if `title` looks like a prose sentence / mid-content         fragm"
     },
@@ -3042,8 +3060,8 @@
       "label": "v0.42.9: absorb prose-titled sections into their neighbor (previous,         or",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L6862",
-      "id": "decky_offline_soluce_main_rationale_6862",
+      "source_location": "L6874",
+      "id": "decky_offline_soluce_main_rationale_6874",
       "community": 50,
       "norm_label": "v0.42.9: absorb prose-titled sections into their neighbor (previous,         or"
     },
@@ -3051,8 +3069,8 @@
       "label": "v0.43.8: True if `title` is a GameFAQs-style letter-spaced ALL-CAPS         bann",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L6911",
-      "id": "decky_offline_soluce_main_rationale_6911",
+      "source_location": "L6923",
+      "id": "decky_offline_soluce_main_rationale_6923",
       "community": 67,
       "norm_label": "v0.43.8: true if `title` is a gamefaqs-style letter-spaced all-caps         bann"
     },
@@ -3060,8 +3078,8 @@
       "label": "v0.43.8: rebuild a letter-spaced banner into words. Word boundaries         surv",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L6923",
-      "id": "decky_offline_soluce_main_rationale_6923",
+      "source_location": "L6935",
+      "id": "decky_offline_soluce_main_rationale_6935",
       "community": 66,
       "norm_label": "v0.43.8: rebuild a letter-spaced banner into words. word boundaries         surv"
     },
@@ -3069,8 +3087,8 @@
       "label": "v0.43.8: drop the dotted-leader TOC tail, then un-space if the title         is",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L6951",
-      "id": "decky_offline_soluce_main_rationale_6951",
+      "source_location": "L6963",
+      "id": "decky_offline_soluce_main_rationale_6963",
       "community": 75,
       "norm_label": "v0.43.8: drop the dotted-leader toc tail, then un-space if the title         is"
     },
@@ -3078,8 +3096,8 @@
       "label": "v0.43.8: STEP 0 of title polishing \u2014 clean dotted-leader tails and         un-sp",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L6964",
-      "id": "decky_offline_soluce_main_rationale_6964",
+      "source_location": "L6976",
+      "id": "decky_offline_soluce_main_rationale_6976",
       "community": 60,
       "norm_label": "v0.43.8: step 0 of title polishing \u2014 clean dotted-leader tails and         un-sp"
     },
@@ -3087,17 +3105,17 @@
       "label": "v0.42.0: clean up section titles for sidebar readability.          Three transfo",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L6983",
-      "id": "decky_offline_soluce_main_rationale_6983",
-      "community": 43,
+      "source_location": "L6995",
+      "id": "decky_offline_soluce_main_rationale_6995",
+      "community": 14,
       "norm_label": "v0.42.0: clean up section titles for sidebar readability.          three transfo"
     },
     {
       "label": "v0.42.3: identify section titles that look like FAQ meta-content         (author",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L7089",
-      "id": "decky_offline_soluce_main_rationale_7089",
+      "source_location": "L7101",
+      "id": "decky_offline_soluce_main_rationale_7101",
       "community": 43,
       "norm_label": "v0.42.3: identify section titles that look like faq meta-content         (author"
     },
@@ -3105,8 +3123,8 @@
       "label": "v0.42.2: shorten titles > TITLE_MAX_CHARS by cutting at the nearest         word",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L7125",
-      "id": "decky_offline_soluce_main_rationale_7125",
+      "source_location": "L7137",
+      "id": "decky_offline_soluce_main_rationale_7137",
       "community": 34,
       "norm_label": "v0.42.2: shorten titles > title_max_chars by cutting at the nearest         word"
     },
@@ -3114,8 +3132,8 @@
       "label": "When 3+ consecutive sections share a prefix of >= 25 chars ending at         a h",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L7173",
-      "id": "decky_offline_soluce_main_rationale_7173",
+      "source_location": "L7185",
+      "id": "decky_offline_soluce_main_rationale_7185",
       "community": 45,
       "norm_label": "when 3+ consecutive sections share a prefix of >= 25 chars ending at         a h"
     },
@@ -3123,17 +3141,17 @@
       "label": "When N+ consecutive sections share the same base title (ignoring any         ``(",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L7213",
-      "id": "decky_offline_soluce_main_rationale_7213",
-      "community": 64,
+      "source_location": "L7225",
+      "id": "decky_offline_soluce_main_rationale_7225",
+      "community": 26,
       "norm_label": "when n+ consecutive sections share the same base title (ignoring any         ``("
     },
     {
       "label": "Iterative wrapper around _split_large_sections_once: re-applies the         same",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L7293",
-      "id": "decky_offline_soluce_main_rationale_7293",
+      "source_location": "L7305",
+      "id": "decky_offline_soluce_main_rationale_7305",
       "community": 53,
       "norm_label": "iterative wrapper around _split_large_sections_once: re-applies the         same"
     },
@@ -3141,8 +3159,8 @@
       "label": "v0.42.18: split a line range into (start, end) chunks, each capped at         BO",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L7327",
-      "id": "decky_offline_soluce_main_rationale_7327",
+      "source_location": "L7339",
+      "id": "decky_offline_soluce_main_rationale_7339",
       "community": 64,
       "norm_label": "v0.42.18: split a line range into (start, end) chunks, each capped at         bo"
     },
@@ -3150,8 +3168,8 @@
       "label": "One pass of the split algorithm (see _split_large_sections for the         itera",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L7360",
-      "id": "decky_offline_soluce_main_rationale_7360",
+      "source_location": "L7372",
+      "id": "decky_offline_soluce_main_rationale_7372",
       "community": 33,
       "norm_label": "one pass of the split algorithm (see _split_large_sections for the         itera"
     },
@@ -3159,8 +3177,8 @@
       "label": "Turn a list of (line_index, title, heading_level) into GuideSection         reco",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L7476",
-      "id": "decky_offline_soluce_main_rationale_7476",
+      "source_location": "L7488",
+      "id": "decky_offline_soluce_main_rationale_7488",
       "community": 42,
       "norm_label": "turn a list of (line_index, title, heading_level) into guidesection         reco"
     },
@@ -3168,8 +3186,8 @@
       "label": "Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typical",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L7494",
-      "id": "decky_offline_soluce_main_rationale_7494",
+      "source_location": "L7506",
+      "id": "decky_offline_soluce_main_rationale_7506",
       "community": 32,
       "norm_label": "detect a gamefaqs-style table of contents with [code] markers.          typical"
     },
@@ -3177,8 +3195,8 @@
       "label": "v0.43.40: nest a short run of per-page sections under a preceding         'Chapt",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L7611",
-      "id": "decky_offline_soluce_main_rationale_7611",
+      "source_location": "L7623",
+      "id": "decky_offline_soluce_main_rationale_7623",
       "community": 114,
       "norm_label": "v0.43.40: nest a short run of per-page sections under a preceding         'chapt"
     },
@@ -3186,17 +3204,17 @@
       "label": "v0.43.42: group flat per-page guides (IGN Disco Elysium) by CONTENT links,",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L7634",
-      "id": "decky_offline_soluce_main_rationale_7634",
-      "community": 68,
+      "source_location": "L7646",
+      "id": "decky_offline_soluce_main_rationale_7646",
+      "community": 88,
       "norm_label": "v0.43.42: group flat per-page guides (ign disco elysium) by content links,"
     },
     {
       "label": "v0.43.38: GameFAQs TOC that anchors sections with *CODE search markers         (",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L7720",
-      "id": "decky_offline_soluce_main_rationale_7720",
+      "source_location": "L7732",
+      "id": "decky_offline_soluce_main_rationale_7732",
       "community": 107,
       "norm_label": "v0.43.38: gamefaqs toc that anchors sections with *code search markers         ("
     },
@@ -3204,8 +3222,8 @@
       "label": "v0.43.39: GameFAQs TOC where each entry is \"<Clean Title> \u2026dots\u2026 CODE\"         (",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L7828",
-      "id": "decky_offline_soluce_main_rationale_7828",
+      "source_location": "L7840",
+      "id": "decky_offline_soluce_main_rationale_7840",
       "community": 105,
       "norm_label": "v0.43.39: gamefaqs toc where each entry is \"<clean title> ...dots... code\"         ("
     },
@@ -3213,8 +3231,8 @@
       "label": "v0.43.38: is `code` a genuine sub-entry of the top-level `parent` code?",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L7939",
-      "id": "decky_offline_soluce_main_rationale_7939",
+      "source_location": "L7951",
+      "id": "decky_offline_soluce_main_rationale_7951",
       "community": 106,
       "norm_label": "v0.43.38: is `code` a genuine sub-entry of the top-level `parent` code?"
     },
@@ -3222,17 +3240,35 @@
       "label": "Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Comm",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L7953",
-      "id": "decky_offline_soluce_main_rationale_7953",
+      "source_location": "L7965",
+      "id": "decky_offline_soluce_main_rationale_7965",
       "community": 8,
       "norm_label": "detect tocs that use numbered/lettered ids without [code] markers.          comm"
+    },
+    {
+      "label": "Title-case ALLCAPS banner text while preserving short acronyms.          \"FAQ IN",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L8097",
+      "id": "decky_offline_soluce_main_rationale_8097",
+      "community": 100,
+      "norm_label": "title-case allcaps banner text while preserving short acronyms.          \"faq in"
+    },
+    {
+      "label": "Detect the boxed dotted-number heading format used by \"Gurus Network\"         st",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L8119",
+      "id": "decky_offline_soluce_main_rationale_8119",
+      "community": 100,
+      "norm_label": "detect the boxed dotted-number heading format used by \"gurus network\"         st"
     },
     {
       "label": "Find a TOC by detecting a run of code-bearing lines without a header.          H",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L8085",
-      "id": "decky_offline_soluce_main_rationale_8085",
+      "source_location": "L8180",
+      "id": "decky_offline_soluce_main_rationale_8180",
       "community": 38,
       "norm_label": "find a toc by detecting a run of code-bearing lines without a header.          h"
     },
@@ -3240,8 +3276,8 @@
       "label": "Detect banner-style headings common in plain-text FAQs:          Pattern A (boxe",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L8130",
-      "id": "decky_offline_soluce_main_rationale_8130",
+      "source_location": "L8225",
+      "id": "decky_offline_soluce_main_rationale_8225",
       "community": 44,
       "norm_label": "detect banner-style headings common in plain-text faqs:          pattern a (boxe"
     },
@@ -3249,8 +3285,8 @@
       "label": "Last-resort heuristic. Stricter than before:          - ALL-CAPS lines must have",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L8222",
-      "id": "decky_offline_soluce_main_rationale_8222",
+      "source_location": "L8317",
+      "id": "decky_offline_soluce_main_rationale_8317",
       "community": 35,
       "norm_label": "last-resort heuristic. stricter than before:          - all-caps lines must have"
     },
@@ -3258,8 +3294,8 @@
       "label": "Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real",
       "file_type": "rationale",
       "source_file": "main.py",
-      "source_location": "L8319",
-      "id": "decky_offline_soluce_main_rationale_8319",
+      "source_location": "L8414",
+      "id": "decky_offline_soluce_main_rationale_8414",
       "community": 2,
       "norm_label": "merge sections whose body has fewer than min_section_content_lines         real"
     },
@@ -6072,6 +6108,231 @@
       "norm_label": "honesty rules"
     },
     {
+      "label": "v0.42.9: True if `title` looks like a prose sentence / mid-content         fragm",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L6804",
+      "community": 83,
+      "norm_label": "v0.42.9: true if `title` looks like a prose sentence / mid-content         fragm",
+      "id": "decky_offline_soluce_main_rationale_6804"
+    },
+    {
+      "label": "v0.42.9: absorb prose-titled sections into their neighbor (previous,         or",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L6862",
+      "community": 50,
+      "norm_label": "v0.42.9: absorb prose-titled sections into their neighbor (previous,         or",
+      "id": "decky_offline_soluce_main_rationale_6862"
+    },
+    {
+      "label": "v0.43.8: True if `title` is a GameFAQs-style letter-spaced ALL-CAPS         bann",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L6911",
+      "community": 67,
+      "norm_label": "v0.43.8: true if `title` is a gamefaqs-style letter-spaced all-caps         bann",
+      "id": "decky_offline_soluce_main_rationale_6911"
+    },
+    {
+      "label": "v0.43.8: drop the dotted-leader TOC tail, then un-space if the title         is",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L6951",
+      "community": 75,
+      "norm_label": "v0.43.8: drop the dotted-leader toc tail, then un-space if the title         is",
+      "id": "decky_offline_soluce_main_rationale_6951"
+    },
+    {
+      "label": "v0.43.8: STEP 0 of title polishing \u2014 clean dotted-leader tails and         un-sp",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L6964",
+      "community": 60,
+      "norm_label": "v0.43.8: step 0 of title polishing \u2014 clean dotted-leader tails and         un-sp",
+      "id": "decky_offline_soluce_main_rationale_6964"
+    },
+    {
+      "label": "v0.42.0: clean up section titles for sidebar readability.          Three transfo",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L6983",
+      "community": 43,
+      "norm_label": "v0.42.0: clean up section titles for sidebar readability.          three transfo",
+      "id": "decky_offline_soluce_main_rationale_6983"
+    },
+    {
+      "label": "v0.42.3: identify section titles that look like FAQ meta-content         (author",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L7089",
+      "community": 43,
+      "norm_label": "v0.42.3: identify section titles that look like faq meta-content         (author",
+      "id": "decky_offline_soluce_main_rationale_7089"
+    },
+    {
+      "label": "v0.42.2: shorten titles > TITLE_MAX_CHARS by cutting at the nearest         word",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L7125",
+      "community": 34,
+      "norm_label": "v0.42.2: shorten titles > title_max_chars by cutting at the nearest         word",
+      "id": "decky_offline_soluce_main_rationale_7125"
+    },
+    {
+      "label": "When 3+ consecutive sections share a prefix of >= 25 chars ending at         a h",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L7173",
+      "community": 26,
+      "norm_label": "when 3+ consecutive sections share a prefix of >= 25 chars ending at         a h",
+      "id": "decky_offline_soluce_main_rationale_7173"
+    },
+    {
+      "label": "When N+ consecutive sections share the same base title (ignoring any         ``(",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L7213",
+      "community": 64,
+      "norm_label": "when n+ consecutive sections share the same base title (ignoring any         ``(",
+      "id": "decky_offline_soluce_main_rationale_7213"
+    },
+    {
+      "label": "Iterative wrapper around _split_large_sections_once: re-applies the         same",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L7293",
+      "community": 53,
+      "norm_label": "iterative wrapper around _split_large_sections_once: re-applies the         same",
+      "id": "decky_offline_soluce_main_rationale_7293"
+    },
+    {
+      "label": "v0.42.18: split a line range into (start, end) chunks, each capped at         BO",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L7327",
+      "community": 64,
+      "norm_label": "v0.42.18: split a line range into (start, end) chunks, each capped at         bo",
+      "id": "decky_offline_soluce_main_rationale_7327"
+    },
+    {
+      "label": "One pass of the split algorithm (see _split_large_sections for the         itera",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L7360",
+      "community": 33,
+      "norm_label": "one pass of the split algorithm (see _split_large_sections for the         itera",
+      "id": "decky_offline_soluce_main_rationale_7360"
+    },
+    {
+      "label": "Turn a list of (line_index, title, heading_level) into GuideSection         reco",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L7476",
+      "community": 42,
+      "norm_label": "turn a list of (line_index, title, heading_level) into guidesection         reco",
+      "id": "decky_offline_soluce_main_rationale_7476"
+    },
+    {
+      "label": "Detect a GameFAQs-style Table of Contents with [CODE] markers.          Typical",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L7494",
+      "community": 32,
+      "norm_label": "detect a gamefaqs-style table of contents with [code] markers.          typical",
+      "id": "decky_offline_soluce_main_rationale_7494"
+    },
+    {
+      "label": "v0.43.40: nest a short run of per-page sections under a preceding         'Chapt",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L7611",
+      "community": 114,
+      "norm_label": "v0.43.40: nest a short run of per-page sections under a preceding         'chapt",
+      "id": "decky_offline_soluce_main_rationale_7611"
+    },
+    {
+      "label": "v0.43.42: group flat per-page guides (IGN Disco Elysium) by CONTENT links,",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L7634",
+      "community": 88,
+      "norm_label": "v0.43.42: group flat per-page guides (ign disco elysium) by content links,",
+      "id": "decky_offline_soluce_main_rationale_7634"
+    },
+    {
+      "label": "v0.43.38: GameFAQs TOC that anchors sections with *CODE search markers         (",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L7720",
+      "community": 107,
+      "norm_label": "v0.43.38: gamefaqs toc that anchors sections with *code search markers         (",
+      "id": "decky_offline_soluce_main_rationale_7720"
+    },
+    {
+      "label": "v0.43.39: GameFAQs TOC where each entry is \"<Clean Title> \u2026dots\u2026 CODE\"         (",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L7828",
+      "community": 105,
+      "norm_label": "v0.43.39: gamefaqs toc where each entry is \"<clean title> ...dots... code\"         (",
+      "id": "decky_offline_soluce_main_rationale_7828"
+    },
+    {
+      "label": "v0.43.38: is `code` a genuine sub-entry of the top-level `parent` code?",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L7939",
+      "community": 106,
+      "norm_label": "v0.43.38: is `code` a genuine sub-entry of the top-level `parent` code?",
+      "id": "decky_offline_soluce_main_rationale_7939"
+    },
+    {
+      "label": "Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Comm",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L7953",
+      "community": 8,
+      "norm_label": "detect tocs that use numbered/lettered ids without [code] markers.          comm",
+      "id": "decky_offline_soluce_main_rationale_7953"
+    },
+    {
+      "label": "Find a TOC by detecting a run of code-bearing lines without a header.          H",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L8085",
+      "community": 38,
+      "norm_label": "find a toc by detecting a run of code-bearing lines without a header.          h",
+      "id": "decky_offline_soluce_main_rationale_8085"
+    },
+    {
+      "label": "Detect banner-style headings common in plain-text FAQs:          Pattern A (boxe",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L8130",
+      "community": 44,
+      "norm_label": "detect banner-style headings common in plain-text faqs:          pattern a (boxe",
+      "id": "decky_offline_soluce_main_rationale_8130"
+    },
+    {
+      "label": "Last-resort heuristic. Stricter than before:          - ALL-CAPS lines must have",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L8222",
+      "community": 35,
+      "norm_label": "last-resort heuristic. stricter than before:          - all-caps lines must have",
+      "id": "decky_offline_soluce_main_rationale_8222"
+    },
+    {
+      "label": "Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real",
+      "file_type": "rationale",
+      "source_file": "main.py",
+      "source_location": "L8319",
+      "community": 2,
+      "norm_label": "merge sections whose body has fewer than min_section_content_lines         real",
+      "id": "decky_offline_soluce_main_rationale_8319"
+    },
+    {
       "label": "Minimal HTML entity unescaping fallback.",
       "file_type": "rationale",
       "source_file": "main.py",
@@ -6130,7 +6391,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L750",
-      "community": 88,
+      "community": 30,
       "norm_label": "multi-engine search result parser.          strategy: first try engine-specific",
       "id": "decky_offline_soluce_main_rationale_750"
     },
@@ -6166,7 +6427,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L1249",
-      "community": 115,
+      "community": 3,
       "norm_label": "v0.43.44: library cleanup scan. returns guides that look empty/incomplete",
       "id": "decky_offline_soluce_main_rationale_1249"
     },
@@ -6256,7 +6517,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L1701",
-      "community": 47,
+      "community": 85,
       "norm_label": "v0.43.20: shared sectioning used by both import and re-dl/reload.          multi",
       "id": "decky_offline_soluce_main_rationale_1701"
     },
@@ -6427,7 +6688,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L4646",
-      "community": 103,
+      "community": 65,
       "norm_label": "v0.43.24: remove nav/footer lines a multi-page site repeats on nearly         ev",
       "id": "decky_offline_soluce_main_rationale_4646"
     },
@@ -6787,7 +7048,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L7594",
-      "community": 68,
+      "community": 88,
       "norm_label": "v0.43.42: group flat per-page guides (ign disco elysium) by content links,",
       "id": "decky_offline_soluce_main_rationale_7594"
     },
@@ -7057,7 +7318,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L7584",
-      "community": 68,
+      "community": 88,
       "norm_label": "v0.43.42: group flat per-page guides (ign disco elysium) by content links,",
       "id": "decky_offline_soluce_main_rationale_7584"
     },
@@ -7093,7 +7354,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L7903",
-      "community": 44,
+      "community": 8,
       "norm_label": "detect tocs that use numbered/lettered ids without [code] markers.          comm",
       "id": "decky_offline_soluce_main_rationale_7903"
     },
@@ -7282,7 +7543,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L1681",
-      "community": 47,
+      "community": 85,
       "norm_label": "v0.43.20: shared sectioning used by both import and re-dl/reload.          multi",
       "id": "decky_offline_soluce_main_rationale_1681"
     },
@@ -7444,7 +7705,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L4612",
-      "community": 103,
+      "community": 65,
       "norm_label": "v0.43.24: remove nav/footer lines a multi-page site repeats on nearly         ev",
       "id": "decky_offline_soluce_main_rationale_4612"
     },
@@ -7525,7 +7786,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L5624",
-      "community": 48,
+      "community": 36,
       "norm_label": "v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         uses",
       "id": "decky_offline_soluce_main_rationale_5624"
     },
@@ -7795,7 +8056,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L7550",
-      "community": 68,
+      "community": 88,
       "norm_label": "v0.43.42: group flat per-page guides (ign disco elysium) by content links,",
       "id": "decky_offline_soluce_main_rationale_7550"
     },
@@ -7966,7 +8227,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L7536",
-      "community": 68,
+      "community": 88,
       "norm_label": "v0.43.42: group flat per-page guides (ign disco elysium) by content links,",
       "id": "decky_offline_soluce_main_rationale_7536"
     },
@@ -8191,7 +8452,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L4611",
-      "community": 103,
+      "community": 65,
       "norm_label": "v0.43.24: remove nav/footer lines a multi-page site repeats on nearly         ev",
       "id": "decky_offline_soluce_main_rationale_4611"
     },
@@ -8335,7 +8596,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L6003",
-      "community": 67,
+      "community": 55,
       "norm_label": "v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bou",
       "id": "decky_offline_soluce_main_rationale_6003"
     },
@@ -8563,15 +8824,6 @@
       "community": 105,
       "norm_label": "v0.43.39: gamefaqs toc where each entry is \"<clean title> ...dots... code\"         (",
       "id": "decky_offline_soluce_main_rationale_7621"
-    },
-    {
-      "label": "v0.43.38: is `code` a genuine sub-entry of the top-level `parent` code?",
-      "file_type": "rationale",
-      "source_file": "main.py",
-      "source_location": "L7732",
-      "community": 106,
-      "norm_label": "v0.43.38: is `code` a genuine sub-entry of the top-level `parent` code?",
-      "id": "decky_offline_soluce_main_rationale_7732"
     },
     {
       "label": "Detect TOCs that use numbered/lettered IDs without [CODE] markers.          Comm",
@@ -8821,7 +9073,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L4610",
-      "community": 103,
+      "community": 65,
       "norm_label": "v0.43.24: remove nav/footer lines a multi-page site repeats on nearly         ev",
       "id": "decky_offline_soluce_main_rationale_4610"
     },
@@ -8992,7 +9244,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L6092",
-      "community": 64,
+      "community": 83,
       "norm_label": "detect dense runs of non-prose lines (tables, ascii-art) and wrap them         w",
       "id": "decky_offline_soluce_main_rationale_6092"
     },
@@ -9757,7 +10009,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L4594",
-      "community": 103,
+      "community": 65,
       "norm_label": "v0.43.24: remove nav/footer lines a multi-page site repeats on nearly         ev",
       "id": "decky_offline_soluce_main_rationale_4594"
     },
@@ -9766,7 +10018,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L4628",
-      "community": 65,
+      "community": 6,
       "norm_label": "fetch a guide and all related pages.          bfs queue strategy:           - st",
       "id": "decky_offline_soluce_main_rationale_4628"
     },
@@ -10072,7 +10324,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L7141",
-      "community": 53,
+      "community": 44,
       "norm_label": "iterative wrapper around _split_large_sections_once: re-applies the         same",
       "id": "decky_offline_soluce_main_rationale_7141"
     },
@@ -10270,7 +10522,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L4587",
-      "community": 103,
+      "community": 65,
       "norm_label": "v0.43.24: remove nav/footer lines a multi-page site repeats on nearly         ev",
       "id": "decky_offline_soluce_main_rationale_4587"
     },
@@ -10369,7 +10621,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L5723",
-      "community": 50,
+      "community": 39,
       "norm_label": "collapse runs of 3+ consecutive newlines down to exactly 2.          html extrac",
       "id": "decky_offline_soluce_main_rationale_5723"
     },
@@ -10666,7 +10918,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L749",
-      "community": 88,
+      "community": 30,
       "norm_label": "multi-engine search result parser.          strategy: first try engine-specific",
       "id": "decky_offline_soluce_main_rationale_749"
     },
@@ -10765,7 +11017,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L1676",
-      "community": 68,
+      "community": 85,
       "norm_label": "v0.43.20: shared sectioning used by both import and re-dl/reload.          multi",
       "id": "decky_offline_soluce_main_rationale_1676"
     },
@@ -10900,7 +11152,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L4552",
-      "community": 103,
+      "community": 65,
       "norm_label": "v0.43.24: remove nav/footer lines a multi-page site repeats on nearly         ev",
       "id": "decky_offline_soluce_main_rationale_4552"
     },
@@ -11287,7 +11539,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L737",
-      "community": 88,
+      "community": 30,
       "norm_label": "multi-engine search result parser.          strategy: first try engine-specific",
       "id": "decky_offline_soluce_main_rationale_737"
     },
@@ -11395,7 +11647,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L1705",
-      "community": 47,
+      "community": 68,
       "norm_label": "v0.43.14: sync import body (validate \u2192 crawl \u2192 sections \u2192 save). runs         in",
       "id": "decky_offline_soluce_main_rationale_1705"
     },
@@ -11521,7 +11773,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L4442",
-      "community": 103,
+      "community": 65,
       "norm_label": "v0.43.24: remove nav/footer lines a multi-page site repeats on nearly         ev",
       "id": "decky_offline_soluce_main_rationale_4442"
     },
@@ -11584,7 +11836,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L4878",
-      "community": 36,
+      "community": 49,
       "norm_label": "return internal urls whose path starts with base_prefix.          used to follow",
       "id": "decky_offline_soluce_main_rationale_4878"
     },
@@ -11638,7 +11890,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L5627",
-      "community": 36,
+      "community": 50,
       "norm_label": "strip wayback machine capture chrome that wraps the actual page.          when a",
       "id": "decky_offline_soluce_main_rationale_5627"
     },
@@ -11719,7 +11971,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L6450",
-      "community": 75,
+      "community": 50,
       "norm_label": "v0.42.9: absorb prose-titled sections into their neighbor (previous,         or",
       "id": "decky_offline_soluce_main_rationale_6450"
     },
@@ -11980,7 +12232,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L4218",
-      "community": 72,
+      "community": 94,
       "norm_label": "v0.43.9: parse a serp html page with both the stdlib and the regex         parse",
       "id": "decky_offline_soluce_main_rationale_4218"
     },
@@ -12007,7 +12259,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L4439",
-      "community": 103,
+      "community": 65,
       "norm_label": "v0.43.24: remove nav/footer lines a multi-page site repeats on nearly         ev",
       "id": "decky_offline_soluce_main_rationale_4439"
     },
@@ -12106,7 +12358,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L5575",
-      "community": 39,
+      "community": 36,
       "norm_label": "collapse runs of 3+ consecutive newlines down to exactly 2.          html extrac",
       "id": "decky_offline_soluce_main_rationale_5575"
     },
@@ -12448,7 +12700,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L6340",
-      "community": 83,
+      "community": 64,
       "norm_label": "v0.42.9: true if `title` looks like a prose sentence / mid-content         fragm",
       "id": "decky_offline_soluce_main_rationale_6340"
     },
@@ -13060,7 +13312,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L4409",
-      "community": 103,
+      "community": 65,
       "norm_label": "v0.43.24: remove nav/footer lines a multi-page site repeats on nearly         ev",
       "id": "decky_offline_soluce_main_rationale_4409"
     },
@@ -13114,7 +13366,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L4808",
-      "community": 49,
+      "community": 40,
       "norm_label": "return internal urls whose path starts with base_prefix.          used to follow",
       "id": "decky_offline_soluce_main_rationale_4808"
     },
@@ -13420,7 +13672,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L1654",
-      "community": 68,
+      "community": 85,
       "norm_label": "v0.43.20: shared sectioning used by both import and re-dl/reload.          multi",
       "id": "decky_offline_soluce_main_rationale_1654"
     },
@@ -13546,7 +13798,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L4385",
-      "community": 103,
+      "community": 65,
       "norm_label": "v0.43.24: remove nav/footer lines a multi-page site repeats on nearly         ev",
       "id": "decky_offline_soluce_main_rationale_4385"
     },
@@ -13681,7 +13933,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L5762",
-      "community": 50,
+      "community": 37,
       "norm_label": "detect dense runs of non-prose lines (tables, ascii-art) and wrap them         w",
       "id": "decky_offline_soluce_main_rationale_5762"
     },
@@ -13825,7 +14077,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L7105",
-      "community": 38,
+      "community": 2,
       "norm_label": "find a toc by detecting a run of code-bearing lines without a header.          h",
       "id": "decky_offline_soluce_main_rationale_7105"
     },
@@ -14095,7 +14347,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L6169",
-      "community": 43,
+      "community": 83,
       "norm_label": "v0.42.9: true if `title` looks like a prose sentence / mid-content         fragm",
       "id": "decky_offline_soluce_main_rationale_6169"
     },
@@ -14266,7 +14518,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L6926",
-      "community": 8,
+      "community": 38,
       "norm_label": "detect tocs that use numbered/lettered ids without [code] markers.          comm",
       "id": "decky_offline_soluce_main_rationale_6926"
     },
@@ -14320,7 +14572,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L735",
-      "community": 88,
+      "community": 30,
       "norm_label": "multi-engine search result parser.          strategy: first try engine-specifi",
       "id": "decky_offline_soluce_main_rationale_735"
     },
@@ -14419,7 +14671,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L1652",
-      "community": 68,
+      "community": 85,
       "norm_label": "v0.43.20: shared sectioning used by both import and re-dl/reload.          mul",
       "id": "decky_offline_soluce_main_rationale_1652"
     },
@@ -14842,7 +15094,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L1597",
-      "community": 68,
+      "community": 85,
       "norm_label": "v0.43.20: shared sectioning used by both import and re-dl/reload.          mul",
       "id": "decky_offline_soluce_main_rationale_1597"
     },
@@ -15328,7 +15580,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L743",
-      "community": 88,
+      "community": 30,
       "norm_label": "multi-engine search result parser.          strategy: first try engine-specifi",
       "id": "decky_offline_soluce_main_rationale_743"
     },
@@ -15400,7 +15652,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L1605",
-      "community": 68,
+      "community": 85,
       "norm_label": "v0.43.20: shared sectioning used by both import and re-dl/reload.          mul",
       "id": "decky_offline_soluce_main_rationale_1605"
     },
@@ -16012,7 +16264,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L5214",
-      "community": 40,
+      "community": 48,
       "norm_label": "v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         use",
       "id": "decky_offline_soluce_main_rationale_5214"
     },
@@ -17218,7 +17470,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L5463",
-      "community": 55,
+      "community": 37,
       "norm_label": "v0.41.1: strip vally8.free.fr boilerplate that repeats at every         page bo",
       "id": "decky_offline_soluce_main_rationale_5463"
     },
@@ -17425,7 +17677,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L1730",
-      "community": 41,
+      "community": 47,
       "norm_label": "clear all hidden flags for this guide.",
       "id": "decky_offline_soluce_main_rationale_1730"
     },
@@ -17551,7 +17803,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L5028",
-      "community": 37,
+      "community": 48,
       "norm_label": "v0.41.1: site-specific extractor for vally8.free.fr (old fan site).         use",
       "id": "decky_offline_soluce_main_rationale_5028"
     },
@@ -17968,15 +18220,6 @@
       "community": 35,
       "norm_label": "last-resort heuristic. stricter than before:          - all-caps lines must hav",
       "id": "decky_offline_soluce_main_rationale_6866"
-    },
-    {
-      "label": "Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real",
-      "file_type": "rationale",
-      "source_file": "main.py",
-      "source_location": "L6963",
-      "community": 2,
-      "norm_label": "merge sections whose body has fewer than min_section_content_lines         real",
-      "id": "decky_offline_soluce_main_rationale_6963"
     },
     {
       "label": "v0.43.10: for the fragment-heavy French sites, keep ONE result per         guid",
@@ -21997,7 +22240,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L683",
-      "community": 88,
+      "community": 30,
       "norm_label": "multi-engine search result parser.          strategy: first try engine-specifi",
       "id": "decky_offline_soluce_main_rationale_683"
     },
@@ -22231,7 +22474,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L670",
-      "community": 88,
+      "community": 30,
       "norm_label": "multi-engine search result parser.          strategy: first try engine-specifi",
       "id": "decky_offline_soluce_main_rationale_670"
     },
@@ -22801,9 +23044,9 @@
       "source_file": "main.py",
       "source_location": "L42",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_42",
-      "target": "decky_offline_soluce_main_html_unescape",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_html_unescape"
     },
     {
       "relation": "calls",
@@ -22892,6 +23135,17 @@
       "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_linkparser_handle_starttag",
       "target": "str"
+    },
+    {
+      "relation": "references",
+      "context": "return_type",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L8096",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_plugin_acronym_title_case",
+      "target": "str",
+      "confidence_score": 1.0
     },
     {
       "relation": "references",
@@ -24614,6 +24868,17 @@
       "context": "generic_arg",
       "confidence": "EXTRACTED",
       "source_file": "main.py",
+      "source_location": "L8118",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_plugin_sections_from_box_headers",
+      "target": "str",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "context": "generic_arg",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
       "source_location": "L1604",
       "weight": 1.0,
       "confidence_score": 1.0,
@@ -25162,9 +25427,9 @@
       "source_file": "main.py",
       "source_location": "L61",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_61",
-      "target": "decky_offline_soluce_main_stdhtmlparser",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_stdhtmlparser"
     },
     {
       "relation": "inherits",
@@ -25714,6 +25979,17 @@
       "context": "generic_arg",
       "confidence": "EXTRACTED",
       "source_file": "main.py",
+      "source_location": "L8118",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_plugin_sections_from_box_headers",
+      "target": "decky_offline_soluce_main_guidesection",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "context": "generic_arg",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
       "source_location": "L1604",
       "weight": 1.0,
       "confidence_score": 1.0,
@@ -26022,9 +26298,9 @@
       "source_file": "main.py",
       "source_location": "L408",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_408",
-      "target": "decky_offline_soluce_main_guideflag",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_guideflag"
     },
     {
       "relation": "references",
@@ -26366,9 +26642,9 @@
       "source_file": "main.py",
       "source_location": "L495",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_495",
-      "target": "decky_offline_soluce_main_readabletextparser",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_readabletextparser"
     },
     {
       "relation": "method",
@@ -26783,9 +27059,9 @@
       "source_file": "main.py",
       "source_location": "L712",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_712",
-      "target": "decky_offline_soluce_main_regex_strip_tags",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_regex_strip_tags"
     },
     {
       "relation": "calls",
@@ -26885,9 +27161,9 @@
       "source_file": "main.py",
       "source_location": "L727",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_727",
-      "target": "decky_offline_soluce_main_regex_extract_links",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_regex_extract_links"
     },
     {
       "relation": "calls",
@@ -27009,9 +27285,9 @@
       "source_file": "main.py",
       "source_location": "L751",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_751",
-      "target": "decky_offline_soluce_main_regex_parse_ddg_results",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_regex_parse_ddg_results"
     },
     {
       "relation": "calls",
@@ -27023,6 +27299,16 @@
       "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_regex_parse_ddg_results",
       "target": "decky_offline_soluce_main_plugin_extract_title"
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L8096",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_plugin",
+      "target": "decky_offline_soluce_main_plugin_acronym_title_case",
+      "confidence_score": 1.0
     },
     {
       "relation": "method",
@@ -28748,6 +29034,16 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "main.py",
+      "source_location": "L8118",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_plugin",
+      "target": "decky_offline_soluce_main_plugin_sections_from_box_headers",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
       "source_location": "L1604",
       "weight": 1.0,
       "confidence_score": 1.0,
@@ -29888,9 +30184,9 @@
       "source_file": "main.py",
       "source_location": "L965",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_965",
-      "target": "decky_offline_soluce_main_plugin_switch_debug_file",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_switch_debug_file"
     },
     {
       "relation": "references",
@@ -30782,9 +31078,9 @@
       "source_file": "main.py",
       "source_location": "L1084",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_1084",
-      "target": "decky_offline_soluce_main_plugin_test_search",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_test_search"
     },
     {
       "relation": "rationale_for",
@@ -30893,9 +31189,9 @@
       "source_file": "main.py",
       "source_location": "L1181",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_1181",
-      "target": "decky_offline_soluce_main_plugin_test_network",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_test_network"
     },
     {
       "relation": "calls",
@@ -30957,9 +31253,9 @@
       "source_file": "main.py",
       "source_location": "L1254",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_1254",
-      "target": "decky_offline_soluce_main_plugin_find_junk_guides",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_find_junk_guides"
     },
     {
       "relation": "calls",
@@ -31427,9 +31723,9 @@
       "source_file": "main.py",
       "source_location": "L1536",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_1536",
-      "target": "decky_offline_soluce_main_plugin_looks_like_captcha",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_looks_like_captcha"
     },
     {
       "relation": "calls",
@@ -31617,9 +31913,9 @@
       "source_file": "main.py",
       "source_location": "L1559",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_1559",
-      "target": "decky_offline_soluce_main_plugin_save_guide",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_save_guide"
     },
     {
       "relation": "calls",
@@ -31710,9 +32006,9 @@
       "source_file": "main.py",
       "source_location": "L1572",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_1572",
-      "target": "decky_offline_soluce_main_plugin_guide_url_key",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_guide_url_key"
     },
     {
       "relation": "calls",
@@ -31782,9 +32078,9 @@
       "source_file": "main.py",
       "source_location": "L1589",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_1589",
-      "target": "decky_offline_soluce_main_plugin_is_gamefaqs_game_page",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_is_gamefaqs_game_page"
     },
     {
       "relation": "calls",
@@ -31863,9 +32159,9 @@
       "source_file": "main.py",
       "source_location": "L1599",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_1599",
-      "target": "decky_offline_soluce_main_plugin_find_guide_id_by_url_key",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_find_guide_id_by_url_key"
     },
     {
       "relation": "rationale_for",
@@ -31963,9 +32259,9 @@
       "source_file": "main.py",
       "source_location": "L1626",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_1626",
-      "target": "decky_offline_soluce_main_plugin_start_import",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_start_import"
     },
     {
       "relation": "rationale_for",
@@ -32073,9 +32369,9 @@
       "source_file": "main.py",
       "source_location": "L1683",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_1683",
-      "target": "decky_offline_soluce_main_plugin_get_import_status",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_get_import_status"
     },
     {
       "relation": "rationale_for",
@@ -32173,9 +32469,9 @@
       "source_file": "main.py",
       "source_location": "L1689",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_1689",
-      "target": "decky_offline_soluce_main_plugin_list_imports",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_list_imports"
     },
     {
       "relation": "rationale_for",
@@ -32273,9 +32569,9 @@
       "source_file": "main.py",
       "source_location": "L1700",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_1700",
-      "target": "decky_offline_soluce_main_plugin_dismiss_import",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_dismiss_import"
     },
     {
       "relation": "calls",
@@ -32494,9 +32790,9 @@
       "source_file": "main.py",
       "source_location": "L1706",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_1706",
-      "target": "decky_offline_soluce_main_plugin_sections_from_collected",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_sections_from_collected"
     },
     {
       "relation": "calls",
@@ -32597,9 +32893,9 @@
       "source_file": "main.py",
       "source_location": "L1806",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_1806",
-      "target": "decky_offline_soluce_main_plugin_flag_snippet",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_flag_snippet"
     },
     {
       "relation": "references",
@@ -32909,9 +33205,9 @@
       "source_file": "main.py",
       "source_location": "L1818",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_1818",
-      "target": "decky_offline_soluce_main_plugin_extract_important_flags",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_extract_important_flags"
     },
     {
       "relation": "rationale_for",
@@ -32959,9 +33255,9 @@
       "source_file": "main.py",
       "source_location": "L1852",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_1852",
-      "target": "decky_offline_soluce_main_plugin_guide_quality_warning",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_guide_quality_warning"
     },
     {
       "relation": "calls",
@@ -33295,9 +33591,9 @@
       "source_file": "main.py",
       "source_location": "L1874",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_1874",
-      "target": "decky_offline_soluce_main_plugin_do_import_sync",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_do_import_sync"
     },
     {
       "relation": "calls",
@@ -33941,9 +34237,9 @@
       "source_file": "main.py",
       "source_location": "L2119",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_2119",
-      "target": "decky_offline_soluce_main_plugin_toggle_section_hidden",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_toggle_section_hidden"
     },
     {
       "relation": "calls",
@@ -34224,9 +34520,9 @@
       "source_file": "main.py",
       "source_location": "L2139",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_2139",
-      "target": "decky_offline_soluce_main_plugin_show_all_sections",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_show_all_sections"
     },
     {
       "relation": "calls",
@@ -34518,9 +34814,9 @@
       "source_file": "main.py",
       "source_location": "L2146",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_2146",
-      "target": "decky_offline_soluce_main_plugin_reconstruct_sections",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_reconstruct_sections"
     },
     {
       "relation": "calls",
@@ -34749,9 +35045,9 @@
       "source_file": "main.py",
       "source_location": "L2194",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_2194",
-      "target": "decky_offline_soluce_main_plugin_polish_all_guides",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_polish_all_guides"
     },
     {
       "relation": "calls",
@@ -35077,9 +35373,9 @@
       "source_file": "main.py",
       "source_location": "L2277",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_2277",
-      "target": "decky_offline_soluce_main_plugin_clean_existing_guide",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_clean_existing_guide"
     },
     {
       "relation": "calls",
@@ -35425,9 +35721,9 @@
       "source_file": "main.py",
       "source_location": "L2449",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_2449",
-      "target": "decky_offline_soluce_main_plugin_get_running_emulator_game_hint",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_get_running_emulator_game_hint"
     },
     {
       "relation": "calls",
@@ -35717,9 +36013,9 @@
       "source_file": "main.py",
       "source_location": "L2519",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_2519",
-      "target": "decky_offline_soluce_main_plugin_run_backup_now",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_run_backup_now"
     },
     {
       "relation": "rationale_for",
@@ -35987,9 +36283,9 @@
       "source_file": "main.py",
       "source_location": "L2529",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_2529",
-      "target": "decky_offline_soluce_main_plugin_delayed_auto_backup_check",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_delayed_auto_backup_check"
     },
     {
       "relation": "calls",
@@ -36323,9 +36619,9 @@
       "source_file": "main.py",
       "source_location": "L2561",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_2561",
-      "target": "decky_offline_soluce_main_plugin_reload_guide_content",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_reload_guide_content"
     },
     {
       "relation": "calls",
@@ -36539,9 +36835,9 @@
       "source_file": "main.py",
       "source_location": "L2604",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_2604",
-      "target": "decky_offline_soluce_main_plugin_reload_guide_sync",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_reload_guide_sync"
     },
     {
       "relation": "calls",
@@ -38073,9 +38369,9 @@
       "source_file": "main.py",
       "source_location": "L4395",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_4395",
-      "target": "decky_offline_soluce_main_plugin_make_ssl_context",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_make_ssl_context"
     },
     {
       "relation": "rationale_for",
@@ -38283,9 +38579,9 @@
       "source_file": "main.py",
       "source_location": "L4424",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_4424",
-      "target": "decky_offline_soluce_main_plugin_parse_search_html",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_parse_search_html"
     },
     {
       "relation": "calls",
@@ -38494,9 +38790,9 @@
       "source_file": "main.py",
       "source_location": "L4458",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_4458",
-      "target": "decky_offline_soluce_main_plugin_guide_base_path",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_guide_base_path"
     },
     {
       "relation": "calls",
@@ -38715,9 +39011,9 @@
       "source_file": "main.py",
       "source_location": "L4496",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_4496",
-      "target": "decky_offline_soluce_main_plugin_collapse_guide_fragments",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_collapse_guide_fragments"
     },
     {
       "relation": "calls",
@@ -38846,9 +39142,9 @@
       "source_file": "main.py",
       "source_location": "L4680",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_4680",
-      "target": "decky_offline_soluce_main_plugin_strip_cross_page_boilerplate",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_strip_cross_page_boilerplate"
     },
     {
       "relation": "calls",
@@ -39266,9 +39562,9 @@
       "source_file": "main.py",
       "source_location": "L4714",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_4714",
-      "target": "decky_offline_soluce_main_plugin_collect_guide",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_collect_guide"
     },
     {
       "relation": "calls",
@@ -39629,9 +39925,9 @@
       "source_file": "main.py",
       "source_location": "L4913",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_4913",
-      "target": "decky_offline_soluce_main_plugin_enqueue_related",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_enqueue_related"
     },
     {
       "relation": "calls",
@@ -39921,9 +40217,9 @@
       "source_file": "main.py",
       "source_location": "L4944",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_4944",
-      "target": "decky_offline_soluce_main_plugin_discover_site_specific_chapter_links",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_discover_site_specific_chapter_links"
     },
     {
       "relation": "rationale_for",
@@ -40021,9 +40317,9 @@
       "source_file": "main.py",
       "source_location": "L4988",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_4988",
-      "target": "decky_offline_soluce_main_plugin_discover_ign_chapter_links",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_discover_ign_chapter_links"
     },
     {
       "relation": "calls",
@@ -40292,9 +40588,9 @@
       "source_file": "main.py",
       "source_location": "L5021",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_5021",
-      "target": "decky_offline_soluce_main_plugin_discover_jeuxvideo_chapter_links",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_discover_jeuxvideo_chapter_links"
     },
     {
       "relation": "rationale_for",
@@ -40652,9 +40948,9 @@
       "source_file": "main.py",
       "source_location": "L5083",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_5083",
-      "target": "decky_offline_soluce_main_plugin_compute_base_prefix",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_compute_base_prefix"
     },
     {
       "relation": "rationale_for",
@@ -41032,9 +41328,9 @@
       "source_file": "main.py",
       "source_location": "L5136",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_5136",
-      "target": "decky_offline_soluce_main_plugin_discover_related_urls",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_discover_related_urls"
     },
     {
       "relation": "calls",
@@ -41354,9 +41650,9 @@
       "source_file": "main.py",
       "source_location": "L5386",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_5386",
-      "target": "decky_offline_soluce_main_plugin_download_via_curl",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_download_via_curl"
     },
     {
       "relation": "rationale_for",
@@ -41754,9 +42050,9 @@
       "source_file": "main.py",
       "source_location": "L5444",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_5444",
-      "target": "decky_offline_soluce_main_plugin_detect_charset",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_detect_charset"
     },
     {
       "relation": "calls",
@@ -42530,9 +42826,9 @@
       "source_file": "main.py",
       "source_location": "L5692",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_5692",
-      "target": "decky_offline_soluce_main_plugin_extract_vally8_text",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_extract_vally8_text"
     },
     {
       "relation": "calls",
@@ -42663,9 +42959,9 @@
       "source_file": "main.py",
       "source_location": "L5725",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_5725",
-      "target": "decky_offline_soluce_main_plugin_extract_ign_next_data",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_extract_ign_next_data"
     },
     {
       "relation": "calls",
@@ -43170,9 +43466,9 @@
       "source_file": "main.py",
       "source_location": "L5849",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_5849",
-      "target": "decky_offline_soluce_main_plugin_normalize_blank_runs",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_normalize_blank_runs"
     },
     {
       "relation": "rationale_for",
@@ -43540,9 +43836,9 @@
       "source_file": "main.py",
       "source_location": "L5870",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_5870",
-      "target": "decky_offline_soluce_main_plugin_looks_like_wayback_alexa_interstitial",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_looks_like_wayback_alexa_interstitial"
     },
     {
       "relation": "rationale_for",
@@ -43970,9 +44266,9 @@
       "source_file": "main.py",
       "source_location": "L5898",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_5898",
-      "target": "decky_offline_soluce_main_plugin_strip_wayback_chrome",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_strip_wayback_chrome"
     },
     {
       "relation": "calls",
@@ -44424,9 +44720,9 @@
       "source_file": "main.py",
       "source_location": "L6030",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_6030",
-      "target": "decky_offline_soluce_main_plugin_strip_rpgsoluce_chrome",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_strip_rpgsoluce_chrome"
     },
     {
       "relation": "rationale_for",
@@ -44824,9 +45120,9 @@
       "source_file": "main.py",
       "source_location": "L6063",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_6063",
-      "target": "decky_offline_soluce_main_plugin_strip_gamefaqs_chrome",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_strip_gamefaqs_chrome"
     },
     {
       "relation": "rationale_for",
@@ -45224,9 +45520,9 @@
       "source_file": "main.py",
       "source_location": "L6086",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_6086",
-      "target": "decky_offline_soluce_main_plugin_strip_vally8_chrome",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_strip_vally8_chrome"
     },
     {
       "relation": "rationale_for",
@@ -45634,9 +45930,9 @@
       "source_file": "main.py",
       "source_location": "L6133",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_6133",
-      "target": "decky_offline_soluce_main_plugin_strip_rpgsoluce_menu_block",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_strip_rpgsoluce_menu_block"
     },
     {
       "relation": "rationale_for",
@@ -46064,9 +46360,9 @@
       "source_file": "main.py",
       "source_location": "L6176",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_6176",
-      "target": "decky_offline_soluce_main_plugin_wrap_ascii_art_blocks",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_wrap_ascii_art_blocks"
     },
     {
       "relation": "calls",
@@ -46167,9 +46463,9 @@
       "source_file": "main.py",
       "source_location": "L6303",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_6303",
-      "target": "decky_offline_soluce_main_plugin_game_name_from_url",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_game_name_from_url"
     },
     {
       "relation": "calls",
@@ -46259,9 +46555,9 @@
       "source_file": "main.py",
       "source_location": "L6367",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_6367",
-      "target": "decky_offline_soluce_main_plugin_better_guide_title",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_better_guide_title"
     },
     {
       "relation": "calls",
@@ -46528,9 +46824,9 @@
       "source_file": "main.py",
       "source_location": "L6615",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_6615",
-      "target": "decky_offline_soluce_main_plugin_cap_sections",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_cap_sections"
     },
     {
       "relation": "calls",
@@ -46989,9 +47285,9 @@
       "source_file": "main.py",
       "source_location": "L6634",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_6634",
-      "target": "decky_offline_soluce_main_plugin_build_sections",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_build_sections"
     },
     {
       "relation": "calls",
@@ -47036,6 +47332,17 @@
       "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_plugin_build_sections_with_method",
       "target": "decky_offline_soluce_main_plugin_sections_from_asterisk_toc"
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L6723",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_plugin_build_sections_with_method",
+      "target": "decky_offline_soluce_main_plugin_sections_from_box_headers",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -47549,9 +47856,9 @@
       "source_file": "main.py",
       "source_location": "L6640",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_6640",
-      "target": "decky_offline_soluce_main_plugin_build_sections_with_method",
-      "confidence_score": 1.0
+      "target": "decky_offline_soluce_main_plugin_build_sections_with_method"
     },
     {
       "relation": "calls",
@@ -47940,7 +48247,17 @@
       "source_file": "main.py",
       "source_location": "L6804",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_6804",
+      "target": "decky_offline_soluce_main_plugin_is_prose_heading"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L6816",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_6816",
       "target": "decky_offline_soluce_main_plugin_is_prose_heading",
       "confidence_score": 1.0
     },
@@ -48331,7 +48648,17 @@
       "source_file": "main.py",
       "source_location": "L6862",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_6862",
+      "target": "decky_offline_soluce_main_plugin_merge_prose_titled_sections"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L6874",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_6874",
       "target": "decky_offline_soluce_main_plugin_merge_prose_titled_sections",
       "confidence_score": 1.0
     },
@@ -48652,7 +48979,17 @@
       "source_file": "main.py",
       "source_location": "L6911",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_6911",
+      "target": "decky_offline_soluce_main_plugin_looks_letter_spaced"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L6923",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_6923",
       "target": "decky_offline_soluce_main_plugin_looks_letter_spaced",
       "confidence_score": 1.0
     },
@@ -48973,7 +49310,17 @@
       "source_file": "main.py",
       "source_location": "L6923",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_6923",
+      "target": "decky_offline_soluce_main_plugin_unspace_title"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L6935",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_6935",
       "target": "decky_offline_soluce_main_plugin_unspace_title",
       "confidence_score": 1.0
     },
@@ -49294,7 +49641,17 @@
       "source_file": "main.py",
       "source_location": "L6951",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_6951",
+      "target": "decky_offline_soluce_main_plugin_clean_spaced_and_leader_title"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L6963",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_6963",
       "target": "decky_offline_soluce_main_plugin_clean_spaced_and_leader_title",
       "confidence_score": 1.0
     },
@@ -49615,7 +49972,17 @@
       "source_file": "main.py",
       "source_location": "L6964",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_6964",
+      "target": "decky_offline_soluce_main_plugin_normalize_gamefaqs_titles"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L6976",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_6976",
       "target": "decky_offline_soluce_main_plugin_normalize_gamefaqs_titles",
       "confidence_score": 1.0
     },
@@ -50119,7 +50486,17 @@
       "source_file": "main.py",
       "source_location": "L6983",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_6983",
+      "target": "decky_offline_soluce_main_plugin_polish_section_titles"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L6995",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_6995",
       "target": "decky_offline_soluce_main_plugin_polish_section_titles",
       "confidence_score": 1.0
     },
@@ -50569,7 +50946,17 @@
       "source_file": "main.py",
       "source_location": "L7089",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_7089",
+      "target": "decky_offline_soluce_main_plugin_detect_meta_faq_section_titles"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L7101",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_7101",
       "target": "decky_offline_soluce_main_plugin_detect_meta_faq_section_titles",
       "confidence_score": 1.0
     },
@@ -51029,7 +51416,17 @@
       "source_file": "main.py",
       "source_location": "L7125",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_7125",
+      "target": "decky_offline_soluce_main_plugin_truncate_long_titles"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L7137",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_7137",
       "target": "decky_offline_soluce_main_plugin_truncate_long_titles",
       "confidence_score": 1.0
     },
@@ -51509,7 +51906,17 @@
       "source_file": "main.py",
       "source_location": "L7173",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_7173",
+      "target": "decky_offline_soluce_main_plugin_strip_inherited_prefixes"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L7185",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_7185",
       "target": "decky_offline_soluce_main_plugin_strip_inherited_prefixes",
       "confidence_score": 1.0
     },
@@ -51989,7 +52396,17 @@
       "source_file": "main.py",
       "source_location": "L7213",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_7213",
+      "target": "decky_offline_soluce_main_plugin_number_consecutive_duplicates"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L7225",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_7225",
       "target": "decky_offline_soluce_main_plugin_number_consecutive_duplicates",
       "confidence_score": 1.0
     },
@@ -52560,7 +52977,17 @@
       "source_file": "main.py",
       "source_location": "L7293",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_7293",
+      "target": "decky_offline_soluce_main_plugin_split_large_sections"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L7305",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_7305",
       "target": "decky_offline_soluce_main_plugin_split_large_sections",
       "confidence_score": 1.0
     },
@@ -52931,7 +53358,17 @@
       "source_file": "main.py",
       "source_location": "L7327",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_7327",
+      "target": "decky_offline_soluce_main_plugin_char_chunk_boundaries"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L7339",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_7339",
       "target": "decky_offline_soluce_main_plugin_char_chunk_boundaries",
       "confidence_score": 1.0
     },
@@ -53513,7 +53950,17 @@
       "source_file": "main.py",
       "source_location": "L7360",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_7360",
+      "target": "decky_offline_soluce_main_plugin_split_large_sections_once"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L7372",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_7372",
       "target": "decky_offline_soluce_main_plugin_split_large_sections_once",
       "confidence_score": 1.0
     },
@@ -53538,6 +53985,17 @@
       "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_plugin_sections_from_asterisk_toc",
       "target": "decky_offline_soluce_main_plugin_sections_from_starts"
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L8177",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_plugin_sections_from_box_headers",
+      "target": "decky_offline_soluce_main_plugin_sections_from_starts",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -54139,7 +54597,17 @@
       "source_file": "main.py",
       "source_location": "L7476",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_7476",
+      "target": "decky_offline_soluce_main_plugin_sections_from_starts"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L7488",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_7488",
       "target": "decky_offline_soluce_main_plugin_sections_from_starts",
       "confidence_score": 1.0
     },
@@ -54710,7 +55178,17 @@
       "source_file": "main.py",
       "source_location": "L7494",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_7494",
+      "target": "decky_offline_soluce_main_plugin_sections_from_toc_codes"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L7506",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_7506",
       "target": "decky_offline_soluce_main_plugin_sections_from_toc_codes",
       "confidence_score": 1.0
     },
@@ -54770,7 +55248,17 @@
       "source_file": "main.py",
       "source_location": "L7611",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_7611",
+      "target": "decky_offline_soluce_main_plugin_group_pages_by_chapter"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L7623",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_7623",
       "target": "decky_offline_soluce_main_plugin_group_pages_by_chapter",
       "confidence_score": 1.0
     },
@@ -54820,7 +55308,17 @@
       "source_file": "main.py",
       "source_location": "L7634",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_7634",
+      "target": "decky_offline_soluce_main_plugin_group_pages_by_hub"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L7646",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_7646",
       "target": "decky_offline_soluce_main_plugin_group_pages_by_hub",
       "confidence_score": 1.0
     },
@@ -54900,7 +55398,17 @@
       "source_file": "main.py",
       "source_location": "L7720",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_7720",
+      "target": "decky_offline_soluce_main_plugin_sections_from_asterisk_toc"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L7732",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_7732",
       "target": "decky_offline_soluce_main_plugin_sections_from_asterisk_toc",
       "confidence_score": 1.0
     },
@@ -54980,7 +55488,17 @@
       "source_file": "main.py",
       "source_location": "L7828",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_7828",
+      "target": "decky_offline_soluce_main_plugin_sections_from_dotcode_toc"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L7840",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_7840",
       "target": "decky_offline_soluce_main_plugin_sections_from_dotcode_toc",
       "confidence_score": 1.0
     },
@@ -55091,7 +55609,17 @@
       "source_file": "main.py",
       "source_location": "L7939",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_7939",
+      "target": "decky_offline_soluce_main_plugin_is_toc_subcode"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L7951",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_7951",
       "target": "decky_offline_soluce_main_plugin_is_toc_subcode",
       "confidence_score": 1.0
     },
@@ -55671,8 +56199,49 @@
       "source_file": "main.py",
       "source_location": "L7953",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_7953",
+      "target": "decky_offline_soluce_main_plugin_sections_from_numbered_toc"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L7965",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_7965",
       "target": "decky_offline_soluce_main_plugin_sections_from_numbered_toc",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L8147",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_plugin_sections_from_box_headers",
+      "target": "decky_offline_soluce_main_plugin_acronym_title_case",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L8097",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_8097",
+      "target": "decky_offline_soluce_main_plugin_acronym_title_case",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L8119",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_8119",
+      "target": "decky_offline_soluce_main_plugin_sections_from_box_headers",
       "confidence_score": 1.0
     },
     {
@@ -56261,7 +56830,17 @@
       "source_file": "main.py",
       "source_location": "L8085",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_8085",
+      "target": "decky_offline_soluce_main_plugin_find_toc_dense_zone"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L8180",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_8180",
       "target": "decky_offline_soluce_main_plugin_find_toc_dense_zone",
       "confidence_score": 1.0
     },
@@ -56851,7 +57430,17 @@
       "source_file": "main.py",
       "source_location": "L8130",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_8130",
+      "target": "decky_offline_soluce_main_plugin_sections_from_ascii_banners"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L8225",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_8225",
       "target": "decky_offline_soluce_main_plugin_sections_from_ascii_banners",
       "confidence_score": 1.0
     },
@@ -57441,7 +58030,17 @@
       "source_file": "main.py",
       "source_location": "L8222",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_8222",
+      "target": "decky_offline_soluce_main_plugin_sections_from_heuristic"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L8317",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_8317",
       "target": "decky_offline_soluce_main_plugin_sections_from_heuristic",
       "confidence_score": 1.0
     },
@@ -58031,7 +58630,17 @@
       "source_file": "main.py",
       "source_location": "L8319",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "decky_offline_soluce_main_rationale_8319",
+      "target": "decky_offline_soluce_main_plugin_merge_small_sections"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "main.py",
+      "source_location": "L8414",
+      "weight": 1.0,
+      "source": "decky_offline_soluce_main_rationale_8414",
       "target": "decky_offline_soluce_main_plugin_merge_small_sections",
       "confidence_score": 1.0
     },
@@ -61290,5 +61899,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "0ec3f90ecb90282b66782392d7b3ab7f18971b8c"
+  "built_at_commit": "3e7097ecd9994629e4b0c5c09622955f6ed9dbf7"
 }

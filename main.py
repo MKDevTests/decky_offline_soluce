@@ -6715,6 +6715,18 @@ class Plugin:
             dot_sections = self._polish_section_titles(dot_sections)
             return self._cap_sections(dot_sections, lines), "toc_codes"
 
+        # --- PASS 2b-box: boxed dotted-number TOC ("Gurus Network" style) ---
+        # Xenosaga-style complete guides anchor every sub-section with a boxed
+        # "--| N.M - Title |----" header under "= SECTION N: TITLE =" banners.
+        # Very distinctive, so it takes priority over both numbered_toc and the
+        # banner path (which otherwise over-detects content lines as sections).
+        box_sections = self._sections_from_box_headers(lines)
+        if len(box_sections) >= 2:
+            # No merge (would swallow the short L1 "Section N" headers, breaking
+            # the hierarchy) and no split (boxes are already fine-grained).
+            box_sections = self._polish_section_titles(box_sections)
+            return self._cap_sections(box_sections, lines), "box_toc"
+
         # --- PASS 2b: numbered/lettered TOC without [CODE] markers ---
         # Older GameFAQs FAQs (pre-2005-ish, dan_crenshaw era) use a TOC like
         # "4a. Hugo Chapter 1" / "4b. Chris Chapter 1" with no bracketed code.
@@ -8077,6 +8089,89 @@ class Plugin:
             if not deduped or item[0] - deduped[-1][0] >= MIN_SECTION_SPAN_LINES:
                 deduped.append(item)
 
+        if len(deduped) < 2:
+            return []
+        return self._sections_from_starts(deduped, lines)
+
+    def _acronym_title_case(self, text: str) -> str:
+        """Title-case ALLCAPS banner text while preserving short acronyms.
+
+        "FAQ INFORMATION" -> "FAQ Information", "WALKTHROUGH" -> "Walkthrough".
+        A word is kept verbatim when it is fully uppercase and has <= 3 letters
+        (FAQ, U.M.N., A.G.W.S.); everything else is capitalised normally. Words
+        that are already mixed-case (real titles) pass through untouched.
+        """
+        parts = re.split(r"(\s+)", text.strip())
+        out: list[str] = []
+        for word in parts:
+            if not word.strip():
+                out.append(word)
+                continue
+            if word.isupper() and len(re.sub(r"[^A-Za-z]", "", word)) <= 3:
+                out.append(word)  # short acronym — keep as-is
+            elif word.isupper():
+                out.append(word[:1].upper() + word[1:].lower())
+            else:
+                out.append(word)  # already mixed case — leave it
+        return "".join(out).strip()
+
+    def _sections_from_box_headers(self, lines: list[str]) -> list[GuideSection]:
+        """Detect the boxed dotted-number heading format used by "Gurus Network"
+        style GameFAQs complete guides (e.g. Xenosaga Episode I):
+
+            ====================================================================
+            = SECTION 1: FAQ INFORMATION =
+            ====================================================================
+            +-------------+
+            --| 1.1 - Index |---------------------------------------------------
+            +-------------+
+
+        L1 comes from the "= SECTION N: TITLE =" banners; every sub-section is a
+        boxed "--| N.M[.K...] - Title |----" header. The dotted-number depth maps
+        to the heading level: N.M -> L2, N.M.K and deeper -> L3.
+
+        This format is extremely distinctive (a run of boxed dotted-number
+        headers), so a low threshold is safe. Without this detector the guide
+        falls through to the ASCII-banner path, which over-detects content lines
+        ("Name Target Effect", "AREA 2 - 5 guards") as sections and leaves
+        "= SECTION 2 =" decoration in the titles.
+        """
+        box_re = re.compile(r"^\s*-+\|\s*(\d+(?:\.\d+)+)\s*[-–:]?\s*(.+?)\s*\|-*\s*$")
+        sec_re = re.compile(r"^\s*=+\s*SECTION\s+(\d+)\s*:\s*(.+?)\s*=+\s*$", re.IGNORECASE)
+
+        starts: list[tuple[int, str, int]] = []
+        box_count = 0
+        for idx, raw in enumerate(lines):
+            ms = sec_re.match(raw)
+            if ms:
+                title = self._acronym_title_case(ms.group(2))
+                starts.append((idx, f"Section {ms.group(1)}: {title}", 1))
+                continue
+            mb = box_re.match(raw)
+            if mb:
+                num = mb.group(1)
+                title = mb.group(2).strip()
+                # Skip dashed rules that merely happen to contain "N.N" — a real
+                # heading has an actual title.
+                if sum(c.isalpha() for c in title) < 2:
+                    continue
+                depth = num.count(".") + 1
+                level = 2 if depth <= 2 else 3
+                starts.append((idx, f"{num} {title}", level))
+                box_count += 1
+
+        # Require a clear cluster of boxed headers; the "= SECTION =" banners
+        # alone are not enough to claim this format.
+        if box_count < 4:
+            return []
+
+        # Dedup positions on adjacent lines only — the L1 "Section N" header sits
+        # just a few lines above its first "N.1" child, so we must NOT apply the
+        # usual MIN_SECTION_SPAN_LINES gap here or that pairing would collapse.
+        deduped: list[tuple[int, str, int]] = []
+        for item in sorted(starts, key=lambda s: s[0]):
+            if not deduped or item[0] - deduped[-1][0] >= 2:
+                deduped.append(item)
         if len(deduped) < 2:
             return []
         return self._sections_from_starts(deduped, lines)
