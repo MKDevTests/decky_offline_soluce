@@ -639,10 +639,72 @@ function resolveSectionReference(refId, sections) {
     }
     return -1;
 }
+// v0.43.49: inline bold sentinels (mirror of the backend BOLD_MARK_*). Rendered
+// as <strong>; stripped everywhere text is *analysed* (search, snippets) so they
+// stay invisible to matching and never leak into displayed strings.
+function stripBoldMarkers(s) {
+    return s.indexOf("\x01") === -1 ? s : s.replace(/\x01\/?B\x02/g, "");
+}
 // Highlight keywords + search matches + cross-references in a text block
-function renderHighlightedText(text, highlightKeywords, searchPattern, sections, onJumpToSection) {
+function renderHighlightedText(text, highlightKeywords, searchPattern, sections, onJumpToSection, renderBold = true) {
     if (!text)
         return text;
+    // v0.43.49: pull bold ranges out of the \x01B\x02…\x01/B\x02 markers, then run
+    // ALL highlighting on the marker-free "visible" text so match indices match the
+    // no-bold behaviour exactly (keeps find-nav aligned with computeSearchMatches,
+    // which counts on the same stripped text). Bold is drawn only on the GAPS
+    // between highlight spans, never splitting a span, so os-find mark count is
+    // unchanged. Keyword spans already render semibold, so skipping bold inside a
+    // highlight is visually a no-op.
+    let visible = text;
+    const boldRanges = [];
+    if (renderBold && text.indexOf("\x01B\x02") !== -1) {
+        const boldRe = /\x01B\x02([\s\S]*?)\x01\/B\x02/g;
+        let rebuilt = "";
+        let last = 0;
+        let bm;
+        while ((bm = boldRe.exec(text)) !== null) {
+            rebuilt += stripBoldMarkers(text.slice(last, bm.index));
+            const bStart = rebuilt.length;
+            rebuilt += bm[1];
+            boldRanges.push([bStart, rebuilt.length]);
+            last = bm.index + bm[0].length;
+        }
+        rebuilt += stripBoldMarkers(text.slice(last));
+        visible = rebuilt;
+    }
+    else {
+        visible = stripBoldMarkers(text);
+    }
+    text = visible;
+    const inBold = (i) => {
+        for (const [a, b] of boldRanges)
+            if (i >= a && i < b)
+                return true;
+        return false;
+    };
+    // Emit visible.slice(from,to), wrapping maximal bold runs in <strong>.
+    const pushRange = (from, to, keyBase, sink) => {
+        if (to <= from)
+            return;
+        if (boldRanges.length === 0) {
+            sink.push(text.slice(from, to));
+            return;
+        }
+        let i = from;
+        while (i < to) {
+            const b = inBold(i);
+            let j = i + 1;
+            while (j < to && inBold(j) === b)
+                j++;
+            const chunk = text.slice(i, j);
+            if (b)
+                sink.push(SP_JSX.jsx("strong", { children: chunk }, `b-${keyBase}-${i}`));
+            else
+                sink.push(chunk);
+            i = j;
+        }
+    };
     // Build a combined regex of keywords (word-ish boundaries) and the search pattern.
     const pieces = [];
     if (searchPattern && searchPattern.trim().length >= 2) {
@@ -664,8 +726,13 @@ function renderHighlightedText(text, highlightKeywords, searchPattern, sections,
             className: "os-ref",
         });
     }
-    if (pieces.length === 0)
-        return text;
+    if (pieces.length === 0) {
+        if (boldRanges.length === 0)
+            return text;
+        const only = [];
+        pushRange(0, text.length, "only", only);
+        return only;
+    }
     const spans = [];
     for (const piece of pieces) {
         piece.regex.lastIndex = 0;
@@ -683,8 +750,13 @@ function renderHighlightedText(text, highlightKeywords, searchPattern, sections,
             spans.push(span);
         }
     }
-    if (spans.length === 0)
-        return text;
+    if (spans.length === 0) {
+        if (boldRanges.length === 0)
+            return text;
+        const only = [];
+        pushRange(0, text.length, "only", only);
+        return only;
+    }
     // Sort, then merge overlaps (search match wins, then ref, then keyword)
     const priority = { "os-find": 3, "os-ref": 2, "os-kw": 1 };
     spans.sort((a, b) => a.start - b.start || b.end - a.end);
@@ -705,7 +777,7 @@ function renderHighlightedText(text, highlightKeywords, searchPattern, sections,
     for (let i = 0; i < merged.length; i++) {
         const s = merged[i];
         if (s.start > cursor)
-            out.push(text.slice(cursor, s.start));
+            pushRange(cursor, s.start, `g${i}`, out);
         const substr = text.slice(s.start, s.end);
         if (s.className === "os-find") {
             out.push(SP_JSX.jsx("mark", { style: { background: "#ffe066", color: "#1a1a1a", borderRadius: "2px", padding: "0 2px" }, children: substr }, `m-${i}`));
@@ -726,7 +798,7 @@ function renderHighlightedText(text, highlightKeywords, searchPattern, sections,
         cursor = s.end;
     }
     if (cursor < text.length)
-        out.push(text.slice(cursor));
+        pushRange(cursor, text.length, "gt", out);
     return out;
 }
 /**
@@ -882,7 +954,7 @@ function GuideReader(props) {
                 if (block.kind === "pre") {
                     return SP_JSX.jsx("pre", { style: preStyle, children: block.text }, idx);
                 }
-                return (SP_JSX.jsx("p", { style: paragraphStyle, children: renderHighlightedText(block.text, preferences.highlight_keywords, searchPattern, guide.sections, onJumpToSection) }, idx));
+                return (SP_JSX.jsx("p", { style: paragraphStyle, children: renderHighlightedText(block.text, preferences.highlight_keywords, searchPattern, guide.sections, onJumpToSection, preferences.render_bold !== false) }, idx));
             })) }) }));
 }
 /**
@@ -922,7 +994,7 @@ function buildContentMatches(sections, content, needleLower) {
         const start = Math.max(0, sec.line_start);
         const end = Math.min(lines.length - 1, sec.line_end);
         for (let i = start; i <= end; i++) {
-            const l = lines[i];
+            const l = stripBoldMarkers(lines[i] || ""); // v0.43.49: bold invisible to search
             if (l && l.toLowerCase().includes(needleLower)) {
                 map.set(idx, buildContentSnippet(l, needleLower));
                 break;
@@ -942,9 +1014,16 @@ function computeSearchMatches(content, sections, needle) {
         const start = Math.max(0, sec.line_start);
         const end = Math.min(lines.length - 1, sec.line_end);
         for (let i = start; i <= end; i++) {
-            const raw = lines[i];
-            if (!raw || raw.includes("\x01"))
-                continue; // heading marker → no <mark> rendered
+            let raw = lines[i];
+            if (!raw)
+                continue;
+            // v0.43.49: bold markers are stripped before <mark>s render, so count on the
+            // same stripped text; skip lines still carrying a heading/pre marker.
+            if (raw.includes("\x01")) {
+                raw = stripBoldMarkers(raw);
+                if (raw.includes("\x01"))
+                    continue;
+            }
             const l = raw.toLowerCase();
             let from = 0;
             let idx = l.indexOf(n, from);
@@ -2011,7 +2090,7 @@ function FullScreenReader() {
     const savePrefs = (next) => {
         setPreferences(next);
         try {
-            void updateReaderPreferences(next.theme, next.font_family, next.line_height, next.max_width, next.highlight_keywords, next.numbered_sections, next.resume_hotkey || "", typeof next.resume_button === "number" ? next.resume_button : -1, next.resume_enabled !== false);
+            void updateReaderPreferences(next.theme, next.font_family, next.line_height, next.max_width, next.highlight_keywords, next.numbered_sections, next.resume_hotkey || "", typeof next.resume_button === "number" ? next.resume_button : -1, next.resume_enabled !== false, next.render_bold !== false);
         }
         catch { /* keep local change even if persist fails */ }
     };
@@ -2060,7 +2139,7 @@ function FullScreenReader() {
                                         background: "rgba(255,255,255,0.05)", borderLeft: `3px solid ${meta.color}`,
                                         fontSize: "0.76rem", lineHeight: 1.3,
                                     }, children: [SP_JSX.jsx("div", { style: { opacity: 0.6, fontSize: "0.68rem" }, children: f.section_index >= 0 && guide.sections[f.section_index] ? `▸ ${guide.sections[f.section_index].title.slice(0, 34)}` : "▸ (guide)" }), SP_JSX.jsx("div", { children: f.snippet })] }, `${cat}-${i}`)))] }, cat));
-                    })] })) : null, showDisplay ? (SP_JSX.jsxs("div", { style: { padding: "10px 16px", background: "rgba(0,0,0,0.3)", flexShrink: 0, display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }, children: [SP_JSX.jsx("span", { style: { fontSize: "0.8rem", opacity: 0.7 }, children: "Affichage :" }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("theme", ["dark", "sepia"]), children: ["Th\u00E8me : ", prefLabels[preferences.theme]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("font_family", ["sans", "serif", "mono"]), children: ["Police : ", prefLabels[preferences.font_family]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("line_height", ["tight", "normal", "airy"]), children: ["Interligne : ", prefLabels[preferences.line_height]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("max_width", ["narrow", "normal", "full"]), children: ["Largeur : ", prefLabels[preferences.max_width]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => savePrefs({ ...preferences, highlight_keywords: !preferences.highlight_keywords }), children: ["Surlignage : ", preferences.highlight_keywords ? "Oui" : "Non"] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => savePrefs({ ...preferences, numbered_sections: !preferences.numbered_sections }), children: ["Num\u00E9ros : ", preferences.numbered_sections ? "Oui" : "Non"] }), SP_JSX.jsx(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: toggleConfort, children: confortOn ? "🛋 Confort ✓ (désactiver)" : "🛋 Confort Deck" })] })) : null, showSearch ? (SP_JSX.jsxs("div", { style: { padding: "8px 16px", background: "rgba(0,0,0,0.25)", flexShrink: 0 }, children: [SP_JSX.jsx(DFL.TextField, { value: searchPattern, onChange: (e) => { setSearchPattern(e.target.value); setSearchMatchPos(-1); }, placeholder: "Rechercher dans le guide\u2026", bShowClearAction: true }), searchPattern.trim().length >= 2 ? (SP_JSX.jsxs("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginTop: "6px" }, children: [SP_JSX.jsx("span", { style: { fontSize: "0.8rem", opacity: 0.85, minWidth: "96px" }, children: searchMatches.length === 0
+                    })] })) : null, showDisplay ? (SP_JSX.jsxs("div", { style: { padding: "10px 16px", background: "rgba(0,0,0,0.3)", flexShrink: 0, display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }, children: [SP_JSX.jsx("span", { style: { fontSize: "0.8rem", opacity: 0.7 }, children: "Affichage :" }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("theme", ["dark", "sepia"]), children: ["Th\u00E8me : ", prefLabels[preferences.theme]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("font_family", ["sans", "serif", "mono"]), children: ["Police : ", prefLabels[preferences.font_family]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("line_height", ["tight", "normal", "airy"]), children: ["Interligne : ", prefLabels[preferences.line_height]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => cyclePref("max_width", ["narrow", "normal", "full"]), children: ["Largeur : ", prefLabels[preferences.max_width]] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => savePrefs({ ...preferences, highlight_keywords: !preferences.highlight_keywords }), children: ["Surlignage : ", preferences.highlight_keywords ? "Oui" : "Non"] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => savePrefs({ ...preferences, render_bold: preferences.render_bold === false }), children: ["Gras : ", preferences.render_bold !== false ? "Oui" : "Non"] }), SP_JSX.jsxs(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: () => savePrefs({ ...preferences, numbered_sections: !preferences.numbered_sections }), children: ["Num\u00E9ros : ", preferences.numbered_sections ? "Oui" : "Non"] }), SP_JSX.jsx(DFL.DialogButton, { style: { minWidth: "auto", width: "auto" }, onClick: toggleConfort, children: confortOn ? "🛋 Confort ✓ (désactiver)" : "🛋 Confort Deck" })] })) : null, showSearch ? (SP_JSX.jsxs("div", { style: { padding: "8px 16px", background: "rgba(0,0,0,0.25)", flexShrink: 0 }, children: [SP_JSX.jsx(DFL.TextField, { value: searchPattern, onChange: (e) => { setSearchPattern(e.target.value); setSearchMatchPos(-1); }, placeholder: "Rechercher dans le guide\u2026", bShowClearAction: true }), searchPattern.trim().length >= 2 ? (SP_JSX.jsxs("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginTop: "6px" }, children: [SP_JSX.jsx("span", { style: { fontSize: "0.8rem", opacity: 0.85, minWidth: "96px" }, children: searchMatches.length === 0
                                     ? "Aucun résultat"
                                     : `${searchMatchPos < 0 ? "—" : searchMatchPos + 1} / ${searchMatches.length} occurrence${searchMatches.length > 1 ? "s" : ""}` }), SP_JSX.jsx(DFL.DialogButton, { disabled: searchMatches.length === 0, onClick: () => goToSearchMatch(searchMatchPos < 0 ? searchMatches.length - 1 : searchMatchPos - 1), style: { minWidth: "52px", padding: "4px 8px" }, children: "\u25B2" }), SP_JSX.jsx(DFL.DialogButton, { disabled: searchMatches.length === 0, onClick: () => goToSearchMatch(searchMatchPos < 0 ? 0 : searchMatchPos + 1), style: { minWidth: "52px", padding: "4px 8px" }, children: "\u25BC" })] })) : null] })) : null, SP_JSX.jsxs("div", { style: mainAreaStyle, children: [showToc ? (SP_JSX.jsx(TocSidebar, { guide: guide, preferences: preferences, theme: theme, sidebarStyle: sidebarStyle, sectionIndex: sectionIndex, setSectionIndex: setSectionIndex, tocFilter: tocFilter, setTocFilter: setTocFilter, collapsedParents: collapsedParents, setCollapsedParents: setCollapsedParents, showHiddenSections: showHiddenSections, setShowHiddenSections: setShowHiddenSections, onJumpToMatch: jumpToContentMatch })) : null, SP_JSX.jsxs("div", { style: readerPaneStyle, children: [showBookmarksPanel ? (SP_JSX.jsx(NamedBookmarksPanel, { guide: guide, currentSectionIndex: sectionIndex, currentScrollFraction: lastScrollFractionRef.current, busy: bookmarksBusy, theme: theme, onClose: () => setShowBookmarksPanel(false), onAdd: async () => {
                                     if (!guide)
@@ -2404,6 +2483,7 @@ function Content() {
     const [preferences, setPreferences] = SP_REACT.useState({
         theme: "dark", font_family: "sans", line_height: "normal",
         max_width: "normal", highlight_keywords: true, numbered_sections: true,
+        render_bold: true,
         resume_hotkey: "", resume_button: -1, resume_enabled: true,
     });
     // Reading features
@@ -3475,7 +3555,7 @@ function Content() {
         setCurrentResumeButton(typeof next.resume_button === "number" ? next.resume_button : -1);
         setCurrentResumeEnabled(next.resume_enabled !== false);
         try {
-            await updateReaderPreferences(next.theme, next.font_family, next.line_height, next.max_width, next.highlight_keywords, next.numbered_sections, next.resume_hotkey || "", typeof next.resume_button === "number" ? next.resume_button : -1, next.resume_enabled !== false);
+            await updateReaderPreferences(next.theme, next.font_family, next.line_height, next.max_width, next.highlight_keywords, next.numbered_sections, next.resume_hotkey || "", typeof next.resume_button === "number" ? next.resume_button : -1, next.resume_enabled !== false, next.render_bold !== false);
         }
         catch (e) {
             setError(e instanceof Error ? e.message : "Sauvegarde préférences impossible");
@@ -3502,6 +3582,7 @@ function Content() {
         void savePrefs({ ...preferences, max_width: next });
     };
     const toggleHighlight = () => void savePrefs({ ...preferences, highlight_keywords: !preferences.highlight_keywords });
+    const toggleBold = () => void savePrefs({ ...preferences, render_bold: preferences.render_bold === false });
     const toggleNumbered = () => void savePrefs({ ...preferences, numbered_sections: !preferences.numbered_sections });
     // External URL
     const handleOpenExternal = async () => {
@@ -3822,7 +3903,7 @@ function Content() {
                             return (SP_JSX.jsxs("div", { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: { ...boxStyle, padding: "8px 10px" }, children: [SP_JSX.jsxs("div", { style: { fontWeight: 700, marginBottom: "2px", fontSize: "0.95rem", color: "#ffd966" }, children: ["\uD83C\uDFAE ", heading] }), showSubtitle ? (SP_JSX.jsx("div", { style: { fontSize: "0.74rem", opacity: 0.82, marginBottom: "4px" }, children: pageTitle })) : null, SP_JSX.jsxs("div", { style: { marginBottom: "4px" }, children: [SP_JSX.jsx("span", { style: pillStyle, children: result.site }), SP_JSX.jsxs("span", { style: pillStyle, children: ["Score ", result.score] })] }), result.snippet ? (SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.85, lineHeight: 1.3 }, children: result.snippet.length > 180 ? result.snippet.slice(0, 178) + "…" : result.snippet })) : null] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleImportResultDirect(result), children: "\uD83D\uDCBE Importer offline" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void openUrlExternal(result.url), children: "\uD83C\uDF10 Ouvrir dans le navigateur" }) })] }, result.url + idx));
                         }), filteredResults.length === 0 && searchSiteFilter.size > 0 ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.75rem", opacity: 0.7, padding: "8px 6px", textAlign: "center" }, children: "Aucun r\u00E9sultat ne correspond aux sites filtr\u00E9s." }) })) : null] })) : null] }));
     };
-    const renderReaderPreferences = () => (SP_JSX.jsxs(DFL.PanelSection, { title: "Pr\u00E9f\u00E9rences de lecture", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Th\u00E8me :" }), " ", THEME_LABELS[preferences.theme]] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Police :" }), " ", FONT_LABELS[preferences.font_family]] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Interligne :" }), " ", LINE_HEIGHT_LABELS[preferences.line_height]] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Largeur :" }), " ", MAX_WIDTH_LABELS[preferences.max_width]] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Surligner mots-cl\u00E9s :" }), " ", preferences.highlight_keywords ? "Oui" : "Non"] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Num\u00E9roter sections :" }), " ", preferences.numbered_sections ? "Oui" : "Non"] })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: cycleTheme, children: "Changer le th\u00E8me" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: cycleFont, children: "Changer la police" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: cycleLineHeight, children: "Changer l'interligne" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: cycleMaxWidth, children: "Changer la largeur" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", onClick: toggleHighlight, children: [preferences.highlight_keywords ? "Désactiver" : "Activer", " le surlignage des mots-cl\u00E9s"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", onClick: toggleNumbered, children: [preferences.numbered_sections ? "Cacher" : "Afficher", " les num\u00E9ros de section"] }) })] }));
+    const renderReaderPreferences = () => (SP_JSX.jsxs(DFL.PanelSection, { title: "Pr\u00E9f\u00E9rences de lecture", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: boxStyle, children: [SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Th\u00E8me :" }), " ", THEME_LABELS[preferences.theme]] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Police :" }), " ", FONT_LABELS[preferences.font_family]] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Interligne :" }), " ", LINE_HEIGHT_LABELS[preferences.line_height]] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Largeur :" }), " ", MAX_WIDTH_LABELS[preferences.max_width]] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Surligner mots-cl\u00E9s :" }), " ", preferences.highlight_keywords ? "Oui" : "Non"] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Texte en gras :" }), " ", preferences.render_bold !== false ? "Oui" : "Non"] }), SP_JSX.jsxs("div", { children: [SP_JSX.jsx("strong", { children: "Num\u00E9roter sections :" }), " ", preferences.numbered_sections ? "Oui" : "Non"] })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: cycleTheme, children: "Changer le th\u00E8me" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: cycleFont, children: "Changer la police" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: cycleLineHeight, children: "Changer l'interligne" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: cycleMaxWidth, children: "Changer la largeur" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", onClick: toggleHighlight, children: [preferences.highlight_keywords ? "Désactiver" : "Activer", " le surlignage des mots-cl\u00E9s"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", onClick: toggleBold, children: [preferences.render_bold !== false ? "Désactiver" : "Activer", " le texte en gras"] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", onClick: toggleNumbered, children: [preferences.numbered_sections ? "Cacher" : "Afficher", " les num\u00E9ros de section"] }) })] }));
     const renderGuidesView = () => {
         const sectionCount = selectedGuide?.sections.length || 0;
         const currentMatch = findMatches[findIndex];

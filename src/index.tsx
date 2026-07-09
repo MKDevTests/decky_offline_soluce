@@ -211,6 +211,8 @@ type ReaderPreferences = {
   max_width: "narrow" | "normal" | "full";
   highlight_keywords: boolean;
   numbered_sections: boolean;
+  // v0.43.49: render <b>/<strong> from web guides as bold text.
+  render_bold: boolean;
   // Legacy keyboard hotkey (unused on Steam Deck — SteamOS never delivers keystrokes
   // from Steam Input bindings to Steam UI). Kept for non-Deck contexts.
   resume_hotkey: string;
@@ -349,6 +351,7 @@ const updateReaderPreferences = callable<[
   resumeHotkey: string,
   resumeButton: number,
   resumeEnabled: boolean,
+  renderBold: boolean,
 ], ReaderPreferences>("update_reader_preferences");
 const listScanSources = callable<[], ScanSource[]>("list_scan_sources");
 const toggleScanSource = callable<[sourceId: string], ScanSource>("toggle_scan_source");
@@ -830,6 +833,13 @@ function resolveSectionReference(
   return -1;
 }
 
+// v0.43.49: inline bold sentinels (mirror of the backend BOLD_MARK_*). Rendered
+// as <strong>; stripped everywhere text is *analysed* (search, snippets) so they
+// stay invisible to matching and never leak into displayed strings.
+function stripBoldMarkers(s: string): string {
+  return s.indexOf("\x01") === -1 ? s : s.replace(/\x01\/?B\x02/g, "");
+}
+
 // Highlight keywords + search matches + cross-references in a text block
 function renderHighlightedText(
   text: string,
@@ -837,8 +847,57 @@ function renderHighlightedText(
   searchPattern: string,
   sections?: GuideSection[],
   onJumpToSection?: (idx: number) => void,
+  renderBold: boolean = true,
 ): React.ReactNode {
   if (!text) return text;
+
+  // v0.43.49: pull bold ranges out of the \x01B\x02…\x01/B\x02 markers, then run
+  // ALL highlighting on the marker-free "visible" text so match indices match the
+  // no-bold behaviour exactly (keeps find-nav aligned with computeSearchMatches,
+  // which counts on the same stripped text). Bold is drawn only on the GAPS
+  // between highlight spans, never splitting a span, so os-find mark count is
+  // unchanged. Keyword spans already render semibold, so skipping bold inside a
+  // highlight is visually a no-op.
+  let visible = text;
+  const boldRanges: Array<[number, number]> = [];
+  if (renderBold && text.indexOf("\x01B\x02") !== -1) {
+    const boldRe = /\x01B\x02([\s\S]*?)\x01\/B\x02/g;
+    let rebuilt = "";
+    let last = 0;
+    let bm: RegExpExecArray | null;
+    while ((bm = boldRe.exec(text)) !== null) {
+      rebuilt += stripBoldMarkers(text.slice(last, bm.index));
+      const bStart = rebuilt.length;
+      rebuilt += bm[1];
+      boldRanges.push([bStart, rebuilt.length]);
+      last = bm.index + bm[0].length;
+    }
+    rebuilt += stripBoldMarkers(text.slice(last));
+    visible = rebuilt;
+  } else {
+    visible = stripBoldMarkers(text);
+  }
+  text = visible;
+
+  const inBold = (i: number): boolean => {
+    for (const [a, b] of boldRanges) if (i >= a && i < b) return true;
+    return false;
+  };
+  // Emit visible.slice(from,to), wrapping maximal bold runs in <strong>.
+  const pushRange = (from: number, to: number, keyBase: string, sink: React.ReactNode[]): void => {
+    if (to <= from) return;
+    if (boldRanges.length === 0) { sink.push(text.slice(from, to)); return; }
+    let i = from;
+    while (i < to) {
+      const b = inBold(i);
+      let j = i + 1;
+      while (j < to && inBold(j) === b) j++;
+      const chunk = text.slice(i, j);
+      if (b) sink.push(<strong key={`b-${keyBase}-${i}`}>{chunk}</strong>);
+      else sink.push(chunk);
+      i = j;
+    }
+  };
   // Build a combined regex of keywords (word-ish boundaries) and the search pattern.
   const pieces: Array<{ regex: RegExp; className: string; color?: string }> = [];
 
@@ -863,7 +922,12 @@ function renderHighlightedText(
     });
   }
 
-  if (pieces.length === 0) return text;
+  if (pieces.length === 0) {
+    if (boldRanges.length === 0) return text;
+    const only: React.ReactNode[] = [];
+    pushRange(0, text.length, "only", only);
+    return only;
+  }
 
   // Collect all matches across all pieces
   type Span = { start: number; end: number; className: string; color?: string; refTarget?: number };
@@ -882,7 +946,12 @@ function renderHighlightedText(
       spans.push(span);
     }
   }
-  if (spans.length === 0) return text;
+  if (spans.length === 0) {
+    if (boldRanges.length === 0) return text;
+    const only: React.ReactNode[] = [];
+    pushRange(0, text.length, "only", only);
+    return only;
+  }
   // Sort, then merge overlaps (search match wins, then ref, then keyword)
   const priority: Record<string, number> = { "os-find": 3, "os-ref": 2, "os-kw": 1 };
   spans.sort((a, b) => a.start - b.start || b.end - a.end);
@@ -902,7 +971,7 @@ function renderHighlightedText(
   let cursor = 0;
   for (let i = 0; i < merged.length; i++) {
     const s = merged[i];
-    if (s.start > cursor) out.push(text.slice(cursor, s.start));
+    if (s.start > cursor) pushRange(cursor, s.start, `g${i}`, out);
     const substr = text.slice(s.start, s.end);
     if (s.className === "os-find") {
       out.push(<mark key={`m-${i}`} style={{ background: "#ffe066", color: "#1a1a1a", borderRadius: "2px", padding: "0 2px" }}>{substr}</mark>);
@@ -928,7 +997,7 @@ function renderHighlightedText(
     }
     cursor = s.end;
   }
-  if (cursor < text.length) out.push(text.slice(cursor));
+  if (cursor < text.length) pushRange(cursor, text.length, "gt", out);
   return out;
 }
 
@@ -1136,7 +1205,7 @@ function GuideReader(props: GuideReaderProps) {
             }
             return (
               <p key={idx} style={paragraphStyle}>
-                {renderHighlightedText(block.text, preferences.highlight_keywords, searchPattern, guide.sections, onJumpToSection)}
+                {renderHighlightedText(block.text, preferences.highlight_keywords, searchPattern, guide.sections, onJumpToSection, preferences.render_bold !== false)}
               </p>
             );
           })
@@ -1191,7 +1260,7 @@ function buildContentMatches(
     const start = Math.max(0, sec.line_start);
     const end = Math.min(lines.length - 1, sec.line_end);
     for (let i = start; i <= end; i++) {
-      const l = lines[i];
+      const l = stripBoldMarkers(lines[i] || "");  // v0.43.49: bold invisible to search
       if (l && l.toLowerCase().includes(needleLower)) {
         map.set(idx, buildContentSnippet(l, needleLower));
         break;
@@ -1223,8 +1292,14 @@ function computeSearchMatches(
     const start = Math.max(0, sec.line_start);
     const end = Math.min(lines.length - 1, sec.line_end);
     for (let i = start; i <= end; i++) {
-      const raw = lines[i];
-      if (!raw || raw.includes("\x01")) continue; // heading marker → no <mark> rendered
+      let raw = lines[i];
+      if (!raw) continue;
+      // v0.43.49: bold markers are stripped before <mark>s render, so count on the
+      // same stripped text; skip lines still carrying a heading/pre marker.
+      if (raw.includes("\x01")) {
+        raw = stripBoldMarkers(raw);
+        if (raw.includes("\x01")) continue;
+      }
       const l = raw.toLowerCase();
       let from = 0;
       let idx = l.indexOf(n, from);
@@ -2607,6 +2682,7 @@ function FullScreenReader() {
         next.highlight_keywords, next.numbered_sections, next.resume_hotkey || "",
         typeof next.resume_button === "number" ? next.resume_button : -1,
         next.resume_enabled !== false,
+        next.render_bold !== false,
       );
     } catch { /* keep local change even if persist fails */ }
   };
@@ -2710,6 +2786,7 @@ function FullScreenReader() {
           <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={() => cyclePref("line_height", ["tight", "normal", "airy"])}>Interligne : {prefLabels[preferences.line_height]}</DialogButton>
           <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={() => cyclePref("max_width", ["narrow", "normal", "full"])}>Largeur : {prefLabels[preferences.max_width]}</DialogButton>
           <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={() => savePrefs({ ...preferences, highlight_keywords: !preferences.highlight_keywords })}>Surlignage : {preferences.highlight_keywords ? "Oui" : "Non"}</DialogButton>
+          <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={() => savePrefs({ ...preferences, render_bold: preferences.render_bold === false })}>Gras : {preferences.render_bold !== false ? "Oui" : "Non"}</DialogButton>
           <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={() => savePrefs({ ...preferences, numbered_sections: !preferences.numbered_sections })}>Numéros : {preferences.numbered_sections ? "Oui" : "Non"}</DialogButton>
           <DialogButton style={{ minWidth: "auto", width: "auto" }} onClick={toggleConfort}>
             {confortOn ? "🛋 Confort ✓ (désactiver)" : "🛋 Confort Deck"}
@@ -3165,6 +3242,7 @@ function Content() {
   const [preferences, setPreferences] = useState<ReaderPreferences>({
     theme: "dark", font_family: "sans", line_height: "normal",
     max_width: "normal", highlight_keywords: true, numbered_sections: true,
+    render_bold: true,
     resume_hotkey: "", resume_button: -1, resume_enabled: true,
   });
 
@@ -4171,6 +4249,7 @@ function Content() {
         next.highlight_keywords, next.numbered_sections, next.resume_hotkey || "",
         typeof next.resume_button === "number" ? next.resume_button : -1,
         next.resume_enabled !== false,
+        next.render_bold !== false,
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Sauvegarde préférences impossible");
@@ -4198,6 +4277,7 @@ function Content() {
     void savePrefs({ ...preferences, max_width: next });
   };
   const toggleHighlight = () => void savePrefs({ ...preferences, highlight_keywords: !preferences.highlight_keywords });
+  const toggleBold = () => void savePrefs({ ...preferences, render_bold: preferences.render_bold === false });
   const toggleNumbered = () => void savePrefs({ ...preferences, numbered_sections: !preferences.numbered_sections });
 
   // External URL
@@ -5168,6 +5248,7 @@ function Content() {
           <div><strong>Interligne :</strong> {LINE_HEIGHT_LABELS[preferences.line_height]}</div>
           <div><strong>Largeur :</strong> {MAX_WIDTH_LABELS[preferences.max_width]}</div>
           <div><strong>Surligner mots-clés :</strong> {preferences.highlight_keywords ? "Oui" : "Non"}</div>
+          <div><strong>Texte en gras :</strong> {preferences.render_bold !== false ? "Oui" : "Non"}</div>
           <div><strong>Numéroter sections :</strong> {preferences.numbered_sections ? "Oui" : "Non"}</div>
         </div>
       </PanelSectionRow>
@@ -5186,6 +5267,11 @@ function Content() {
       <PanelSectionRow>
         <ButtonItem layout="below" onClick={toggleHighlight}>
           {preferences.highlight_keywords ? "Désactiver" : "Activer"} le surlignage des mots-clés
+        </ButtonItem>
+      </PanelSectionRow>
+      <PanelSectionRow>
+        <ButtonItem layout="below" onClick={toggleBold}>
+          {preferences.render_bold !== false ? "Désactiver" : "Activer"} le texte en gras
         </ButtonItem>
       </PanelSectionRow>
       <PanelSectionRow>

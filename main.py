@@ -93,6 +93,22 @@ MAX_FETCHED_PAGES = 60
 MIN_SECTION_CONTENT_LINES = 15
 # Hard minimum span in raw lines between two consecutive section starts.
 MIN_SECTION_SPAN_LINES = 6
+# v0.43.49: inline bold markers. Web guides' <b>/<strong> are wrapped in these
+# sentinels at parse time (like the \x01H heading / \x01PRE preformatted markers)
+# so the reader can render bold. They are INVISIBLE to all text analysis — flag
+# detection, section detection, in-guide search — which strip them first, so the
+# feature never changes those behaviours.
+BOLD_MARK_START = "\x01B\x02"
+BOLD_MARK_END = "\x01/B\x02"
+
+
+def _strip_bold_markers(text: str) -> str:
+    """Remove the inline bold sentinels so analysis sees the plain text."""
+    if "\x01" not in text:
+        return text
+    return text.replace(BOLD_MARK_START, "").replace(BOLD_MARK_END, "")
+
+
 ALLOWED_SCHEMES = {"http", "https"}
 SEARCH_RESULT_LIMIT = 16
 SEARCH_RESULTS_PER_SITE = 4
@@ -353,6 +369,8 @@ class ReaderPreferences:
     max_width: str = "normal"  # narrow | normal | full
     highlight_keywords: bool = True
     numbered_sections: bool = True
+    # v0.43.49: render <b>/<strong> from web guides as bold (default on).
+    render_bold: bool = True
     # Legacy keyboard hotkey — kept for backward-compat but unused on Steam Deck
     # because SteamOS doesn't deliver keyboard events from Steam Input bindings
     # to Steam UI. Use resume_button instead.
@@ -500,6 +518,8 @@ class _ReadableTextParser(_StdHTMLParser):
 
     HEADING_START = "\x01H"
     HEADING_END = "\x01/H\x02"
+    BOLD_START = BOLD_MARK_START
+    BOLD_END = BOLD_MARK_END
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -508,6 +528,10 @@ class _ReadableTextParser(_StdHTMLParser):
         self._heading_level: int = 0
         self._heading_buffer: list[str] = []
         self._pre_depth: int = 0
+        # v0.43.49: emphasis. Only the OUTERMOST <b>/<strong> pair emits a marker
+        # (nested emphasis collapses), and never inside a heading or <pre> block.
+        self._bold_depth: int = 0
+        self._bold_tags = {"b", "strong"}
         self._block_tags = {
             "article",
             "aside",
@@ -556,6 +580,11 @@ class _ReadableTextParser(_StdHTMLParser):
             return
         if self._skip_stack:
             return
+        if tag in self._bold_tags and self._heading_level == 0 and self._pre_depth == 0:
+            if self._bold_depth == 0:
+                self._parts.append(self.BOLD_START)
+            self._bold_depth += 1
+            return
         if tag == "pre":
             self._pre_depth += 1
         if tag in self._heading_tags:
@@ -573,6 +602,11 @@ class _ReadableTextParser(_StdHTMLParser):
             self._skip_stack.pop()
             return
         if self._skip_stack:
+            return
+        if tag in self._bold_tags and self._bold_depth > 0:
+            self._bold_depth -= 1
+            if self._bold_depth == 0:
+                self._parts.append(self.BOLD_END)
             return
         if tag == "pre" and self._pre_depth > 0:
             self._pre_depth -= 1
@@ -618,7 +652,16 @@ class _ReadableTextParser(_StdHTMLParser):
                 seg = re.sub(r" ?\n ?", "\n", seg)
                 seg = re.sub(r"\n{3,}", "\n\n", seg)
                 out.append(seg)
-        return "".join(out).strip()
+        result = "".join(out)
+        # v0.43.49: keep bold markers balanced (auto-close an unclosed <strong>)
+        # and drop pairs that ended up wrapping only whitespace, so no stray or
+        # empty marker leaks into the stored content.
+        opens = result.count(self.BOLD_START)
+        closes = result.count(self.BOLD_END)
+        if opens > closes:
+            result += self.BOLD_END * (opens - closes)
+        result = re.sub(r"\x01B\x02(\s*)\x01/B\x02", r"\1", result)
+        return result.strip()
 
 
 class _LinkParser(_StdHTMLParser):
@@ -1711,6 +1754,9 @@ class Plugin:
         and left content under the WRONG title). Single-page guides keep the smart
         heuristic detection. Reusing this in reload_guide_content is what makes the
         "retélécharger" button actually re-apply the per-page fix."""
+        # v0.43.49: strip bold markers for detection (line count preserved → the
+        # page_boundaries line indices and returned ranges stay valid).
+        content = _strip_bold_markers(content)
         page_boundaries = collected.get("page_boundaries") or []
         if len(page_boundaries) > 1:
             lines = content.split("\n")
@@ -1805,10 +1851,10 @@ class Plugin:
     def _flag_snippet(self, lines: list[str], li: int) -> str:
         """The readable context for a flag: the line, widened to neighbours when
         the source is hard-wrapped (short lines) so the sentence isn't cut."""
-        s = lines[li].strip()
+        s = _strip_bold_markers(lines[li]).strip()
         if len(s) < 60 and 0 <= li:
             window = " ".join(
-                x.strip() for x in lines[max(0, li - 1):li + 2]
+                x.strip() for x in (_strip_bold_markers(y) for y in lines[max(0, li - 1):li + 2])
                 if x.strip() and "\x01" not in x
             )
             return re.sub(r"\s+", " ", window)[:220].strip()
@@ -1825,6 +1871,7 @@ class Plugin:
         flags: list[GuideFlag] = []
         seen: set[tuple[str, str]] = set()
         for li, line in enumerate(lines):
+            line = _strip_bold_markers(line)  # v0.43.49: bold is invisible to flags
             s = line.strip()
             if len(s) < 8 or "\x01" in line:
                 continue
@@ -2857,6 +2904,7 @@ class Plugin:
         resume_hotkey: str = "",
         resume_button: int = -1,
         resume_enabled: bool = True,
+        render_bold: bool = True,
     ) -> dict[str, Any]:
         try:
             btn = int(resume_button)
@@ -2871,6 +2919,7 @@ class Plugin:
             max_width=max_width if max_width in {"narrow", "normal", "full"} else "normal",
             highlight_keywords=bool(highlight_keywords),
             numbered_sections=bool(numbered_sections),
+            render_bold=bool(render_bold),
             resume_hotkey=str(resume_hotkey or "").strip()[:30],
             resume_button=btn,
             resume_enabled=bool(resume_enabled),
@@ -2899,6 +2948,7 @@ class Plugin:
             max_width=str(payload.get("max_width", "normal")),
             highlight_keywords=bool(payload.get("highlight_keywords", True)),
             numbered_sections=bool(payload.get("numbered_sections", True)),
+            render_bold=bool(payload.get("render_bold", True)),
             resume_hotkey=str(payload.get("resume_hotkey", "")).strip()[:30],
             resume_button=btn if -1 <= btn <= 200 else -1,
             # Default to True if key absent — preserves existing behavior for users
@@ -6650,6 +6700,11 @@ class Plugin:
 
         The returned method is one of: "headings" | "toc_codes" | "banners" | "heuristic" | "none".
         """
+        # v0.43.49: run detection on the bold-marker-free text. Stripping the inline
+        # \x01B\x02 sentinels never removes a newline, so line indices (and thus the
+        # returned section ranges) stay valid against the STORED marker-ful content.
+        # This makes sectioning completely immune to where emphasis happens to fall.
+        content = _strip_bold_markers(content)
         lines = content.splitlines()
         total = len(lines)
         if total < 10:
