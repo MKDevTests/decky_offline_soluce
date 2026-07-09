@@ -7725,10 +7725,18 @@ class Plugin:
             if re.match(r"^\d{1,2}[.)]", raw_title):            # "4. The Walkthrough" → top level
                 level = 2
                 title = re.sub(r"^\d{1,2}[.)]\s*", "", raw_title).strip()
+            elif re.match(r"^(?:disc|disque|chapter|chapitre|part|partie|act|acte|day|jour|[ée]pisode|episode)\b",
+                          raw_title, re.IGNORECASE):
+                # v0.43.45: "Disc One", "Chapter 2"… are chapters — L2, not children.
+                # Otherwise they land as L3 and their (split) rooms as L4, which the
+                # 2-level TOC flattens into a confusing mix (Koudelka: discs shown among
+                # rooms). As L2 chapters their rooms split cleanly to L3.
+                level = 2
+                title = raw_title
             elif re.match(r"^[ivxlc]{1,5}[.)]", raw_title, re.IGNORECASE):  # "i. Puzzles" → child
                 level = 3
                 title = re.sub(r"^[ivxlc]{1,5}[.)]\s*", "", raw_title, flags=re.IGNORECASE).strip()
-            else:                                              # "Disc One" (no prefix) → child
+            else:                                              # "Puzzles and Key Items" (Lists sub-item) → child
                 level = 3
                 title = raw_title
             if title and len(title) < 120:
