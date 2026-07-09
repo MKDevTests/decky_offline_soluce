@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -894,6 +895,10 @@ def _regex_parse_ddg_results(html: str) -> list:
 
 
 class Plugin:
+    # v0.43.47: one download at a time. Serializes _collect_guide across all
+    # imports/re-DLs so concurrent fetches don't trip host rate-limits (429).
+    _DOWNLOAD_LOCK = threading.Lock()
+
     async def _main(self) -> None:
         self._runtime_dir = Path(decky.DECKY_PLUGIN_RUNTIME_DIR)
         self._guides_dir = self._runtime_dir / "guides"
@@ -1892,12 +1897,18 @@ class Plugin:
             if job_id and job_id in self._imports:
                 self._imports[job_id].update(done=done, total=total, msg=f"Téléchargement page {done}/{total}…")
 
-        try:
-            collected = self._collect_guide(normalized_url, progress_cb)
-            self._debug_log(f"  collected: title='{collected.get('title','')}' extractor='{collected.get('extractor','')}' content_len={len(collected.get('content',''))}")
-        except Exception as exc:
-            self._debug_log(f"  collect_guide FAILED: {exc}")
-            raise
+        # v0.43.47: serialize the network crawl across imports/re-DLs (one at a time).
+        # Concurrent fetches to the same host trigger rate-limits (429) — a sequential
+        # queue is safer. While waiting, the job shows "En file d'attente…".
+        if job_id and job_id in self._imports:
+            self._imports[job_id].update(msg="En file d'attente…")
+        with self._DOWNLOAD_LOCK:
+            try:
+                collected = self._collect_guide(normalized_url, progress_cb)
+                self._debug_log(f"  collected: title='{collected.get('title','')}' extractor='{collected.get('extractor','')}' content_len={len(collected.get('content',''))}")
+            except Exception as exc:
+                self._debug_log(f"  collect_guide FAILED: {exc}")
+                raise
         content = collected["content"]
 
         if len(content) < 200:
@@ -2603,8 +2614,11 @@ class Plugin:
             if job_id and job_id in self._imports:
                 self._imports[job_id].update(done=done, total=total, msg=f"Re-DL page {done}/{total}…")
 
+        if job_id and job_id in self._imports:
+            self._imports[job_id].update(msg="En file d'attente…")
         try:
-            collected = self._collect_guide(record.url, progress_cb)
+            with self._DOWNLOAD_LOCK:  # v0.43.47: serialize with imports/other re-DLs
+                collected = self._collect_guide(record.url, progress_cb)
         except Exception as exc:
             self._debug_log(f"  refetch FAILED: {exc}")
             self._switch_debug_file("main.log")
@@ -4427,7 +4441,11 @@ class Plugin:
     # index…). A site:-restricted search surfaces ALL of them, cluttering the
     # results with fragments of the same guide. These collapse fragment URLs back
     # to their guide root (the page to import — the BFS crawl then pulls the rest).
-    _FRAGMENT_SITE_HOSTS = ("rpgsoluce.com", "vally8.free.fr", "jeuxvideo.com")
+    # v0.43.47: IGN + Neoseeker added — a game's WIKI is ONE guide split across many
+    # sub-pages (/wikis/<game>/Walkthrough, /Chapter_1…), which all extract to the same
+    # game name and flooded the results with identical rows. Collapse to one per game.
+    # (GameFAQs stays out: each /faqs/<id> is a distinct author's guide.)
+    _FRAGMENT_SITE_HOSTS = ("rpgsoluce.com", "vally8.free.fr", "jeuxvideo.com", "ign.com", "neoseeker.com")
     _FRAGMENT_SEG_RE = re.compile(
         r"^(?:chapit?res?|parties?|parts?|chapters?|pages?|sections?|episodes?|ep|"
         r"soluces?|solutions?|walkthroughs?|etapes?|steps?|niveaux?|levels?|"
@@ -4460,6 +4478,14 @@ class Plugin:
         if "wikis-soluce-astuces" in segs:
             i = segs.index("wikis-soluce-astuces")
             return "/" + "/".join(segs[: i + 2])
+        # v0.43.47: IGN wiki /wikis/<game>/<page> -> /wikis/<game>
+        if "ign.com" in h and "wikis" in segs:
+            i = segs.index("wikis")
+            return "/" + "/".join(segs[: i + 2])
+        # v0.43.47: Neoseeker /<game>/walkthrough|guides/<page> -> /<game>/<section>
+        if "neoseeker.com" in h and len(segs) >= 2 and segs[1].lower() in (
+                "walkthrough", "walkthroughs", "guide", "guides", "faq", "faqs"):
+            return "/" + "/".join(segs[:2])
         # generic fallback: strip ONE trailing chapter/page/index fragment
         # (guarded so a top-level game slug is never stripped).
         if len(segs) >= 2 and self._FRAGMENT_SEG_RE.match(segs[-1]):
@@ -4522,6 +4548,14 @@ class Plugin:
                         r"\s*[-–—:|]?\s*(?:chapit?re|partie|chapter|part|page|[ée]tape|episode|ch)\s*\d+.*$",
                         "", rep.title, flags=re.IGNORECASE,
                     ).strip() or rep.title
+                elif "ign.com" in host or "neoseeker.com" in host:
+                    # v0.43.47: prefer the main "…/Walkthrough" page — importing it
+                    # crawls the whole wiki, so it's the right single entry point.
+                    walk = [m for m in members
+                            if re.search(r"/walkthroughs?$", urlparse(m.url).path.rstrip("/"), re.IGNORECASE)]
+                    if walk:
+                        rep = max(walk, key=lambda r: r.score)
+                    rep_url, rep_title = rep.url, rep.title
                 else:
                     rep_url, rep_title = rep.url, rep.title
             out.append(GuideSearchResult(
@@ -6975,6 +7009,12 @@ class Plugin:
             # Snapshot BEFORE so we can log how much each pass changed.
             before = [s.title or "" for s in sections]
             sections = self._trim_trailing_title_decoration(sections)
+            # v0.43.47: strip LEADING banner decoration too (trailing is handled above),
+            # so "= SECTION 2: GAME INFORMATION =" → "SECTION 2: GAME INFORMATION".
+            for s in sections:
+                t = re.sub(r"^[=\-_*#~|\s]+", "", s.title or "").strip()
+                if t:
+                    s.title = t
             after_trim = [s.title or "" for s in sections]
             sections = self._strip_inherited_prefixes(sections)
             # v0.43.8: NOW that inherited "parent …leader… — " prefixes are
@@ -8129,6 +8169,9 @@ class Plugin:
                 title_line = lines[idx + 1].strip()
                 # Strip [CODE] suffix for the display title
                 title_clean = re.sub(r"\s*\[[A-Z0-9][A-Z0-9\-_]{1,8}\]\s*$", "", title_line).strip()
+                # v0.43.47: strip inline banner decoration ("= SECTION 2: GAME INFO =",
+                # "*** TITLE ***") so the title isn't "= SECTION 2: GAME INFORMATION =".
+                title_clean = re.sub(r"^[=\-_*#~|\s]+|[=\-_*#~|\s]+$", "", title_clean).strip()
                 starts.append((idx, title_clean or title_line, 2))
                 idx += 3
                 continue
@@ -8139,6 +8182,9 @@ class Plugin:
                 and (idx == 0 or not lines[idx - 1].strip())):
                 title_line = lines[idx].strip()
                 title_clean = re.sub(r"\s*\[[A-Z0-9][A-Z0-9\-_]{1,8}\]\s*$", "", title_line).strip()
+                # v0.43.47: strip inline banner decoration ("= SECTION 2: GAME INFO =",
+                # "*** TITLE ***") so the title isn't "= SECTION 2: GAME INFORMATION =".
+                title_clean = re.sub(r"^[=\-_*#~|\s]+|[=\-_*#~|\s]+$", "", title_clean).strip()
                 starts.append((idx, title_clean or title_line, 2))
                 idx += 2
                 continue
