@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent
 RELEASE_DIR = ROOT / "release"
 DIST_DIR = ROOT / "dist"
 PLUGIN_NAME = "decky-offline-soluce"
-VERSION = "0.43.54"
+VERSION = "0.43.55"
 ZIP_NAME = f"{PLUGIN_NAME}-v{VERSION}.zip"
 
 REQUIRED = [

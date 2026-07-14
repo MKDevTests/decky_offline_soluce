@@ -1582,10 +1582,18 @@ class Plugin:
 
             site_label = str(matched_site_config.get("label", matched_site_key))
             score = self._score_search_result(matched_site_key, normalized_query, normalized_platform, parsed.title, parsed.url, parsed.snippet, normalized_lang)
+            game = self._game_name_from_url(parsed.url)
+            # v0.43.55: GameFAQs web titles are "<Game> - Guide and Walkthrough -
+            # <Platform> - By <Author> - GameFAQs"; since the card leads with the
+            # game, all of a game's guides looked identical. Reduce to
+            # "<guide type> — <Author>" so they're distinguishable.
+            result_title = parsed.title
+            if matched_site_key == "gamefaqs":
+                result_title = self._clean_gamefaqs_search_title(parsed.title, game)
             final_results.append(GuideSearchResult(
-                title=parsed.title, url=parsed.url, site=site_label,
+                title=result_title, url=parsed.url, site=site_label,
                 snippet=parsed.snippet, score=score,
-                game=self._game_name_from_url(parsed.url),  # v0.43.35: "which game?"
+                game=game,  # v0.43.35: "which game?"
             ))
 
         # v0.43.10: collapse per-chapter fragments of the same guide (rpgsoluce/
@@ -1686,6 +1694,46 @@ class Plugin:
             return False
         parts = [p for p in pu.path.split("/") if p]
         return len(parts) == 2 and "faqs" not in parts and bool(re.match(r"^\d+-", parts[1]))
+
+    def _clean_gamefaqs_search_title(self, title: str, game: str) -> str:
+        """v0.43.55: turn a GameFAQs web-search title
+        "Koudelka - Guide and Walkthrough - PlayStation - By threetimes - GameFAQs"
+        into "Guide and Walkthrough — threetimes", dropping the game name, the
+        platform token and the "GameFAQs" suffix, so a game's many guides are
+        distinguishable on a card that already leads with the game name."""
+        raw = re.sub(r"\s+", " ", title or "").strip()
+        parts = [p.strip() for p in raw.split(" - ") if p.strip()]
+        if len(parts) < 2:
+            return title
+        author = ""
+        kind = ""
+        plat_re = re.compile(
+            r"(?i)^(playstation[\w ]*|ps[0-9x]?|pc|xbox[\w -]*|switch|3ds|nds|ds|psp|vita|"
+            r"gamecube|n64|snes|nes|wii\s*u?|game\s*boy[\w ]*|mobile|ios|android|dreamcast|"
+            r"saturn|genesis|mega\s*drive|arcade|stadia)$")
+        for p in parts:
+            m = re.match(r"(?i)^by\s+(.+)$", p)
+            if m:
+                author = m.group(1).strip()
+                continue
+            if p.casefold() in {"gamefaqs", "gamespot"}:
+                continue
+            if game and p.casefold() == game.casefold():
+                continue
+            if plat_re.match(p):
+                continue
+            if re.search(r"(?i)walkthrough|guide|faq|script|\bmap\b|boss|monster|weapon|chart|strategy", p):
+                kind = p
+        if not kind:
+            # fall back to the first non-game, non-platform chunk
+            for p in parts:
+                if (p.casefold() not in {"gamefaqs", "gamespot"}
+                        and not (game and p.casefold() == game.casefold())
+                        and not plat_re.match(p) and not re.match(r"(?i)^by\s+", p)):
+                    kind = p
+                    break
+        kind = kind or "Guide"
+        return f"{kind} — {author}" if author else kind
 
     def _gamefaqs_faqs_index_url(self, url: str) -> "str | None":
         """v0.43.52: derive the GameFAQs FAQ-INDEX URL (…/<plat>/<id>-<game>/faqs)
