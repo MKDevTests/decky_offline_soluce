@@ -691,7 +691,11 @@ function guideMatchesLibraryItem(guide: GuideSummary, item: LibraryItem): boolea
 type ContentBlock =
   | { kind: "paragraph"; text: string }
   | { kind: "heading"; text: string; level: number }
-  | { kind: "pre"; text: string };
+  // `art` marks a pre block synthesised from leaked ASCII-art/table lines (not a
+  // real \x01PRE\x02 span). It renders monospace but THROUGH renderHighlightedText,
+  // so search <mark>s stay present (these lines have no markers, so
+  // computeSearchMatches counts them → find-nav stays aligned).
+  | { kind: "pre"; text: string; art?: boolean };
 
 // Parse text containing \x01H{n}\x02...\x01/H\x02 and \x01PRE\x02...\x01/PRE\x02 markers
 function parseBlocks(raw: string): ContentBlock[] {
@@ -769,6 +773,29 @@ function smartCollapseParagraph(text: string): string {
   return out.join("\n");
 }
 
+/**
+ * v0.43.50: is this line part of an ASCII-art / bordered-table block?
+ * Some FAQs (Koudelka's map, FF IX / Wild Arms stat tables) have art that leaks
+ * OUTSIDE the parser's <pre> spans; rendered as normal prose it gets line-joined
+ * and crushed. We detect a line by its density of STRUCTURAL drawing chars
+ * (| / \ _) — deliberately NOT . or - or = (those are TOC dotted-leaders and
+ * separators, not art) — and reject anything that's mostly letters (real prose).
+ * Corpus-validated: catches only art + bordered tables, never plain sentences.
+ */
+function isArtLine(line: string): boolean {
+  const t = line.trim();
+  if (t.length < 3) return false;
+  let struct = 0;
+  let letters = 0;
+  for (const ch of t) {
+    if (ch === "|" || ch === "/" || ch === "\\" || ch === "_") struct++;
+    else if ((ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z")) letters++;
+  }
+  if (struct < 3) return false;
+  if (letters > t.length * 0.55) return false; // mostly words → prose
+  return struct / t.length >= 0.12;
+}
+
 function parseParagraphsAndHeadings(raw: string): ContentBlock[] {
   const blocks: ContentBlock[] = [];
   const headingRegex = /\x01H(\d)\x02(.*?)\x01\/H\x02/g;
@@ -776,22 +803,46 @@ function parseParagraphsAndHeadings(raw: string): ContentBlock[] {
   const lines = raw.split(/\n/);
   let paragraphBuffer: string[] = [];
 
-  const flushParagraph = () => {
-    if (paragraphBuffer.length === 0) return;
-    // Further split the paragraph buffer by blank lines
-    const joined = paragraphBuffer.join("\n");
-    const paragraphs = joined.split(/\n\n+/);
+  // Emit accumulated prose lines as paragraph block(s), split by blank lines.
+  const flushProse = (proseLines: string[]) => {
+    if (proseLines.length === 0) return;
+    const paragraphs = proseLines.join("\n").split(/\n\n+/);
     for (const p of paragraphs) {
       const trimmed = p.trim();
       if (trimmed) {
         // Collapse soft-wrap newlines into spaces so the browser flows the
-        // text at screen width. Hard breaks (lists, stat lines, ASCII art)
-        // are preserved by smartCollapseParagraph.
-        const flowed = smartCollapseParagraph(trimmed);
-        blocks.push({ kind: "paragraph", text: flowed });
+        // text at screen width. Hard breaks (lists, stat lines) are preserved
+        // by smartCollapseParagraph.
+        blocks.push({ kind: "paragraph", text: smartCollapseParagraph(trimmed) });
       }
     }
+  };
+
+  const flushParagraph = () => {
+    if (paragraphBuffer.length === 0) return;
+    const buf = paragraphBuffer;
     paragraphBuffer = [];
+    // v0.43.50: peel runs of >=3 consecutive ASCII-art/table lines into their own
+    // `pre` block (monospace, verbatim) so they aren't line-joined & crushed by
+    // smartCollapseParagraph. Everything else stays normal prose. This rescues
+    // art that leaked outside the parser's <pre> spans (e.g. Koudelka's map).
+    let prose: string[] = [];
+    let i = 0;
+    while (i < buf.length) {
+      let j = i;
+      while (j < buf.length && isArtLine(buf[j])) j++;
+      if (j - i >= 3) {
+        flushProse(prose);
+        prose = [];
+        const artText = buf.slice(i, j).join("\n").replace(/^\n+|\n+$/g, "");
+        if (artText) blocks.push({ kind: "pre", text: artText, art: true });
+        i = j;
+      } else {
+        prose.push(buf[i]);
+        i++;
+      }
+    }
+    flushProse(prose);
   };
 
   for (const line of lines) {
@@ -1201,7 +1252,15 @@ function GuideReader(props: GuideReaderProps) {
               return <div key={idx} style={headingStyle(block.level)}>{block.text}</div>;
             }
             if (block.kind === "pre") {
-              return <pre key={idx} style={preStyle}>{block.text}</pre>;
+              // Real \x01PRE\x02 spans render verbatim; synthesised art/table
+              // blocks go through the highlighter so search <mark>s stay present.
+              return (
+                <pre key={idx} style={preStyle}>
+                  {block.art
+                    ? renderHighlightedText(block.text, preferences.highlight_keywords, searchPattern, guide.sections, onJumpToSection, preferences.render_bold !== false)
+                    : block.text}
+                </pre>
+              );
             }
             return (
               <p key={idx} style={paragraphStyle}>
