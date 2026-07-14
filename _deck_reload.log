@@ -1,0 +1,29 @@
+[2026-07-14 18:26:31] === reload_guide.log ===
+[18:26:31] reload_guide_content: id=koudelka-20260702011705 url=https://gamefaqs.gamespot.com/ps/197752-koudelka/faqs/54942
+[18:26:31]   _collect_guide: start_url=https://gamefaqs.gamespot.com/ps/197752-koudelka/faqs/54942
+[18:26:31]   base_prefix=(none)
+[18:26:31]   fetching page 1/60: https://gamefaqs.gamespot.com/ps/197752-koudelka/faqs/54942
+[18:26:31]   download [direct] HTTP 403
+[18:26:31]   download [with_referer] HTTP 403
+[18:26:32]   download [firefox_ua] HTTP 403
+[18:26:32]   curl exit=22 for https://gamefaqs.gamespot.com/ps/197752-koudelka/faqs/54942 stderr=''
+[18:26:32]   download [curl] unavailable or failed
+[18:26:52]   download [wayback] 335421 chars charset=utf-8 from https://web.archive.org/web/2024/https://gamefaqs.gamespot.com/ps/197752-koudelk
+[18:26:52]   [debug] raw HTML saved: /home/deck/Documents/Plugins/OfflineSoluce/raw_fetch_1.html (335421 chars)
+[18:26:52]   extracted: extractor=gamefaqs content_len=263278
+[18:26:52]   _collect_guide done: 1 pages, 263278 chars content
+[18:26:52]   split-large: 'Game Basics' (593 lines) → 8 via banners
+[18:26:52]   split-large: 'Disc One' (663 lines) → 7 via banners
+[18:26:52]   split-large: 'Disc Two' (1039 lines) → 12 via banners
+[18:26:52]   split-large: 'Disc Three' (986 lines) → 8 via banners
+[18:26:52]   split-large: 'Disc Four' (371 lines) → 4 via banners
+[18:26:52]   split-large: 'Weapons' (412 lines) → 4 via banners
+[18:26:52]   split-large: 'Enemies' (405 lines) → 3 via heuristic
+[18:26:52]   prose-merge: 66 -> 60 sections
+[18:26:52]   _polish_section_titles: 60 sections | trim=0 prefix=6 number=0 trunc=0 total=6
+[18:26:52]     [2] 'Game Basics — v. A B I L I T Y P O I N T S' -> 'Game Basics — v. ABILITYPOINTS'
+[18:26:52]     [15] 'Disc Two — 2E. D U N G E O N T O S H R I N E' -> 'Disc Two — 2E. DUNGEONTOSHRINE'
+[18:26:52]     [23] 'Disc Two — 2I. R E D K E Y D O O R' -> 'Disc Two — 2I. REDKEYDOOR'
+[18:26:52]     [33] "Disc Three — 3P. P A T R I C K ' S Q U A R T E R S" -> "Disc Three — 3P. PATRICK'SQUARTERS"
+[18:26:52]     [37] 'Disc Four — R. P R E P A R A T I O N' -> 'Disc Four — R. PREPARATION'
+[18:26:52]   reload SUCCESS: id=koudelka-20260702011705 pages=1 sections=60 method=toc_codes

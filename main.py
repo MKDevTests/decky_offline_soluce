@@ -752,8 +752,29 @@ class _DuckDuckGoSearchParser(_StdHTMLParser):
 
 
 def _regex_strip_tags(html: str) -> str:
-    """Fallback HTML-to-text when html.parser is unavailable."""
-    text = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
+    """Fallback HTML-to-text when html.parser is unavailable.
+
+    v0.43.54: this path IS taken on the real Steam Deck — Decky's embedded Python
+    fails `from html.parser import HTMLParser`, so the whole plugin runs here. The
+    old version replaced <pre> with a space and collapsed every run of spaces,
+    which DESTROYED ASCII-art maps/tables (GameFAQs). We now protect <pre> blocks
+    exactly like _ReadableTextParser: their inner text is kept verbatim (no space
+    collapse) and re-emitted wrapped in \x01PRE\x02 markers so the reader renders
+    them monospace.
+    """
+    # 1) Stash <pre>…</pre> blocks so the space-collapse below can't touch them.
+    pre_blocks: list[str] = []
+
+    def _stash_pre(m: "re.Match[str]") -> str:
+        inner = re.sub(r"<[^>]+>", "", m.group(1))  # drop any inline tags inside <pre>
+        inner = _html_unescape(inner).replace("\xa0", " ").replace("\r", "")
+        inner = inner.strip("\n")
+        pre_blocks.append(inner)
+        return f"\x00PRE{len(pre_blocks) - 1}\x00"
+
+    text = re.sub(r"<pre[^>]*>(.*?)</pre>", _stash_pre, html, flags=re.DOTALL | re.IGNORECASE)
+
+    text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
     text = re.sub(r"<(?:p|div|h[1-6]|li|tr|dt|dd|blockquote|section|article|header|footer)[^>]*>", "\n", text, flags=re.IGNORECASE)
@@ -763,6 +784,12 @@ def _regex_strip_tags(html: str) -> str:
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r" ?\n ?", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
+
+    # 2) Restore the preserved <pre> blocks with real \x01PRE\x02 markers.
+    def _restore_pre(m: "re.Match[str]") -> str:
+        return "\n\x01PRE\x02\n" + pre_blocks[int(m.group(1))] + "\n\x01/PRE\x02\n"
+
+    text = re.sub(r"\x00PRE(\d+)\x00", _restore_pre, text)
     return text.strip()
 
 
@@ -1709,10 +1736,22 @@ class Plugin:
             tail = m.group(3)
             am = re.search(r"/(?:community|user)/([A-Za-z0-9_]+)", tail) or re.search(r"\bby\s+([A-Za-z0-9_]{2,})", tail)
             author = am.group(1) if am else ""
+            # Version / size / year sit next to each entry ("v.1.3, 270KB, 2011").
+            meta_bits: list[str] = []
+            vm = re.search(r"\bv\.\s*([\w.]{1,12})", tail)
+            if vm:
+                meta_bits.append("v." + vm.group(1).rstrip("."))
+            sm = re.search(r"(\d{1,4})\s*KB", tail, re.IGNORECASE)
+            if sm:
+                meta_bits.append(sm.group(1) + " KB")
+            ym = re.search(r"\b(19|20)\d\d\b", tail)
+            if ym:
+                meta_bits.append(ym.group(0))
             full_url = f"https://gamefaqs.gamespot.com{path}"
             label = f"{title} — {author}" if author else title
             results.append(GuideSearchResult(
-                title=label, url=full_url, site="GameFAQs", snippet="",
+                title=label, url=full_url, site="GameFAQs",
+                snippet=" · ".join(meta_bits),
                 score=0, game=self._game_name_from_url(full_url),
             ))
         cache[index_url] = results

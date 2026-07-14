@@ -1462,12 +1462,16 @@ function FullScreenSearch() {
                                                 const gameName = (r.game || "").trim();
                                                 const pageTitle = (r.title || "").trim();
                                                 const heading = gameName || pageTitle || "(sans titre)";
+                                                // v0.43.53: GameFAQs index guides carry "Title — Author"; that author
+                                                // is the ONLY thing distinguishing 6 "Guide and Walkthrough" of one game,
+                                                // so never suppress a title that has it.
+                                                const hasAuthor = pageTitle.includes(" — ");
                                                 const uglyTitle = pageTitle.includes("›") || /wikis-soluce-astuces/i.test(pageTitle)
-                                                    || /^(rpg soluce|le coin de|walkthrough|full walkthrough|guide|soluce|wiki)\b/i.test(pageTitle);
+                                                    || (!hasAuthor && /^(rpg soluce|le coin de|walkthrough|full walkthrough|guide|soluce|wiki)\b/i.test(pageTitle));
                                                 const showSub = pageTitle && pageTitle.toLowerCase() !== heading.toLowerCase()
-                                                    && !(gameName && (uglyTitle || pageTitle.toLowerCase().includes(gameName.toLowerCase())));
+                                                    && !(gameName && (uglyTitle || (!hasAuthor && pageTitle.toLowerCase().includes(gameName.toLowerCase()))));
                                                 return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs("div", { style: { fontWeight: 700, color: "#ffd966", fontSize: "0.98rem", whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.25 }, children: ["\uD83C\uDFAE ", heading] }), showSub ? (SP_JSX.jsx("div", { style: { fontSize: "0.8rem", color: theme.textColor, opacity: 0.85, whiteSpace: "normal", overflowWrap: "anywhere" }, children: pageTitle })) : null] }));
-                                            })(), SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.75 }, children: r.site }), r.snippet ? SP_JSX.jsx("div", { style: { fontSize: "0.78rem", opacity: 0.85, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }, children: r.snippet }) : null] }, `${r.url}-${i}`));
+                                            })(), SP_JSX.jsxs("div", { style: { fontSize: "0.72rem", opacity: 0.75 }, children: [r.site, r.snippet ? ` · ${r.snippet}` : ""] }), r.snippet ? SP_JSX.jsx("div", { style: { fontSize: "0.78rem", opacity: 0.85, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }, children: r.snippet }) : null] }, `${r.url}-${i}`));
                                 }), results.length > visibleCount ? (SP_JSX.jsxs(DFL.DialogButton, { disabled: busy, onClick: () => setVisibleCount((v) => v + SEARCH_PAGE_SIZE), children: ["\u2B07 Charger plus de guides (", results.length - visibleCount, " restant", results.length - visibleCount > 1 ? "s" : "", ")"] })) : null] })] }) })] }));
 }
 /**
@@ -3896,7 +3900,10 @@ function Content() {
                             const gameName = (result.game || "").trim();
                             const pageTitle = (result.title || "").trim();
                             const heading = gameName || pageTitle || "(sans titre)";
-                            const genericTitle = /^(rpg soluce|le coin de|walkthrough|full walkthrough|guide|soluce|wiki)\b/i.test(pageTitle);
+                            // v0.43.53: keep "Title — Author" (GameFAQs index) — the author is the
+                            // only thing telling apart 6 "Guide and Walkthrough" of the same game.
+                            const hasAuthor = pageTitle.includes(" — ");
+                            const genericTitle = !hasAuthor && /^(rpg soluce|le coin de|walkthrough|full walkthrough|guide|soluce|wiki)\b/i.test(pageTitle);
                             const showSubtitle = pageTitle
                                 && pageTitle.toLowerCase() !== heading.toLowerCase()
                                 && !(gameName && genericTitle && pageTitle.toLowerCase().includes(gameName.toLowerCase()));
