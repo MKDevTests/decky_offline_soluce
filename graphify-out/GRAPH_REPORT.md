@@ -1,16 +1,16 @@
 # Graph Report - decky-offline-soluce  (2026-07-14)
 
 ## Corpus Check
-- 16 files · ~849,937 words
+- 16 files · ~849,550 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2586 nodes · 3927 edges · 120 communities (112 shown, 8 thin omitted)
+- 2586 nodes · 3927 edges · 119 communities (111 shown, 8 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 5 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `3de91257`
+- Built from commit: `0cacf993`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -131,7 +131,6 @@
 - [[_COMMUNITY_Community 116|Community 116]]
 - [[_COMMUNITY_Community 117|Community 117]]
 - [[_COMMUNITY_Community 119|Community 119]]
-- [[_COMMUNITY_Community 120|Community 120]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `Plugin` - 217 edges
@@ -157,7 +156,7 @@
 - `_strip_bold_markers()` --references--> `str`  [EXTRACTED]
   main.py → main.py  _Bridges community 28 → community 74_
 
-## Communities (120 total, 8 thin omitted)
+## Communities (119 total, 8 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.02
@@ -172,8 +171,8 @@ Cohesion: 0.04
 Nodes (46): Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real, Merge sections whose body has fewer than MIN_SECTION_CONTENT_LINES         real (+38 more)
 
 ### Community 3 - "Community 3"
-Cohesion: 0.20
-Nodes (4): Any, GuideRecord, float, int
+Cohesion: 0.19
+Nodes (7): Any, GuideRecord, v0.43.44: library cleanup scan. Returns guides that look empty/incomplete, v0.43.44: library cleanup scan. Returns guides that look empty/incomplete, v0.43.44: library cleanup scan. Returns guides that look empty/incomplete, float, int
 
 ### Community 4 - "Community 4"
 Cohesion: 0.10
@@ -524,7 +523,7 @@ Cohesion: 0.18
 Nodes (10): Switch subsequent _debug_log writes to a different file., Switch subsequent _debug_log writes to a different file., Switch subsequent _debug_log writes to a different file., Switch subsequent _debug_log writes to a different file., Switch subsequent _debug_log writes to a different file., Switch subsequent _debug_log writes to a different file., Switch subsequent _debug_log writes to a different file., Switch subsequent _debug_log writes to a different file. (+2 more)
 
 ### Community 100 - "Community 100"
-Cohesion: 0.11
+Cohesion: 0.10
 Nodes (4): bool, Plugin, ReaderPreferences, ShortcutEntry
 
 ### Community 101 - "Community 101"
@@ -591,10 +590,6 @@ Nodes (7): v0.43.42: group flat per-page guides (IGN Disco Elysium) by CONTENT l
 Cohesion: 0.33
 Nodes (4): Title-case ALLCAPS banner text while preserving short acronyms.          "FAQ IN, Detect the boxed dotted-number heading format used by "Gurus Network"         st, Title-case ALLCAPS banner text while preserving short acronyms.          "FAQ IN, Detect the boxed dotted-number heading format used by "Gurus Network"         st
 
-### Community 120 - "Community 120"
-Cohesion: 0.50
-Nodes (3): v0.43.44: library cleanup scan. Returns guides that look empty/incomplete, v0.43.44: library cleanup scan. Returns guides that look empty/incomplete, v0.43.44: library cleanup scan. Returns guides that look empty/incomplete
-
 ## Knowledge Gaps
 - **213 isolated node(s):** `guide_export.sh script`, `name`, `version`, `description`, `type` (+208 more)
   These have ≤1 connection - possible missing edges or undocumented components.
@@ -603,9 +598,9 @@ Nodes (3): v0.43.44: library cleanup scan. Returns guides that look empty/incomp
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Plugin` connect `Community 100` to `Community 1`, `Community 2`, `Community 3`, `Community 6`, `Community 8`, `Community 14`, `Community 26`, `Community 28`, `Community 29`, `Community 30`, `Community 31`, `Community 32`, `Community 33`, `Community 34`, `Community 35`, `Community 36`, `Community 37`, `Community 38`, `Community 39`, `Community 40`, `Community 41`, `Community 42`, `Community 43`, `Community 44`, `Community 45`, `Community 46`, `Community 47`, `Community 48`, `Community 49`, `Community 50`, `Community 51`, `Community 52`, `Community 53`, `Community 54`, `Community 55`, `Community 56`, `Community 57`, `Community 58`, `Community 59`, `Community 60`, `Community 61`, `Community 62`, `Community 63`, `Community 64`, `Community 65`, `Community 66`, `Community 67`, `Community 68`, `Community 69`, `Community 70`, `Community 71`, `Community 72`, `Community 73`, `Community 74`, `Community 75`, `Community 76`, `Community 77`, `Community 78`, `Community 79`, `Community 80`, `Community 82`, `Community 83`, `Community 84`, `Community 85`, `Community 86`, `Community 89`, `Community 90`, `Community 94`, `Community 99`, `Community 101`, `Community 104`, `Community 105`, `Community 106`, `Community 107`, `Community 108`, `Community 109`, `Community 110`, `Community 111`, `Community 112`, `Community 113`, `Community 114`, `Community 116`, `Community 117`, `Community 119`, `Community 120`?**
+- **Why does `Plugin` connect `Community 100` to `Community 1`, `Community 2`, `Community 3`, `Community 6`, `Community 8`, `Community 14`, `Community 26`, `Community 28`, `Community 29`, `Community 30`, `Community 31`, `Community 32`, `Community 33`, `Community 34`, `Community 35`, `Community 36`, `Community 37`, `Community 38`, `Community 39`, `Community 40`, `Community 41`, `Community 42`, `Community 43`, `Community 44`, `Community 45`, `Community 46`, `Community 47`, `Community 48`, `Community 49`, `Community 50`, `Community 51`, `Community 52`, `Community 53`, `Community 54`, `Community 55`, `Community 56`, `Community 57`, `Community 58`, `Community 59`, `Community 60`, `Community 61`, `Community 62`, `Community 63`, `Community 64`, `Community 65`, `Community 66`, `Community 67`, `Community 68`, `Community 69`, `Community 70`, `Community 71`, `Community 72`, `Community 73`, `Community 74`, `Community 75`, `Community 76`, `Community 77`, `Community 78`, `Community 79`, `Community 80`, `Community 82`, `Community 83`, `Community 84`, `Community 85`, `Community 86`, `Community 89`, `Community 90`, `Community 94`, `Community 99`, `Community 101`, `Community 104`, `Community 105`, `Community 106`, `Community 107`, `Community 108`, `Community 109`, `Community 110`, `Community 111`, `Community 112`, `Community 113`, `Community 114`, `Community 116`, `Community 117`, `Community 119`?**
   _High betweenness centrality (0.335) - this node is a cross-community bridge._
-- **Why does `str` connect `Community 28` to `Community 2`, `Community 3`, `Community 6`, `Community 8`, `Community 30`, `Community 31`, `Community 32`, `Community 33`, `Community 35`, `Community 36`, `Community 37`, `Community 38`, `Community 39`, `Community 40`, `Community 41`, `Community 42`, `Community 43`, `Community 44`, `Community 46`, `Community 47`, `Community 48`, `Community 49`, `Community 51`, `Community 52`, `Community 53`, `Community 54`, `Community 55`, `Community 56`, `Community 57`, `Community 58`, `Community 59`, `Community 61`, `Community 62`, `Community 63`, `Community 64`, `Community 65`, `Community 66`, `Community 67`, `Community 68`, `Community 69`, `Community 70`, `Community 71`, `Community 72`, `Community 74`, `Community 75`, `Community 76`, `Community 77`, `Community 78`, `Community 79`, `Community 80`, `Community 82`, `Community 83`, `Community 84`, `Community 85`, `Community 86`, `Community 88`, `Community 89`, `Community 90`, `Community 93`, `Community 94`, `Community 99`, `Community 100`, `Community 101`, `Community 103`, `Community 104`, `Community 105`, `Community 106`, `Community 107`, `Community 108`, `Community 109`, `Community 110`, `Community 111`, `Community 112`, `Community 113`, `Community 115`, `Community 116`, `Community 117`, `Community 119`, `Community 120`?**
+- **Why does `str` connect `Community 28` to `Community 2`, `Community 3`, `Community 6`, `Community 8`, `Community 30`, `Community 31`, `Community 32`, `Community 33`, `Community 35`, `Community 36`, `Community 37`, `Community 38`, `Community 39`, `Community 40`, `Community 41`, `Community 42`, `Community 43`, `Community 44`, `Community 46`, `Community 47`, `Community 48`, `Community 49`, `Community 51`, `Community 52`, `Community 53`, `Community 54`, `Community 55`, `Community 56`, `Community 57`, `Community 58`, `Community 59`, `Community 61`, `Community 62`, `Community 63`, `Community 64`, `Community 65`, `Community 66`, `Community 67`, `Community 68`, `Community 69`, `Community 70`, `Community 71`, `Community 72`, `Community 74`, `Community 75`, `Community 76`, `Community 77`, `Community 78`, `Community 79`, `Community 80`, `Community 82`, `Community 83`, `Community 84`, `Community 85`, `Community 86`, `Community 88`, `Community 89`, `Community 90`, `Community 93`, `Community 94`, `Community 99`, `Community 100`, `Community 101`, `Community 103`, `Community 104`, `Community 105`, `Community 106`, `Community 107`, `Community 108`, `Community 109`, `Community 110`, `Community 111`, `Community 112`, `Community 113`, `Community 115`, `Community 116`, `Community 117`, `Community 119`?**
   _High betweenness centrality (0.243) - this node is a cross-community bridge._
 - **Why does `GuideSection` connect `Community 85` to `Community 2`, `Community 8`, `Community 14`, `Community 26`, `Community 30`, `Community 32`, `Community 33`, `Community 34`, `Community 35`, `Community 42`, `Community 43`, `Community 44`, `Community 45`, `Community 46`, `Community 50`, `Community 52`, `Community 53`, `Community 60`, `Community 68`, `Community 74`, `Community 86`, `Community 105`, `Community 107`, `Community 114`, `Community 117`, `Community 119`?**
   _High betweenness centrality (0.021) - this node is a cross-community bridge._

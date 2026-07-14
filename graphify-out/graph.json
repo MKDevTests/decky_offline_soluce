@@ -596,7 +596,7 @@
       "source_file": "main.py",
       "source_location": "L1296",
       "id": "decky_offline_soluce_main_plugin_find_junk_guides",
-      "community": 120,
+      "community": 3,
       "norm_label": ".find_junk_guides()"
     },
     {
@@ -965,7 +965,7 @@
       "source_file": "main.py",
       "source_location": "L2473",
       "id": "decky_offline_soluce_main_plugin_load_backup_config",
-      "community": 3,
+      "community": 100,
       "norm_label": "._load_backup_config()"
     },
     {
@@ -974,7 +974,7 @@
       "source_file": "main.py",
       "source_location": "L2487",
       "id": "decky_offline_soluce_main_plugin_save_backup_config",
-      "community": 3,
+      "community": 100,
       "norm_label": "._save_backup_config()"
     },
     {
@@ -992,7 +992,7 @@
       "source_file": "main.py",
       "source_location": "L2555",
       "id": "decky_offline_soluce_main_plugin_get_backup_config",
-      "community": 3,
+      "community": 100,
       "norm_label": ".get_backup_config()"
     },
     {
@@ -1001,7 +1001,7 @@
       "source_file": "main.py",
       "source_location": "L2558",
       "id": "decky_offline_soluce_main_plugin_set_backup_config",
-      "community": 3,
+      "community": 100,
       "norm_label": ".set_backup_config()"
     },
     {
@@ -2585,7 +2585,7 @@
       "source_file": "main.py",
       "source_location": "L1297",
       "id": "decky_offline_soluce_main_rationale_1297",
-      "community": 120,
+      "community": 3,
       "norm_label": "v0.43.44: library cleanup scan. returns guides that look empty/incomplete"
     },
     {
@@ -4905,7 +4905,7 @@
       "label": "parseBlocks()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L701",
+      "source_location": "L697",
       "id": "src_index_parseblocks",
       "community": 23,
       "norm_label": "parseblocks()"
@@ -4914,25 +4914,16 @@
       "label": "smartCollapseParagraph()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L732",
+      "source_location": "L728",
       "id": "src_index_smartcollapseparagraph",
       "community": 0,
       "norm_label": "smartcollapseparagraph()"
     },
     {
-      "label": "isArtLine()",
-      "file_type": "code",
-      "source_file": "src/index.tsx",
-      "source_location": "L785",
-      "id": "src_index_isartline",
-      "community": 0,
-      "norm_label": "isartline()"
-    },
-    {
       "label": "parseParagraphsAndHeadings()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L799",
+      "source_location": "L772",
       "id": "src_index_parseparagraphsandheadings",
       "community": 23,
       "norm_label": "parseparagraphsandheadings()"
@@ -4941,7 +4932,7 @@
       "label": "resolveSectionReference()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L868",
+      "source_location": "L817",
       "id": "src_index_resolvesectionreference",
       "community": 24,
       "norm_label": "resolvesectionreference()"
@@ -4950,7 +4941,7 @@
       "label": "stripBoldMarkers()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L890",
+      "source_location": "L839",
       "id": "src_index_stripboldmarkers",
       "community": 24,
       "norm_label": "stripboldmarkers()"
@@ -4959,7 +4950,7 @@
       "label": "renderHighlightedText()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L895",
+      "source_location": "L844",
       "id": "src_index_renderhighlightedtext",
       "community": 24,
       "norm_label": "renderhighlightedtext()"
@@ -4968,7 +4959,7 @@
       "label": "GuideReaderProps",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L1057",
+      "source_location": "L1006",
       "id": "src_index_guidereaderprops",
       "community": 0,
       "norm_label": "guidereaderprops"
@@ -4977,7 +4968,7 @@
       "label": "GuideReader()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L1089",
+      "source_location": "L1038",
       "id": "src_index_guidereader",
       "community": 13,
       "norm_label": "guidereader()"
@@ -4986,7 +4977,7 @@
       "label": "TocGroup",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L1280",
+      "source_location": "L1221",
       "id": "src_index_tocgroup",
       "community": 0,
       "norm_label": "tocgroup"
@@ -4995,7 +4986,7 @@
       "label": "buildContentSnippet()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L1290",
+      "source_location": "L1231",
       "id": "src_index_buildcontentsnippet",
       "community": 0,
       "norm_label": "buildcontentsnippet()"
@@ -5004,7 +4995,7 @@
       "label": "buildContentMatches()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L1309",
+      "source_location": "L1250",
       "id": "src_index_buildcontentmatches",
       "community": 0,
       "norm_label": "buildcontentmatches()"
@@ -5013,7 +5004,7 @@
       "label": "SearchMatchRef",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L1339",
+      "source_location": "L1280",
       "id": "src_index_searchmatchref",
       "community": 0,
       "norm_label": "searchmatchref"
@@ -5022,7 +5013,7 @@
       "label": "computeSearchMatches()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L1340",
+      "source_location": "L1281",
       "id": "src_index_computesearchmatches",
       "community": 0,
       "norm_label": "computesearchmatches()"
@@ -5031,7 +5022,7 @@
       "label": "buildTocGroups()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L1377",
+      "source_location": "L1318",
       "id": "src_index_buildtocgroups",
       "community": 22,
       "norm_label": "buildtocgroups()"
@@ -5040,7 +5031,7 @@
       "label": "TocSidebar()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L1393",
+      "source_location": "L1334",
       "id": "src_index_tocsidebar",
       "community": 22,
       "norm_label": "tocsidebar()"
@@ -5049,7 +5040,7 @@
       "label": "NamedBookmarksPanel()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L1671",
+      "source_location": "L1612",
       "id": "src_index_namedbookmarkspanel",
       "community": 0,
       "norm_label": "namedbookmarkspanel()"
@@ -5058,7 +5049,7 @@
       "label": "FullScreenSearch()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L1772",
+      "source_location": "L1713",
       "id": "src_index_fullscreensearch",
       "community": 13,
       "norm_label": "fullscreensearch()"
@@ -5067,7 +5058,7 @@
       "label": "FullScreenGameLibrary()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L1976",
+      "source_location": "L1917",
       "id": "src_index_fullscreengamelibrary",
       "community": 13,
       "norm_label": "fullscreengamelibrary()"
@@ -5076,7 +5067,7 @@
       "label": "FullScreenLibrary()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L2194",
+      "source_location": "L2135",
       "id": "src_index_fullscreenlibrary",
       "community": 13,
       "norm_label": "fullscreenlibrary()"
@@ -5085,7 +5076,7 @@
       "label": "FullScreenReader()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L2456",
+      "source_location": "L2397",
       "id": "src_index_fullscreenreader",
       "community": 13,
       "norm_label": "fullscreenreader()"
@@ -5094,7 +5085,7 @@
       "label": "RESUME_BUTTON_CHOICES",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L3103",
+      "source_location": "L3044",
       "id": "src_index_resume_button_choices",
       "community": 0,
       "norm_label": "resume_button_choices"
@@ -5103,7 +5094,7 @@
       "label": "RESUME_BUTTON_DEFAULTS",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L3115",
+      "source_location": "L3056",
       "id": "src_index_resume_button_defaults",
       "community": 0,
       "norm_label": "resume_button_defaults"
@@ -5112,7 +5103,7 @@
       "label": "setCurrentResumeButton()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L3121",
+      "source_location": "L3062",
       "id": "src_index_setcurrentresumebutton",
       "community": 27,
       "norm_label": "setcurrentresumebutton()"
@@ -5121,7 +5112,7 @@
       "label": "setCurrentResumeEnabled()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L3126",
+      "source_location": "L3067",
       "id": "src_index_setcurrentresumeenabled",
       "community": 27,
       "norm_label": "setcurrentresumeenabled()"
@@ -5130,7 +5121,7 @@
       "label": "setCaptureInProgress()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L3133",
+      "source_location": "L3074",
       "id": "src_index_setcaptureinprogress",
       "community": 0,
       "norm_label": "setcaptureinprogress()"
@@ -5139,7 +5130,7 @@
       "label": "guideJunkWarning()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L3153",
+      "source_location": "L3094",
       "id": "src_index_guidejunkwarning",
       "community": 0,
       "norm_label": "guidejunkwarning()"
@@ -5148,7 +5139,7 @@
       "label": "ActiveImports()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L3160",
+      "source_location": "L3101",
       "id": "src_index_activeimports",
       "community": 0,
       "norm_label": "activeimports()"
@@ -5157,7 +5148,7 @@
       "label": "Content()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L3238",
+      "source_location": "L3179",
       "id": "src_index_content",
       "community": 0,
       "norm_label": "content()"
@@ -5166,7 +5157,7 @@
       "label": "setupListener()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L5951",
+      "source_location": "L5892",
       "id": "src_index_setuplistener",
       "community": 27,
       "norm_label": "setuplistener()"
@@ -5175,7 +5166,7 @@
       "label": "onDismount()",
       "file_type": "code",
       "source_file": "src/index.tsx",
-      "source_location": "L6062",
+      "source_location": "L6003",
       "id": "src_index_ondismount",
       "community": 0,
       "norm_label": "ondismount()"
@@ -6144,6 +6135,15 @@
       "norm_label": "honesty rules"
     },
     {
+      "label": "isArtLine()",
+      "file_type": "code",
+      "source_file": "src/index.tsx",
+      "source_location": "L785",
+      "community": 0,
+      "norm_label": "isartline()",
+      "id": "src_index_isartline"
+    },
+    {
       "label": "v0.43.33: an auto-detected high-value moment in a guide \u2014 a missable/point     o",
       "file_type": "rationale",
       "source_file": "main.py",
@@ -6220,7 +6220,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L1254",
-      "community": 120,
+      "community": 3,
       "norm_label": "v0.43.44: library cleanup scan. returns guides that look empty/incomplete",
       "id": "decky_offline_soluce_main_rationale_1254"
     },
@@ -7255,7 +7255,7 @@
       "file_type": "rationale",
       "source_file": "main.py",
       "source_location": "L1249",
-      "community": 120,
+      "community": 3,
       "norm_label": "v0.43.44: library cleanup scan. returns guides that look empty/incomplete",
       "id": "decky_offline_soluce_main_rationale_1249"
     },
@@ -61472,9 +61472,9 @@
       "source_file": "src/index.tsx",
       "source_location": "L785",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "src_index_tsx",
-      "target": "src_index_isartline",
-      "confidence_score": 1.0
+      "target": "src_index_isartline"
     },
     {
       "relation": "contains",
@@ -63481,5 +63481,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "3de912575d315797d8daa3b5d39abf008021416e"
+  "built_at_commit": "0cacf99343a4089cf488c1954c45e6f99df1ca27"
 }
