@@ -1568,6 +1568,28 @@ class Plugin:
         if len(final_results) != n_before_collapse:
             self._debug_log(f"  fragment-collapse: {n_before_collapse} -> {len(final_results)} results")
 
+        # v0.43.52: GameFAQs hosts MANY guides per game (walkthroughs, boss/monster/
+        # weapon guides, foreign translations) but web search surfaces only 1-2. If
+        # any GameFAQs result came back, read the game's FAQ INDEX and add every
+        # guide we don't already have, so the user sees them all. Best-effort: one
+        # extra (cached) fetch; failures degrade silently to the web results.
+        if "gamefaqs" in allowed_sites:
+            index_urls: list[str] = []
+            for r in final_results:
+                iu = self._gamefaqs_faqs_index_url(r.url)
+                if iu and iu not in index_urls:
+                    index_urls.append(iu)
+            have = {r.url.rstrip("/") for r in final_results}
+            for iu in index_urls[:1]:  # top game only — cap the extra fetch cost
+                for fr in self._discover_gamefaqs_faqs(iu):
+                    if fr.url.rstrip("/") in have:
+                        continue
+                    have.add(fr.url.rstrip("/"))
+                    fr.score = self._score_search_result(
+                        "gamefaqs", normalized_query, normalized_platform,
+                        fr.title, fr.url, fr.snippet, normalized_lang)
+                    final_results.append(fr)
+
         final_results.sort(key=lambda item: (-item.score, item.site, item.title.casefold()))
         self._debug_log(f"search_guides: {len(final_results)} final results after filter")
         for r in final_results[:10]:
@@ -1637,6 +1659,65 @@ class Plugin:
             return False
         parts = [p for p in pu.path.split("/") if p]
         return len(parts) == 2 and "faqs" not in parts and bool(re.match(r"^\d+-", parts[1]))
+
+    def _gamefaqs_faqs_index_url(self, url: str) -> "str | None":
+        """v0.43.52: derive the GameFAQs FAQ-INDEX URL (…/<plat>/<id>-<game>/faqs)
+        from any GameFAQs game or FAQ URL. That index lists EVERY guide for a game;
+        web search usually surfaces only one, so we read it to offer them all."""
+        pu = urlparse(url)
+        if "gamefaqs.gamespot.com" not in (pu.hostname or "").casefold():
+            return None
+        parts = [p for p in pu.path.split("/") if p]
+        if len(parts) < 2 or not re.match(r"^\d+-", parts[1]):
+            return None
+        return f"https://gamefaqs.gamespot.com/{parts[0]}/{parts[1]}/faqs"
+
+    def _discover_gamefaqs_faqs(self, index_url: str) -> list[GuideSearchResult]:
+        """Fetch a GameFAQs FAQ-index page and parse every listed TEXT guide
+        (title + author + URL). Image-only 'Maps and Charts' have no /faqs/<id>
+        anchor, so they're naturally excluded. Cached per index URL for the run."""
+        cache = getattr(self, "_faq_index_cache", None)
+        if cache is None:
+            cache = self._faq_index_cache = {}
+        if index_url in cache:
+            return cache[index_url]
+        results: list[GuideSearchResult] = []
+        try:
+            html_text, _ = self._download(index_url)
+        except Exception as exc:
+            self._debug_log(f"  faq-index fetch failed for {index_url}: {exc}")
+            cache[index_url] = results
+            return results
+        # Each guide is <a href="…/<plat>/<id>-<game>/faqs/<num>">Title</a> with the
+        # author in a nearby /community/<author> link or a "by <author>" text. The
+        # href may be Wayback-rewritten, but the gamefaqs path is still inside it.
+        seen: set[str] = set()
+        for m in re.finditer(
+            r'href="([^"]*?/[a-z0-9]+/\d+-[a-z0-9-]+/faqs/\d+)"[^>]*>([^<]{2,90})</a>(.{0,300})',
+            html_text, re.IGNORECASE | re.DOTALL,
+        ):
+            path_m = re.search(r"(/[a-z0-9]+/\d+-[a-z0-9-]+/faqs/\d+)", m.group(1))
+            if not path_m:
+                continue
+            path = path_m.group(1)
+            if path in seen:
+                continue
+            seen.add(path)
+            title = self._clean_inline_text(m.group(2)).strip()
+            if not title or title.casefold() in {"faqs", "guides"}:
+                continue
+            tail = m.group(3)
+            am = re.search(r"/(?:community|user)/([A-Za-z0-9_]+)", tail) or re.search(r"\bby\s+([A-Za-z0-9_]{2,})", tail)
+            author = am.group(1) if am else ""
+            full_url = f"https://gamefaqs.gamespot.com{path}"
+            label = f"{title} — {author}" if author else title
+            results.append(GuideSearchResult(
+                title=label, url=full_url, site="GameFAQs", snippet="",
+                score=0, game=self._game_name_from_url(full_url),
+            ))
+        cache[index_url] = results
+        self._debug_log(f"  faq-index {index_url}: {len(results)} guides")
+        return results
 
     def _find_guide_id_by_url_key(self, url_key: tuple[str, str]) -> "str | None":
         """v0.43.21: id of an already-saved guide whose URL maps to the same guide
@@ -5968,25 +6049,38 @@ class Plugin:
         return text[nl_pos + 1:].lstrip()
 
     def _crop_between_text_markers(self, text: str, start_markers: list[str], end_markers: list[str]) -> str:
-        # v0.41.1: MULTILINE so callers can use ^ / $ to anchor at line boundaries.
-        # Required by the GameFAQs extractor to match its "Guide and Walkthrough
-        # (PLATFORM) by AUTHOR" attribution line and skip the UI noise block above it.
-        flags = re.IGNORECASE | re.MULTILINE
-        start_index = 0
+        # v0.43.52: line-based, marker-TOLERANT matching. The markers use ^/\b to
+        # anchor on lines like "Version: 1.3 | Updated:" — but inline sentinels
+        # (\x01B\x02 bold from v0.43.49, \x01H heading) prepend those lines, so a
+        # naive ^ match FAILS and the crop falls through to a fallback marker deep
+        # in the guide, cropping out the whole aligned body. We match each pattern
+        # against a sentinel-stripped view of every line while SLICING the ORIGINAL
+        # lines (keeping their \x01PRE\x02 markers + alignment spaces intact).
+        flags = re.IGNORECASE
+        lines = text.split("\n")
+
+        def clean(s: str) -> str:
+            return re.sub(r"\x01H\d\x02|\x01/H\x02|\x01B\x02|\x01/B\x02", "", s)
+
+        cleaned = [clean(line) for line in lines]
+
+        start_line = 0
         for pattern in start_markers:
-            match = re.search(pattern, text, flags=flags)
-            if match:
-                start_index = match.start()
+            rx = re.compile(pattern, flags)
+            hit = next((i for i, cl in enumerate(cleaned) if rx.search(cl)), None)
+            if hit is not None:
+                start_line = hit
                 break
 
-        end_index = len(text)
+        end_line = len(lines)
         for pattern in end_markers:
-            match = re.search(pattern, text[start_index:], flags=flags)
-            if match:
-                end_index = start_index + match.start()
+            rx = re.compile(pattern, flags)
+            hit = next((i for i in range(start_line, len(lines)) if rx.search(cleaned[i])), None)
+            if hit is not None:
+                end_line = hit
                 break
 
-        return text[start_index:end_index].strip()
+        return "\n".join(lines[start_line:end_line]).strip()
 
     def _strip_noise(self, text: str) -> str:
         # Protect heading & preformatted markers from per-line cleanup
