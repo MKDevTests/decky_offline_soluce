@@ -1,0 +1,13 @@
+[2026-07-15 06:35:56] === main.log ===
+[06:37:06] _discover_scan_source_candidates(existing_only=False)
+[06:37:06]   Source: roms /home/deck/Emulation/roms exists=True enabled=True
+[06:37:06]   Source: games /home/deck/Games exists=True enabled=True
+[06:37:06]   Source: roms /run/media/deck/SD/Emulation/roms exists=True enabled=True
+[06:37:06]   Source: games /run/media/deck/SD/Games exists=True enabled=True
+[06:37:06]   Source: steam /home/deck/.local/share/Steam/steamapps exists=True enabled=True
+[06:37:06]   Source: steam /run/media/deck/SD/steamapps exists=True enabled=True
+[06:37:06] Total candidates: 6
+[06:37:06] get_library_status called
+[06:37:06] list_library_items called
+[06:37:06]   loaded index: 126 items, scanned_at=2026-05-27T11:43:14.104842+00:00
+[06:37:06]   returning 126 items (2 favorites)

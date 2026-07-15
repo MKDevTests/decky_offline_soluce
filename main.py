@@ -54,8 +54,10 @@ except ImportError:
 try:
     from html.parser import HTMLParser as _StdHTMLParser
     _HAS_HTML_PARSER = True
-except ImportError:
+    _HTML_PARSER_IMPORT_ERROR = ""
+except ImportError as _html_parser_exc:  # v0.43.57: capture WHY (it fails on the Deck)
     _HAS_HTML_PARSER = False
+    _HTML_PARSER_IMPORT_ERROR = f"{type(_html_parser_exc).__name__}: {_html_parser_exc}"
 
     class _StdHTMLParser:  # type: ignore[no-redef]
         """Dummy fallback when html.parser is not available."""
@@ -776,6 +778,28 @@ def _regex_strip_tags(html: str) -> str:
 
     text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
+
+    # v0.43.57: PARITY with _ReadableTextParser. Without these, on the Deck (which
+    # runs this fallback) the "headings" section detector NEVER fired for web guides
+    # and the bold feature (v0.43.49) silently did nothing.
+    # Headings first, so any <b> inside a title is dropped rather than marked
+    # (the real parser also ignores emphasis inside headings).
+    def _heading_sub(m: "re.Match[str]") -> str:
+        title = re.sub(r"<[^>]+>", "", m.group(2))
+        title = re.sub(r"\s+", " ", title).strip()
+        return f"\n\x01H{m.group(1)}\x02{title}\x01/H\x02\n" if title else "\n"
+
+    text = re.sub(r"<h([1-6])[^>]*>(.*?)</h\1>", _heading_sub, text, flags=re.DOTALL | re.IGNORECASE)
+
+    # NB the tag boundary `(?:\s[^>]*)?` is REQUIRED: a bare `[^>]*` would make
+    # `<b…` also match <body>/<blockquote>/<br>, producing stray bold markers.
+    def _bold_sub(m: "re.Match[str]") -> str:
+        inner = re.sub(r"</?(?:b|strong)(?:\s[^>]*)?>", "", m.group(1))  # collapse nesting
+        return f"\x01B\x02{inner}\x01/B\x02" if inner.strip() else inner
+
+    text = re.sub(r"<(?:b|strong)(?:\s[^>]*)?>(.*?)</(?:b|strong)\s*>", _bold_sub, text,
+                  flags=re.DOTALL | re.IGNORECASE)
+
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
     text = re.sub(r"<(?:p|div|h[1-6]|li|tr|dt|dd|blockquote|section|article|header|footer)[^>]*>", "\n", text, flags=re.IGNORECASE)
     text = re.sub(r"<[^>]+>", " ", text)
@@ -994,6 +1018,18 @@ class Plugin:
         self._debug_log("=== Offline Soluce v0.13 starting ===")
         self._debug_log(f"debug_dir={self._debug_dir}")
         self._debug_log(f"runtime_dir={self._runtime_dir}")
+        # v0.43.57: html.parser is MISSING on the Deck, which silently downgrades
+        # every extraction to the regex fallback. Log why + the interpreter, so we
+        # can tell a stripped Python from a shadowed `html` module.
+        self._debug_log(f"html.parser available={_HAS_HTML_PARSER} err='{_HTML_PARSER_IMPORT_ERROR}'")
+        try:
+            import sys as _sys
+            self._debug_log(f"  python={_sys.version.split()[0]} exe={_sys.executable}")
+            _html_mod = _sys.modules.get("html")
+            self._debug_log(f"  html module={getattr(_html_mod, '__file__', None)}")
+            self._debug_log(f"  sys.path[:4]={_sys.path[:4]}")
+        except Exception as _diag_exc:
+            self._debug_log(f"  parser diag failed: {_diag_exc}")
         self._debug_log(f"DECK_HOME={DECK_HOME} exists={DECK_HOME.exists()}")
         self._debug_log(f"Path.home()={Path.home()}")
         for test_path in [
