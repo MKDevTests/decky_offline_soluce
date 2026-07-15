@@ -1021,15 +1021,26 @@ class Plugin:
         # v0.43.57: html.parser is MISSING on the Deck, which silently downgrades
         # every extraction to the regex fallback. Log why + the interpreter, so we
         # can tell a stripped Python from a shadowed `html` module.
+        # NB written to its OWN file: `clear_debug_log` truncates main.log (the UI
+        # calls it), which would wipe this startup-only diagnostic.
+        self._switch_debug_file("startup.log")
         self._debug_log(f"html.parser available={_HAS_HTML_PARSER} err='{_HTML_PARSER_IMPORT_ERROR}'")
         try:
             import sys as _sys
             self._debug_log(f"  python={_sys.version.split()[0]} exe={_sys.executable}")
             _html_mod = _sys.modules.get("html")
             self._debug_log(f"  html module={getattr(_html_mod, '__file__', None)}")
-            self._debug_log(f"  sys.path[:4]={_sys.path[:4]}")
+            self._debug_log(f"  sys.path={_sys.path}")
+            try:
+                import html as _h  # noqa: F401
+                self._debug_log(f"  import html OK -> {getattr(_h, '__file__', None)}")
+                import html.parser as _hp  # noqa: F401
+                self._debug_log(f"  import html.parser OK -> {getattr(_hp, '__file__', None)}")
+            except Exception as _imp_exc:
+                self._debug_log(f"  re-import failed: {type(_imp_exc).__name__}: {_imp_exc}")
         except Exception as _diag_exc:
             self._debug_log(f"  parser diag failed: {_diag_exc}")
+        self._switch_debug_file("main.log")
         self._debug_log(f"DECK_HOME={DECK_HOME} exists={DECK_HOME.exists()}")
         self._debug_log(f"Path.home()={Path.home()}")
         for test_path in [

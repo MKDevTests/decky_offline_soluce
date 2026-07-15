@@ -1,0 +1,7 @@
+[2026-07-15 08:05:48] === startup.log ===
+[08:05:48] html.parser available=False err='ModuleNotFoundError: No module named 'html.parser''
+[08:05:48]   python=3.11.7 exe=/home/deck/homebrew/services/PluginLoader
+[08:05:48]   html module=/tmp/_MEIaXddhU/html/__init__.py
+[08:05:48]   sys.path=['/tmp/_MEIaXddhU/base_library.zip', '/tmp/_MEIaXddhU/lib-dynload', '/tmp/_MEIaXddhU', '/tmp/_MEIaXddhU/setuptools/_vendor', '/usr/lib/python313.zip', '/usr/lib/python3.13', '/usr/lib/python3.13/lib-dynload', '/usr/lib/python3.13/site-packages', '/home/deck/homebrew/plugins/decky-offline-soluce/py_modules']
+[08:05:48]   import html OK -> /tmp/_MEIaXddhU/html/__init__.py
+[08:05:48]   re-import failed: ModuleNotFoundError: No module named 'html.parser'
