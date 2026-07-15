@@ -1539,7 +1539,10 @@ class Plugin:
             except Exception as exc:
                 self._debug_log(f"  single-site fallback failed (non-fatal): {exc}")
 
-        # Dedupe by URL, prefer version with longer title
+        # Dedupe by URL. v0.43.56: a REAL title must beat a URL-breadcrumb title
+        # ("› ps › 197752-koudelka › faqs › 14373") even though the breadcrumb is
+        # longer — otherwise the good "…- By Author - GameFAQs" title loses and the
+        # result shows blank. Only fall back to length within the same class.
         by_url: dict[str, GuideSearchResult] = {}
         for r in all_parsed:
             normalized = self._normalize_search_result_url(r.url)
@@ -1548,7 +1551,16 @@ class Plugin:
             clean_title = self._clean_inline_text(r.title)
             clean_snippet = self._clean_inline_text(r.snippet)
             existing = by_url.get(normalized)
-            if existing is None or len(clean_title) > len(existing.title):
+            if existing is None:
+                take = True
+            else:
+                new_bc = self._is_breadcrumb_title(clean_title)
+                old_bc = self._is_breadcrumb_title(existing.title)
+                if new_bc != old_bc:
+                    take = not new_bc  # real title always wins over a breadcrumb
+                else:
+                    take = len(clean_title) > len(existing.title)
+            if take:
                 by_url[normalized] = GuideSearchResult(
                     title=clean_title, url=normalized, site="", snippet=clean_snippet, score=0,
                 )
@@ -1589,7 +1601,7 @@ class Plugin:
             # "<guide type> — <Author>" so they're distinguishable.
             result_title = parsed.title
             if matched_site_key == "gamefaqs":
-                result_title = self._clean_gamefaqs_search_title(parsed.title, game)
+                result_title = self._clean_gamefaqs_search_title(parsed.title, parsed.url, game)
             final_results.append(GuideSearchResult(
                 title=result_title, url=parsed.url, site=site_label,
                 snippet=parsed.snippet, score=score,
@@ -1695,12 +1707,33 @@ class Plugin:
         parts = [p for p in pu.path.split("/") if p]
         return len(parts) == 2 and "faqs" not in parts and bool(re.match(r"^\d+-", parts[1]))
 
-    def _clean_gamefaqs_search_title(self, title: str, game: str) -> str:
-        """v0.43.55: turn a GameFAQs web-search title
+    def _is_breadcrumb_title(self, title: str) -> bool:
+        """A search-engine 'title' that is really a URL breadcrumb / path, e.g.
+        "› ps › 197752-koudelka › faqs › 14373" or "gamefaqs.gamespot.com › …"."""
+        t = (title or "").strip()
+        if not t:
+            return True
+        if "›" in t or "»" in t:
+            return True
+        if re.match(r"^\s*(?:https?://|www\.)", t, re.IGNORECASE):
+            return True
+        # mostly slashes/segments, few real words
+        if re.match(r"^[\w.\-]+(?:\s*/\s*[\w.\-]+){2,}\s*$", t):
+            return True
+        return False
+
+    def _clean_gamefaqs_search_title(self, title: str, url: str, game: str) -> str:
+        """v0.43.55/56: turn a GameFAQs web-search title
         "Koudelka - Guide and Walkthrough - PlayStation - By threetimes - GameFAQs"
         into "Guide and Walkthrough — threetimes", dropping the game name, the
         platform token and the "GameFAQs" suffix, so a game's many guides are
-        distinguishable on a card that already leads with the game name."""
+        distinguishable on a card that already leads with the game name.
+
+        When the search engine only gave a URL breadcrumb (no real title), fall
+        back to a distinct id-based label so the result isn't blank."""
+        if self._is_breadcrumb_title(title):
+            m = re.search(r"/faqs/(\d+)", url or "")
+            return f"Guide GameFAQs (#{m.group(1)})" if m else "Guide GameFAQs"
         raw = re.sub(r"\s+", " ", title or "").strip()
         parts = [p.strip() for p in raw.split(" - ") if p.strip()]
         if len(parts) < 2:

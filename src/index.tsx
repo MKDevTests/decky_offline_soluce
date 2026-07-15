@@ -1880,10 +1880,13 @@ function FullScreenSearch() {
                     // is the ONLY thing distinguishing 6 "Guide and Walkthrough" of one game,
                     // so never suppress a title that has it.
                     const hasAuthor = pageTitle.includes(" — ");
+                    const isGameFaqs = /gamefaqs/i.test(r.site || "");
                     const uglyTitle = pageTitle.includes("›") || /wikis-soluce-astuces/i.test(pageTitle)
                       || (!hasAuthor && /^(rpg soluce|le coin de|walkthrough|full walkthrough|guide|soluce|wiki)\b/i.test(pageTitle));
+                    // v0.43.56: GameFAQs guides all share the game name, so the title
+                    // (type — author, or id) is the ONLY distinguisher → always show it.
                     const showSub = pageTitle && pageTitle.toLowerCase() !== heading.toLowerCase()
-                      && !(gameName && (uglyTitle || (!hasAuthor && pageTitle.toLowerCase().includes(gameName.toLowerCase()))));
+                      && (isGameFaqs || !(gameName && (uglyTitle || (!hasAuthor && pageTitle.toLowerCase().includes(gameName.toLowerCase())))));
                     return (
                       <>
                         <div style={{ fontWeight: 700, color: "#ffd966", fontSize: "0.98rem", whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.25 }}>
@@ -5195,10 +5198,11 @@ function Content() {
               // v0.43.53: keep "Title — Author" (GameFAQs index) — the author is the
               // only thing telling apart 6 "Guide and Walkthrough" of the same game.
               const hasAuthor = pageTitle.includes(" — ");
+              const isGameFaqs = /gamefaqs/i.test(result.site || "");
               const genericTitle = !hasAuthor && /^(rpg soluce|le coin de|walkthrough|full walkthrough|guide|soluce|wiki)\b/i.test(pageTitle);
               const showSubtitle = pageTitle
                 && pageTitle.toLowerCase() !== heading.toLowerCase()
-                && !(gameName && genericTitle && pageTitle.toLowerCase().includes(gameName.toLowerCase()));
+                && (isGameFaqs || !(gameName && genericTitle && pageTitle.toLowerCase().includes(gameName.toLowerCase())));
               return (
               <div key={result.url + idx}>
                 <PanelSectionRow>

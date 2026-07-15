@@ -1466,10 +1466,13 @@ function FullScreenSearch() {
                                                 // is the ONLY thing distinguishing 6 "Guide and Walkthrough" of one game,
                                                 // so never suppress a title that has it.
                                                 const hasAuthor = pageTitle.includes(" — ");
+                                                const isGameFaqs = /gamefaqs/i.test(r.site || "");
                                                 const uglyTitle = pageTitle.includes("›") || /wikis-soluce-astuces/i.test(pageTitle)
                                                     || (!hasAuthor && /^(rpg soluce|le coin de|walkthrough|full walkthrough|guide|soluce|wiki)\b/i.test(pageTitle));
+                                                // v0.43.56: GameFAQs guides all share the game name, so the title
+                                                // (type — author, or id) is the ONLY distinguisher → always show it.
                                                 const showSub = pageTitle && pageTitle.toLowerCase() !== heading.toLowerCase()
-                                                    && !(gameName && (uglyTitle || (!hasAuthor && pageTitle.toLowerCase().includes(gameName.toLowerCase()))));
+                                                    && (isGameFaqs || !(gameName && (uglyTitle || (!hasAuthor && pageTitle.toLowerCase().includes(gameName.toLowerCase())))));
                                                 return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs("div", { style: { fontWeight: 700, color: "#ffd966", fontSize: "0.98rem", whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.25 }, children: ["\uD83C\uDFAE ", heading] }), showSub ? (SP_JSX.jsx("div", { style: { fontSize: "0.8rem", color: theme.textColor, opacity: 0.85, whiteSpace: "normal", overflowWrap: "anywhere" }, children: pageTitle })) : null] }));
                                             })(), SP_JSX.jsxs("div", { style: { fontSize: "0.72rem", opacity: 0.75 }, children: [r.site, r.snippet ? ` · ${r.snippet}` : ""] }), r.snippet ? SP_JSX.jsx("div", { style: { fontSize: "0.78rem", opacity: 0.85, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }, children: r.snippet }) : null] }, `${r.url}-${i}`));
                                 }), results.length > visibleCount ? (SP_JSX.jsxs(DFL.DialogButton, { disabled: busy, onClick: () => setVisibleCount((v) => v + SEARCH_PAGE_SIZE), children: ["\u2B07 Charger plus de guides (", results.length - visibleCount, " restant", results.length - visibleCount > 1 ? "s" : "", ")"] })) : null] })] }) })] }));
@@ -3903,10 +3906,11 @@ function Content() {
                             // v0.43.53: keep "Title — Author" (GameFAQs index) — the author is the
                             // only thing telling apart 6 "Guide and Walkthrough" of the same game.
                             const hasAuthor = pageTitle.includes(" — ");
+                            const isGameFaqs = /gamefaqs/i.test(result.site || "");
                             const genericTitle = !hasAuthor && /^(rpg soluce|le coin de|walkthrough|full walkthrough|guide|soluce|wiki)\b/i.test(pageTitle);
                             const showSubtitle = pageTitle
                                 && pageTitle.toLowerCase() !== heading.toLowerCase()
-                                && !(gameName && genericTitle && pageTitle.toLowerCase().includes(gameName.toLowerCase()));
+                                && (isGameFaqs || !(gameName && genericTitle && pageTitle.toLowerCase().includes(gameName.toLowerCase())));
                             return (SP_JSX.jsxs("div", { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: { ...boxStyle, padding: "8px 10px" }, children: [SP_JSX.jsxs("div", { style: { fontWeight: 700, marginBottom: "2px", fontSize: "0.95rem", color: "#ffd966" }, children: ["\uD83C\uDFAE ", heading] }), showSubtitle ? (SP_JSX.jsx("div", { style: { fontSize: "0.74rem", opacity: 0.82, marginBottom: "4px" }, children: pageTitle })) : null, SP_JSX.jsxs("div", { style: { marginBottom: "4px" }, children: [SP_JSX.jsx("span", { style: pillStyle, children: result.site }), SP_JSX.jsxs("span", { style: pillStyle, children: ["Score ", result.score] })] }), result.snippet ? (SP_JSX.jsx("div", { style: { fontSize: "0.72rem", opacity: 0.85, lineHeight: 1.3 }, children: result.snippet.length > 180 ? result.snippet.slice(0, 178) + "…" : result.snippet })) : null] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void handleImportResultDirect(result), children: "\uD83D\uDCBE Importer offline" }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: isBusy, onClick: () => void openUrlExternal(result.url), children: "\uD83C\uDF10 Ouvrir dans le navigateur" }) })] }, result.url + idx));
                         }), filteredResults.length === 0 && searchSiteFilter.size > 0 ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { fontSize: "0.75rem", opacity: 0.7, padding: "8px 6px", textAlign: "center" }, children: "Aucun r\u00E9sultat ne correspond aux sites filtr\u00E9s." }) })) : null] })) : null] }));
     };

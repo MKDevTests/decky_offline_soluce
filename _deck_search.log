@@ -1,22 +1,21 @@
-[2026-07-14 19:35:23] === search.log ===
-[19:35:23] search_guides: query='koudelka' platform='Autre' site='gamefaqs' lang='auto'
-[19:35:23]   combined query: 'site:gamefaqs.gamespot.com koudelka walkthrough guide faq' lang=en
-[19:35:24]   [startpage] CAPTCHA detected, trying next engine
-[19:35:24]   [brave] HTTP 429
-[19:35:24]   [google] GET 91719 chars, domain_mentions=1
-[19:35:24]   got 91719 chars from google (cached)
-[19:35:25]   [startpage] GET 248048 chars, domain_mentions=88
-[19:35:25]   single-site fallback got 248048 chars for 'koudelka walkthrough guide faq'
-[19:35:25]   single-site fallback added 10 general candidates
-[19:35:25]   parsed 10 raw unique results from search
-[19:35:28]   download [wayback] HTTP 401
-[19:35:29]   download [direct] HTTP 403
-[19:35:29]   download [with_referer] HTTP 403
-[19:35:30]   download [firefox_ua] HTTP 403
-[19:35:30]   curl exit=22 for https://gamefaqs.gamespot.com/ps/197752-koudelka/faqs stderr=''
-[19:35:30]   download [curl] unavailable or failed
-[19:35:30]   faq-index fetch failed for https://gamefaqs.gamespot.com/ps/197752-koudelka/faqs: Téléchargement impossible après toutes les tentatives : curl indisponible
-[19:35:30] search_guides: 3 final results after filter
-[19:35:30]   result: Koudelka - Guide and Walkthrough - PlayStation - By MMalekza (GameFAQs) score=188
-[19:35:30]   result: Koudelka - Guide and Walkthrough - PlayStation - By mysticca (GameFAQs) score=188
-[19:35:30]   result: Koudelka - Guide and Walkthrough - PlayStation - By threetim (GameFAQs) score=188
+[2026-07-14 19:42:30] === search.log ===
+[19:42:30] search_guides: query='koudelka' platform='Autre' site='gamefaqs' lang='auto'
+[19:42:30]   combined query: 'site:gamefaqs.gamespot.com koudelka walkthrough guide faq' lang=en
+[19:42:31]   [startpage] CAPTCHA detected, trying next engine
+[19:42:32]   [brave] GET 198229 chars, domain_mentions=304
+[19:42:32]   got 198229 chars from brave (cached)
+[19:42:33]   [startpage] GET 248139 chars, domain_mentions=78
+[19:42:33]   single-site fallback got 248139 chars for 'koudelka walkthrough guide faq'
+[19:42:33]   single-site fallback added 10 general candidates
+[19:42:33]   parsed 27 raw unique results from search
+[19:42:33] search_guides: 11 final results after filter
+[19:42:33]   result: Guide and Walkthrough — mysticcat (GameFAQs) score=188
+[19:42:33]   result: Guide and Walkthrough — threetimes (GameFAQs) score=188
+[19:42:33]   result: › ps › 197752-koudelka › faqs › 14373 (GameFAQs) score=188
+[19:42:33]   result: › ps › 197752-koudelka › faqs › 27626 (GameFAQs) score=188
+[19:42:33]   result: › ps › 197752-koudelka › faqs › 40280 (GameFAQs) score=188
+[19:42:33]   result: › ps › 197752-koudelka › faqs › 46378 (GameFAQs) score=188
+[19:42:33]   result: › ps › 197752-koudelka › faqs › 48002 (GameFAQs) score=188
+[19:42:33]   result: › ps › 197752-koudelka › faqs › 51324 (GameFAQs) score=188
+[19:42:33]   result: › ps › 197752-koudelka › faqs › 61947 (GameFAQs) score=188
+[19:42:33]   result: › ps › 197752-koudelka › faqs › 68125 (GameFAQs) score=188
